@@ -155,27 +155,51 @@ serve(async (req) => {
       
       console.log("Token valid for page:", tokenCheckData.name);
 
-      // STEP 2: Fetch conversations - EXACTLY matching working Graph API call
+      // STEP 2: Fetch conversations with retry for transient errors
       console.log("Step 2: Fetching conversations...");
       const conversationsUrl = `https://graph.facebook.com/v19.0/${fbPageId}/conversations?fields=id,updated_time,participants&limit=50&access_token=${pageAccessToken}`;
       console.log("Conversations URL:", conversationsUrl.replace(pageAccessToken, "TOKEN_HIDDEN"));
       
-      const conversationsResponse = await fetch(conversationsUrl);
-      const conversationsData = await conversationsResponse.json();
+      let conversationsData: any = null;
+      let lastError: string = "";
+      const maxRetries = 3;
       
-      console.log("Conversations API Response status:", conversationsResponse.status);
-      console.log("Conversations API Response:", JSON.stringify(conversationsData, null, 2));
-
-      if (!conversationsResponse.ok) {
-        console.error("Failed to fetch conversations:", JSON.stringify(conversationsData));
-        const errorMsg = conversationsData.error?.message || "Failed to fetch conversations";
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const conversationsResponse = await fetch(conversationsUrl);
+        conversationsData = await conversationsResponse.json();
         
+        console.log(`Conversations API Response (attempt ${attempt}):`, conversationsResponse.status);
+
+        if (conversationsResponse.ok) {
+          break; // Success, exit retry loop
+        }
+        
+        console.error(`Attempt ${attempt} failed:`, JSON.stringify(conversationsData));
+        lastError = conversationsData.error?.message || "Failed to fetch conversations";
+        
+        // Check for permanent errors - don't retry
         if (conversationsData.error?.code === 190) {
           throw new Error("Access token is invalid or expired. Please reconnect the page.");
         } else if (conversationsData.error?.code === 10 || conversationsData.error?.code === 200) {
           throw new Error("Missing required permissions. Make sure pages_messaging and pages_read_engagement are granted.");
         }
-        throw new Error(`Facebook API Error: ${errorMsg}`);
+        
+        // For transient errors (code 2), retry with exponential backoff
+        if (conversationsData.error?.is_transient && attempt < maxRetries) {
+          const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
+          console.log(`Transient error, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // Non-transient error or max retries reached
+        if (attempt === maxRetries) {
+          throw new Error(`Facebook API temporarily unavailable. Please try again in a few minutes. (${lastError})`);
+        }
+      }
+      
+      if (!conversationsData?.data) {
+        throw new Error(`Facebook API Error: ${lastError || "No data returned"}`);
       }
 
       const conversations = conversationsData.data || [];
