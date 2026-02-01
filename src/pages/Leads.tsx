@@ -268,22 +268,29 @@ export default function Leads() {
                       </DropdownMenu>
                     </div>
                     <div className="mt-3 flex items-center justify-between gap-2">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" className="h-auto p-0">
-                            <StatusBadge status={statusConfig[lead.status]?.type || "info"}>
-                              {statusConfig[lead.status]?.label || lead.status}
-                            </StatusBadge>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          {Object.entries(statusConfig).map(([key, config]) => (
-                            <DropdownMenuItem key={key} onClick={() => handleUpdateStatus(lead, key)}>
-                              {config.label}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <div className="flex items-center gap-2">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-auto p-0">
+                              <StatusBadge status={statusConfig[lead.status]?.type || "info"}>
+                                {statusConfig[lead.status]?.label || lead.status}
+                              </StatusBadge>
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            {Object.entries(statusConfig).map(([key, config]) => (
+                              <DropdownMenuItem key={key} onClick={() => handleUpdateStatus(lead, key)}>
+                                {config.label}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                        {(lead.source || lead.connected_pages?.page_name) && (
+                          <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                            via {lead.source || lead.connected_pages?.page_name}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         {lead.followup_due_date && (
                           <div className="flex items-center gap-1">
@@ -344,7 +351,7 @@ export default function Leads() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{lead.connected_pages?.page_name || "—"}</span>
+                          <span className="text-sm">{lead.source || lead.connected_pages?.page_name || "—"}</span>
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>

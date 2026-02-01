@@ -213,6 +213,7 @@ export type Database = {
           notes: string | null
           page_id: string | null
           phone: string | null
+          source: string | null
           status: string
           updated_at: string
         }
@@ -227,6 +228,7 @@ export type Database = {
           notes?: string | null
           page_id?: string | null
           phone?: string | null
+          source?: string | null
           status?: string
           updated_at?: string
         }
@@ -241,6 +243,7 @@ export type Database = {
           notes?: string | null
           page_id?: string | null
           phone?: string | null
+          source?: string | null
           status?: string
           updated_at?: string
         }
