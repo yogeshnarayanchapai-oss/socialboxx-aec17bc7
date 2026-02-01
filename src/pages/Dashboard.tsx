@@ -21,14 +21,14 @@ export default function Dashboard() {
 
   const metrics = [
     {
-      title: "Total Messages (7d)",
+      title: "Messages (7d)",
       value: stats?.totalMessages7d?.toLocaleString() || "0",
       change: "Last 7 days",
       changeType: "neutral" as const,
       icon: MessageSquare,
     },
     {
-      title: "Unreplied Messages",
+      title: "Unreplied",
       value: stats?.unrepliedCount?.toString() || "0",
       change: stats?.unrepliedCount && stats.unrepliedCount > 0 ? "Needs attention" : "All caught up",
       changeType: (stats?.unrepliedCount || 0) > 0 ? "negative" as const : "positive" as const,
@@ -42,9 +42,9 @@ export default function Dashboard() {
       icon: Users,
     },
     {
-      title: "Avg Response Time",
+      title: "Avg Response",
       value: stats?.avgResponseTime || "—",
-      change: "Calculated average",
+      change: "Average",
       changeType: "neutral" as const,
       icon: Clock,
     },
@@ -81,17 +81,17 @@ export default function Dashboard() {
     <div className="min-h-screen">
       <PageHeader
         title="Dashboard"
-        description="Overview of your social inbox performance"
+        description="Overview of your inbox performance"
       />
 
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         {/* Metrics Grid */}
         {loadingStats ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {metrics.map((metric) => (
               <MetricCard
                 key={metric.title}
@@ -106,10 +106,10 @@ export default function Dashboard() {
         )}
 
         {/* Recent Activity */}
-        <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Recent Conversations</CardTitle>
+            <CardHeader className="p-4 md:p-6">
+              <CardTitle className="text-base md:text-lg">Recent Conversations</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               {loadingConversations ? (
@@ -117,7 +117,7 @@ export default function Dashboard() {
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : recentConversations.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">
+                <div className="py-8 text-center text-muted-foreground text-sm">
                   No conversations yet
                 </div>
               ) : (
@@ -126,25 +126,25 @@ export default function Dashboard() {
                     <div
                       key={conv.id}
                       onClick={() => navigate("/inbox")}
-                      className="flex items-center justify-between px-6 py-4 hover:bg-muted/50 transition-colors cursor-pointer"
+                      className="flex items-center justify-between gap-3 px-4 md:px-6 py-3 hover:bg-muted/50 transition-colors cursor-pointer"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-medium">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">
                           {conv.participant_name?.split(" ").map((n: string) => n[0]).join("").substring(0, 2) || "?"}
                         </div>
-                        <div>
-                          <p className="font-medium">{conv.participant_name || "Unknown"}</p>
-                          <p className="text-sm text-muted-foreground line-clamp-1">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm truncate">{conv.participant_name || "Unknown"}</p>
+                          <p className="text-xs text-muted-foreground truncate">
                             {conv.last_message_preview || "No messages"}
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right flex-shrink-0">
                         <p className="text-xs text-muted-foreground">
                           {formatTime(conv.last_message_at)}
                         </p>
                         <span
-                          className={`status-badge mt-1 ${
+                          className={`status-badge mt-1 text-xs ${
                             conv.status === "unreplied"
                               ? "bg-warning/10 text-warning"
                               : conv.status === "lead"
@@ -163,27 +163,27 @@ export default function Dashboard() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Page Performance</CardTitle>
+            <CardHeader className="p-4 md:p-6">
+              <CardTitle className="text-base md:text-lg">Page Performance</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
               {loadingPages ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : pagePerformance.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">
+                <div className="py-8 text-center text-muted-foreground text-sm">
                   No pages connected yet
                 </div>
               ) : (
                 <div className="space-y-4">
                   {pagePerformance.map((page) => (
                     <div key={page.name} className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium">{page.name}</p>
-                          <span className="text-sm text-muted-foreground">
-                            {page.messages} messages
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-sm truncate">{page.name}</p>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
+                            {page.messages} msgs
                           </span>
                         </div>
                         <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">

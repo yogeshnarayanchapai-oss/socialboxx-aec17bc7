@@ -43,17 +43,20 @@ serve(async (req) => {
 
     if (action === "fetch_conversations") {
       // Fetch conversations from Facebook
+      console.log("Fetching conversations for page:", page.page_id);
       const response = await fetch(
         `https://graph.facebook.com/v19.0/${page.page_id}/conversations?fields=id,participants,updated_time,messages.limit(1){message,from,created_time}&access_token=${page.page_access_token}`
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || "Failed to fetch conversations");
+        console.error("Facebook API error:", error);
+        throw new Error(error.error?.message || "Failed to fetch conversations. Check token permissions.");
       }
 
       const data = await response.json();
       const conversations = data.data || [];
+      console.log("Found conversations:", conversations.length);
 
       // Sync conversations to database
       for (const conv of conversations) {
@@ -61,6 +64,8 @@ serve(async (req) => {
           (p: any) => p.id !== page.page_id
         );
         const lastMessage = conv.messages?.data?.[0];
+
+        console.log("Syncing conversation:", conv.id, "participant:", participant?.name);
 
         const { error: upsertError } = await supabase
           .from("conversations")
@@ -74,7 +79,44 @@ serve(async (req) => {
             status: "unreplied",
           }, { onConflict: "external_conversation_id" });
 
-        if (upsertError) console.error("Upsert error:", upsertError);
+        if (upsertError) {
+          console.error("Upsert error:", upsertError);
+        }
+
+        // Also fetch and save messages for this conversation
+        const messagesResponse = await fetch(
+          `https://graph.facebook.com/v19.0/${conv.id}/messages?fields=id,message,from,created_time,attachments&limit=25&access_token=${page.page_access_token}`
+        );
+
+        if (messagesResponse.ok) {
+          const messagesData = await messagesResponse.json();
+          const messages = messagesData.data || [];
+          console.log("Fetched messages for conversation:", conv.id, "count:", messages.length);
+
+          // Get the conversation ID from our database
+          const { data: dbConv } = await supabase
+            .from("conversations")
+            .select("id")
+            .eq("external_conversation_id", conv.id)
+            .single();
+
+          if (dbConv) {
+            for (const msg of messages) {
+              const isFromPage = msg.from?.id === page.page_id;
+              
+              await supabase
+                .from("messages")
+                .upsert({
+                  external_message_id: msg.id,
+                  conversation_id: dbConv.id,
+                  content: msg.message || "",
+                  sender_type: isFromPage ? "page" : "customer",
+                  created_at: msg.created_time,
+                  media_url: msg.attachments?.data?.[0]?.image_data?.url || null,
+                }, { onConflict: "external_message_id" });
+            }
+          }
+        }
       }
 
       return new Response(
