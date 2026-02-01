@@ -12,6 +12,7 @@ import {
   Loader2,
   Sparkles,
   RefreshCw,
+  ArrowLeft,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -40,13 +41,14 @@ import { useConnectedPages } from "@/hooks/usePages";
 import { useCreateLead } from "@/hooks/useLeads";
 import { useReplyTemplates } from "@/hooks/useAutomation";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const filterOptions = [
-  { value: "all", label: "All Messages" },
+  { value: "all", label: "All" },
   { value: "unreplied", label: "Unreplied" },
   { value: "replied", label: "Replied" },
   { value: "lead", label: "Leads" },
-  { value: "follow-up", label: "Needs Follow-up" },
+  { value: "follow-up", label: "Follow-up" },
 ];
 
 export default function Inbox() {
@@ -54,6 +56,7 @@ export default function Inbox() {
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const isMobile = useIsMobile();
 
   const { data: conversations = [], isLoading: loadingConversations } = useConversations({
     status: filter,
@@ -75,12 +78,12 @@ export default function Inbox() {
   // Enable realtime updates
   useRealtimeConversations();
 
-  // Select first conversation by default
+  // Select first conversation by default (desktop only)
   useEffect(() => {
-    if (conversations.length > 0 && !selectedConversation) {
+    if (!isMobile && conversations.length > 0 && !selectedConversation) {
       setSelectedConversation(conversations[0]);
     }
-  }, [conversations, selectedConversation]);
+  }, [conversations, selectedConversation, isMobile]);
 
   const handleSend = async () => {
     if (!message.trim() || !selectedConversation) return;
@@ -173,7 +176,7 @@ export default function Inbox() {
 
   const handleRefreshConversations = async () => {
     if (pages.length === 0) {
-      toast.error("No pages connected");
+      toast.error("No pages connected. Go to Pages to connect one first.");
       return;
     }
 
@@ -181,9 +184,9 @@ export default function Inbox() {
       for (const page of pages) {
         await fetchConversations.mutateAsync(page.id);
       }
-      toast.success("Conversations refreshed!");
+      toast.success("Conversations synced!");
     } catch (error) {
-      toast.error("Failed to refresh conversations");
+      toast.error(error instanceof Error ? error.message : "Failed to sync conversations");
     }
   };
 
@@ -206,210 +209,223 @@ export default function Inbox() {
     return date.toLocaleDateString();
   };
 
+  const handleBack = () => {
+    setSelectedConversation(null);
+  };
+
+  // Mobile: Show either list or conversation
+  const showConversationList = !isMobile || !selectedConversation;
+  const showConversationView = !isMobile || selectedConversation;
+
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-[calc(100vh-56px)] md:h-screen flex-col">
       <PageHeader
         title="Inbox"
-        description="Manage all your conversations in one place"
+        description="Manage all your conversations"
         action={
-          <Button variant="outline" onClick={handleRefreshConversations} disabled={fetchConversations.isPending}>
+          <Button 
+            variant="outline" 
+            onClick={handleRefreshConversations} 
+            disabled={fetchConversations.isPending}
+            size="sm"
+          >
             {fetchConversations.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Sync Messages
+            <span className="hidden sm:inline">Sync Messages</span>
+            <span className="sm:hidden">Sync</span>
           </Button>
         }
       />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Conversation List */}
-        <div className="w-96 flex-shrink-0 border-r border-border bg-card">
-          {/* Search & Filter */}
-          <div className="border-b border-border p-4 space-y-3">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search conversations..."
-                className="pl-9"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
+        {showConversationList && (
+          <div className={cn(
+            "flex-shrink-0 border-r border-border bg-card",
+            isMobile ? "w-full" : "w-80 lg:w-96"
+          )}>
+            {/* Search & Filter */}
+            <div className="border-b border-border p-3 space-y-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search..."
+                  className="pl-9 h-9"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                {filterOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setFilter(opt.value)}
+                    className={cn(
+                      "filter-chip whitespace-nowrap text-xs",
+                      filter === opt.value && "filter-chip-active"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {filterOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setFilter(opt.value)}
-                  className={cn(
-                    "filter-chip whitespace-nowrap",
-                    filter === opt.value && "filter-chip-active"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
-          {/* Conversation List */}
-          <div className="custom-scrollbar overflow-y-auto" style={{ height: "calc(100vh - 200px)" }}>
-            {loadingConversations ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : conversations.length === 0 ? (
-              <div className="p-6 text-center text-muted-foreground">
-                <p>No conversations yet</p>
-                <p className="text-sm mt-1">Connect a page and sync messages to get started</p>
-              </div>
-            ) : (
-              conversations.map((conv) => (
-                <div
-                  key={conv.id}
-                  onClick={() => setSelectedConversation(conv)}
-                  className={cn(
-                    "conversation-item",
-                    selectedConversation?.id === conv.id && "conversation-item-active"
-                  )}
-                >
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium">
-                    {conv.participant_name?.split(" ").map((n) => n[0]).join("").substring(0, 2) || "?"}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate font-medium">{conv.participant_name || "Unknown"}</p>
-                      <span className="flex-shrink-0 text-xs text-muted-foreground">
-                        {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
-                      </span>
+            {/* Conversation List */}
+            <div className="custom-scrollbar overflow-y-auto" style={{ height: "calc(100% - 90px)" }}>
+              {loadingConversations ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : conversations.length === 0 ? (
+                <div className="p-6 text-center text-muted-foreground">
+                  <p>No conversations yet</p>
+                  <p className="text-sm mt-1">Connect a page and sync messages</p>
+                </div>
+              ) : (
+                conversations.map((conv) => (
+                  <div
+                    key={conv.id}
+                    onClick={() => setSelectedConversation(conv)}
+                    className={cn(
+                      "conversation-item",
+                      selectedConversation?.id === conv.id && "conversation-item-active"
+                    )}
+                  >
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">
+                      {conv.participant_name?.split(" ").map((n) => n[0]).join("").substring(0, 2) || "?"}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {conv.connected_pages?.page_name || "Unknown Page"}
-                    </p>
-                    <p className="mt-1 truncate text-sm text-muted-foreground">
-                      {conv.last_message_preview || "No messages"}
-                    </p>
-                    {conv.tags && conv.tags.length > 0 && (
-                      <div className="mt-2 flex gap-1">
-                        {conv.tags.slice(0, 2).map((tag) => (
-                          <span
-                            key={tag}
-                            className="inline-flex items-center rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
-                          >
-                            {tag}
-                          </span>
-                        ))}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate font-medium text-sm">{conv.participant_name || "Unknown"}</p>
+                        <span className="flex-shrink-0 text-xs text-muted-foreground">
+                          {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
+                        </span>
                       </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {conv.connected_pages?.page_name || "Unknown Page"}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {conv.last_message_preview || "No messages"}
+                      </p>
+                    </div>
+                    {conv.status === "unreplied" && (
+                      <div className="h-2 w-2 flex-shrink-0 rounded-full bg-warning" />
                     )}
                   </div>
-                  {conv.status === "unreplied" && (
-                    <div className="h-2 w-2 flex-shrink-0 rounded-full bg-warning" />
-                  )}
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Conversation View */}
-        <div className="flex flex-1 flex-col bg-background">
-          {selectedConversation ? (
-            <>
-              {/* Conversation Header */}
-              <div className="flex items-center justify-between border-b border-border px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-medium">
-                    {selectedConversation.participant_name?.split(" ").map((n) => n[0]).join("").substring(0, 2) || "?"}
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">{selectedConversation.participant_name || "Unknown"}</h3>
-                    <p className="text-xs text-muted-foreground">
-                      via {selectedConversation.connected_pages?.page_name || "Unknown Page"}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm">
-                    <Tag className="mr-2 h-4 w-4" />
-                    Tags
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <User className="mr-2 h-4 w-4" />
-                    Assign
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreVertical className="h-4 w-4" />
+        {showConversationView && (
+          <div className={cn(
+            "flex flex-1 flex-col bg-background",
+            isMobile && !selectedConversation && "hidden"
+          )}>
+            {selectedConversation ? (
+              <>
+                {/* Conversation Header */}
+                <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {isMobile && (
+                      <Button variant="ghost" size="icon" onClick={handleBack}>
+                        <ArrowLeft className="h-5 w-5" />
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={handleCreateLead}>Create Lead</DropdownMenuItem>
-                      <DropdownMenuItem onClick={handleMarkFollowUp}>Mark as Follow-up</DropdownMenuItem>
-                      <DropdownMenuItem>Archive</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    )}
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium">
+                      {selectedConversation.participant_name?.split(" ").map((n) => n[0]).join("").substring(0, 2) || "?"}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold truncate">{selectedConversation.participant_name || "Unknown"}</h3>
+                      <p className="text-xs text-muted-foreground truncate">
+                        via {selectedConversation.connected_pages?.page_name || "Unknown Page"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon" className="hidden sm:flex">
+                      <Tag className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="hidden sm:flex">
+                      <User className="h-4 w-4" />
+                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={handleCreateLead}>Create Lead</DropdownMenuItem>
+                        <DropdownMenuItem onClick={handleMarkFollowUp}>Mark as Follow-up</DropdownMenuItem>
+                        <DropdownMenuItem>Archive</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </div>
-              </div>
 
-              {/* Messages */}
-              <div className="custom-scrollbar flex-1 overflow-y-auto p-6 space-y-4">
-                {loadingMessages ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : messages.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    No messages in this conversation
-                  </div>
-                ) : (
-                  messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={cn(
-                        "flex",
-                        msg.sender_type === "page" ? "justify-end" : "justify-start"
-                      )}
-                    >
+                {/* Messages */}
+                <div className="custom-scrollbar flex-1 overflow-y-auto p-4 space-y-3">
+                  {loadingMessages ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8">
+                      No messages in this conversation
+                    </div>
+                  ) : (
+                    messages.map((msg) => (
                       <div
+                        key={msg.id}
                         className={cn(
-                          "message-bubble",
-                          msg.is_internal_note 
-                            ? "bg-warning/10 border border-warning/20 text-warning-foreground" 
-                            : msg.sender_type === "page" 
-                              ? "message-outgoing" 
-                              : "message-incoming"
+                          "flex",
+                          msg.sender_type === "page" ? "justify-end" : "justify-start"
                         )}
                       >
-                        {msg.is_internal_note && (
-                          <p className="text-xs font-medium text-warning mb-1">📝 Internal Note</p>
-                        )}
-                        <p className="text-sm">{msg.content}</p>
-                        {msg.media_url && (
-                          <img src={msg.media_url} alt="Attachment" className="mt-2 max-w-xs rounded" />
-                        )}
-                        <p className={cn(
-                          "mt-1 text-xs",
-                          msg.sender_type === "page" && !msg.is_internal_note ? "text-primary-foreground/70" : "text-muted-foreground"
-                        )}>
-                          {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </p>
+                        <div
+                          className={cn(
+                            "message-bubble max-w-[85%] sm:max-w-[70%]",
+                            msg.is_internal_note 
+                              ? "bg-warning/10 border border-warning/20 text-warning-foreground" 
+                              : msg.sender_type === "page" 
+                                ? "message-outgoing" 
+                                : "message-incoming"
+                          )}
+                        >
+                          {msg.is_internal_note && (
+                            <p className="text-xs font-medium text-warning mb-1">📝 Note</p>
+                          )}
+                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                          {msg.media_url && (
+                            <img src={msg.media_url} alt="Attachment" className="mt-2 max-w-full rounded" />
+                          )}
+                          <p className={cn(
+                            "mt-1 text-xs",
+                            msg.sender_type === "page" && !msg.is_internal_note ? "text-primary-foreground/70" : "text-muted-foreground"
+                          )}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))
-                )}
-              </div>
+                    ))
+                  )}
+                </div>
 
-              {/* Reply Box */}
-              <div className="border-t border-border p-4">
-                <div className="flex items-end gap-3">
-                  <div className="flex-1">
+                {/* Reply Box */}
+                <div className="border-t border-border p-3">
+                  <div className="flex flex-col gap-2">
                     <Textarea
                       placeholder="Type your message..."
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      className="min-h-[80px] resize-none"
+                      className="min-h-[60px] resize-none"
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
@@ -417,75 +433,78 @@ export default function Inbox() {
                         }
                       }}
                     />
-                    <div className="mt-2 flex items-center gap-2">
-                      <Button variant="ghost" size="sm">
-                        <Paperclip className="mr-1 h-4 w-4" />
-                        Attach
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        <Image className="mr-1 h-4 w-4" />
-                        Photo
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={handleAddNote}>
-                        <StickyNote className="mr-1 h-4 w-4" />
-                        Add Note
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={handleGetAISuggestion}
-                        disabled={aiSuggestion.isPending}
-                      >
-                        {aiSuggestion.isPending ? (
-                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Sparkles className="mr-1 h-4 w-4" />
-                        )}
-                        AI Suggest
-                      </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            Templates
-                            <ChevronDown className="ml-1 h-3 w-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          {templates.length === 0 ? (
-                            <DropdownMenuItem disabled>No templates available</DropdownMenuItem>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1 overflow-x-auto">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+                          <Image className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={handleAddNote} className="h-8 w-8 flex-shrink-0">
+                          <StickyNote className="h-4 w-4" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={handleGetAISuggestion}
+                          disabled={aiSuggestion.isPending}
+                          className="h-8 w-8 flex-shrink-0"
+                        >
+                          {aiSuggestion.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            templates.map((template) => (
-                              <DropdownMenuItem 
-                                key={template.id}
-                                onClick={() => handleUseTemplate(template.content)}
-                              >
-                                {template.name}
-                              </DropdownMenuItem>
-                            ))
+                            <Sparkles className="h-4 w-4" />
                           )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-8 text-xs flex-shrink-0">
+                              Templates
+                              <ChevronDown className="ml-1 h-3 w-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            {templates.length === 0 ? (
+                              <DropdownMenuItem disabled>No templates</DropdownMenuItem>
+                            ) : (
+                              templates.map((template) => (
+                                <DropdownMenuItem 
+                                  key={template.id}
+                                  onClick={() => handleUseTemplate(template.content)}
+                                >
+                                  {template.name}
+                                </DropdownMenuItem>
+                              ))
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      <Button 
+                        onClick={handleSend} 
+                        size="sm"
+                        disabled={sendMessage.isPending || !message.trim()}
+                        className="flex-shrink-0"
+                      >
+                        {sendMessage.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
                   </div>
-                  <Button onClick={handleSend} size="lg" disabled={sendMessage.isPending || !message.trim()}>
-                    {sendMessage.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Send className="mr-2 h-4 w-4" />
-                    )}
-                    Send
-                  </Button>
                 </div>
-              </div>
-            </>
-          ) : (
-            <EmptyState
-              icon={Search}
-              title="Select a conversation"
-              description="Choose a conversation from the list to view messages"
-            />
-          )}
-        </div>
+              </>
+            ) : (
+              <EmptyState
+                icon={Search}
+                title="Select a conversation"
+                description="Choose a conversation from the list to view messages"
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

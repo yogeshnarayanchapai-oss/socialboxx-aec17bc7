@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2 } from "lucide-react";
+import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2, Inbox } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,19 +24,36 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { useConnectedPages, useConnectPage, useDisconnectPage, useValidatePageToken } from "@/hooks/usePages";
+import { useFacebookLogin } from "@/hooks/useFacebookPages";
+import { PageSelectionDialog } from "@/components/pages/PageSelectionDialog";
+import { useFetchConversations } from "@/hooks/useConversations";
 
 export default function Pages() {
   const { data: pages = [], isLoading } = useConnectedPages();
   const connectPage = useConnectPage();
   const disconnectPage = useDisconnectPage();
   const validateToken = useValidatePageToken();
+  const fetchConversations = useFetchConversations();
   
   const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [manualToken, setManualToken] = useState("");
   const [manualPageId, setManualPageId] = useState("");
 
-  const handleOAuthConnect = () => {
-    toast.info("Facebook OAuth requires Meta App setup. Use manual token entry for now.");
+  const {
+    pages: fbPages,
+    isLoading: fbLoading,
+    showPageSelection,
+    initiateLogin,
+    reset: resetFbLogin,
+    setShowPageSelection,
+  } = useFacebookLogin();
+
+  const handleOAuthConnect = async () => {
+    try {
+      await initiateLogin();
+    } catch (error) {
+      toast.error("Failed to start Facebook login");
+    }
   };
 
   const handleManualConnect = async () => {
@@ -80,6 +97,20 @@ export default function Pages() {
     }
   };
 
+  const handleSyncMessages = async (pageId: string) => {
+    try {
+      await fetchConversations.mutateAsync(pageId);
+      toast.success("Messages synced! Check your Inbox.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to sync messages");
+    }
+  };
+
+  const handlePageSelectionSuccess = () => {
+    resetFbLogin();
+    setIsConnectOpen(false);
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -94,7 +125,10 @@ export default function Pages() {
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
         action={
-          <Dialog open={isConnectOpen} onOpenChange={setIsConnectOpen}>
+          <Dialog open={isConnectOpen} onOpenChange={(open) => {
+            setIsConnectOpen(open);
+            if (!open) resetFbLogin();
+          }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -125,7 +159,9 @@ export default function Pages() {
                   <Button 
                     onClick={handleOAuthConnect} 
                     className="w-full bg-[#1877F2] hover:bg-[#1877F2]/90"
+                    disabled={fbLoading}
                   >
+                    {fbLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     <Facebook className="mr-2 h-4 w-4" />
                     Continue with Facebook
                   </Button>
@@ -164,6 +200,9 @@ export default function Pages() {
                         <ExternalLink className="ml-1 inline h-3 w-3" />
                       </a>
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      Required permissions: pages_show_list, pages_messaging, pages_read_engagement
+                    </p>
                   </div>
                   <Button 
                     onClick={handleManualConnect} 
@@ -180,7 +219,15 @@ export default function Pages() {
         }
       />
 
-      <div className="p-6">
+      {/* Page Selection Dialog for Facebook OAuth */}
+      <PageSelectionDialog
+        open={showPageSelection}
+        onOpenChange={setShowPageSelection}
+        pages={fbPages}
+        onSuccess={handlePageSelectionSuccess}
+      />
+
+      <div className="p-4 md:p-6">
         {pages.length === 0 ? (
           <EmptyState
             icon={Facebook}
@@ -193,10 +240,10 @@ export default function Pages() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {pages.map((page) => (
               <Card key={page.id} className="animate-fade-in">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#1877F2]/10">
+                <CardContent className="p-4 md:p-6">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10">
                         {page.page_picture_url ? (
                           <img 
                             src={page.page_picture_url} 
@@ -207,9 +254,9 @@ export default function Pages() {
                           <Facebook className="h-6 w-6 text-[#1877F2]" />
                         )}
                       </div>
-                      <div>
-                        <h3 className="font-semibold">{page.page_name}</h3>
-                        <p className="text-xs text-muted-foreground">
+                      <div className="min-w-0">
+                        <h3 className="font-semibold truncate">{page.page_name}</h3>
+                        <p className="text-xs text-muted-foreground truncate">
                           ID: {page.page_id}
                         </p>
                       </div>
@@ -217,11 +264,15 @@ export default function Pages() {
                     
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" className="flex-shrink-0">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleSyncMessages(page.id)}>
+                          <Inbox className="mr-2 h-4 w-4" />
+                          Sync Messages
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleRefresh(page)}>
                           <RefreshCw className="mr-2 h-4 w-4" />
                           Validate Token
@@ -237,7 +288,7 @@ export default function Pages() {
                     </DropdownMenu>
                   </div>
                   
-                  <div className="mt-4 flex items-center justify-between">
+                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <StatusBadge status={page.connection_status === "active" ? "active" : "error"}>
                       {page.connection_status}
                     </StatusBadge>
@@ -245,6 +296,22 @@ export default function Pages() {
                       Connected {new Date(page.created_at).toLocaleDateString()}
                     </span>
                   </div>
+
+                  {/* Sync Messages Button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-4 w-full"
+                    onClick={() => handleSyncMessages(page.id)}
+                    disabled={fetchConversations.isPending}
+                  >
+                    {fetchConversations.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Sync Messages
+                  </Button>
                 </CardContent>
               </Card>
             ))}
