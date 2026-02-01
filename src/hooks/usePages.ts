@@ -11,7 +11,7 @@ export function useConnectedPages() {
       const { data, error } = await supabase
         .from("connected_pages")
         .select("*")
-        .eq("connection_status", "active")
+        .in("connection_status", ["active", "token_expired"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;

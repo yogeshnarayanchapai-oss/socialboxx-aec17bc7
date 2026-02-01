@@ -29,18 +29,28 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { action, pageId, accessToken, pageName } = await req.json();
+    const { action, pageId, accessToken, pageName, pagePictureUrl } = await req.json();
 
     if (action === "validate") {
       // Validate the token by calling Facebook Graph API
       const response = await fetch(
-        `https://graph.facebook.com/v19.0/${pageId}?fields=id,name,picture&access_token=${accessToken}`
+        `https://graph.facebook.com/v19.0/${pageId}?fields=id,name,picture.type(square)&access_token=${accessToken}`
       );
       
       if (!response.ok) {
         const error = await response.json();
+        const errorMessage = error.error?.message || "Invalid token";
+        
+        // Provide more helpful error messages
+        let userFriendlyError = errorMessage;
+        if (errorMessage.includes("expired")) {
+          userFriendlyError = "Token has expired. Please reconnect through Facebook Login.";
+        } else if (errorMessage.includes("permission")) {
+          userFriendlyError = "Token missing required permissions. Ensure pages_messaging is granted.";
+        }
+        
         return new Response(
-          JSON.stringify({ success: false, error: error.error?.message || "Invalid token" }),
+          JSON.stringify({ success: false, error: userFriendlyError }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -60,20 +70,32 @@ serve(async (req) => {
     }
 
     if (action === "connect") {
+      console.log("Connecting page:", pageId, "name:", pageName);
+      
       // Validate token first
       const validateResponse = await fetch(
-        `https://graph.facebook.com/v19.0/${pageId}?fields=id,name,picture&access_token=${accessToken}`
+        `https://graph.facebook.com/v19.0/${pageId}?fields=id,name,picture.type(square)&access_token=${accessToken}`
       );
       
       if (!validateResponse.ok) {
         const error = await validateResponse.json();
+        console.error("Token validation failed:", error);
+        
+        let userFriendlyError = error.error?.message || "Invalid token";
+        if (userFriendlyError.includes("expired")) {
+          userFriendlyError = "Token has expired. Please reconnect through Facebook Login.";
+        } else if (userFriendlyError.includes("permission")) {
+          userFriendlyError = "Token missing required permissions. Ensure pages_messaging is granted.";
+        }
+        
         return new Response(
-          JSON.stringify({ success: false, error: error.error?.message || "Invalid token" }),
+          JSON.stringify({ success: false, error: userFriendlyError }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       const pageData = await validateResponse.json();
+      console.log("Token validated for page:", pageData.name);
 
       // Check if page already connected
       const { data: existingPage } = await supabase
@@ -83,19 +105,24 @@ serve(async (req) => {
         .single();
 
       if (existingPage) {
+        console.log("Updating existing page connection:", existingPage.id);
         // Update existing page
         const { error: updateError } = await supabase
           .from("connected_pages")
           .update({
             page_access_token: accessToken,
             page_name: pageData.name || pageName,
-            page_picture_url: pageData.picture?.data?.url,
+            page_picture_url: pageData.picture?.data?.url || pagePictureUrl,
             connection_status: "active",
+            connected_by: user.id,
             updated_at: new Date().toISOString(),
           })
           .eq("id", existingPage.id);
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          console.error("Update error:", updateError);
+          throw updateError;
+        }
         
         return new Response(
           JSON.stringify({ success: true, message: "Page reconnected", pageId: existingPage.id }),
@@ -103,6 +130,7 @@ serve(async (req) => {
         );
       }
 
+      console.log("Creating new page connection");
       // Insert new page
       const { data: newPage, error: insertError } = await supabase
         .from("connected_pages")
@@ -110,15 +138,19 @@ serve(async (req) => {
           page_id: pageId,
           page_name: pageData.name || pageName,
           page_access_token: accessToken,
-          page_picture_url: pageData.picture?.data?.url,
+          page_picture_url: pageData.picture?.data?.url || pagePictureUrl,
           connected_by: user.id,
           connection_status: "active",
         })
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        console.error("Insert error:", insertError);
+        throw insertError;
+      }
 
+      console.log("Page connected successfully:", newPage.id);
       return new Response(
         JSON.stringify({ success: true, message: "Page connected", pageId: newPage.id }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
