@@ -192,13 +192,35 @@ export default function Pages() {
                   
                   <div className="rounded-lg border border-border bg-muted/50 p-4 text-center">
                     <Facebook className="mx-auto h-12 w-12 text-[#1877F2]" />
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Sign in with Facebook to automatically connect your pages
+                    <p className="mt-2 text-sm font-medium">
+                      One-Click Setup
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Required permissions: pages_show_list, pages_messaging, pages_read_engagement
+                      Login → Select Pages → Done! Webhooks setup automatically.
                     </p>
                   </div>
+                  
+                  {/* Checklist */}
+                  <div className="rounded-lg border border-dashed p-3 space-y-2 text-xs">
+                    <p className="font-medium text-muted-foreground">What happens automatically:</p>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      <span>Facebook Page connected</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      <span>Webhook subscription created</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                      <span>Token stored securely</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      <span>Enable Auto-Reply after connecting</span>
+                    </div>
+                  </div>
+
                   <Button 
                     onClick={handleOAuthConnect} 
                     className="w-full bg-[#1877F2] hover:bg-[#1877F2]/90"
@@ -206,7 +228,7 @@ export default function Pages() {
                   >
                     {fbLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     <Facebook className="mr-2 h-4 w-4" />
-                    {fbLoading ? "Connecting..." : "Continue with Facebook"}
+                    {fbLoading ? "Connecting..." : "Connect with Facebook"}
                   </Button>
                 </TabsContent>
                 
@@ -354,11 +376,28 @@ export default function Pages() {
                     </span>
                   </div>
 
-                  {/* Automation Toggle */}
-                  <div className="mt-4 flex items-center justify-between rounded-lg border p-3">
+                  {/* Automation Toggle - More Prominent */}
+                  <div className={`mt-4 flex items-center justify-between rounded-lg border-2 p-3 transition-colors ${
+                    (page as any).automation_enabled 
+                      ? 'border-green-500/50 bg-green-500/5' 
+                      : 'border-dashed border-muted-foreground/30'
+                  }`}>
                     <div className="flex items-center gap-2">
-                      <Zap className={`h-4 w-4 ${(page as any).automation_enabled ? 'text-warning' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Automation</span>
+                      <div className={`rounded-full p-1.5 ${
+                        (page as any).automation_enabled 
+                          ? 'bg-green-500/20 text-green-500' 
+                          : 'bg-muted text-muted-foreground'
+                      }`}>
+                        <Zap className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <span className="text-sm font-medium">Auto-Reply</span>
+                        <p className="text-xs text-muted-foreground">
+                          {(page as any).automation_enabled 
+                            ? '✓ First message + keywords active' 
+                            : 'Turn on to auto-reply'}
+                        </p>
+                      </div>
                     </div>
                     <Switch
                       checked={(page as any).automation_enabled || false}
