@@ -123,6 +123,32 @@ serve(async (req) => {
           console.error("Update error:", updateError);
           throw updateError;
         }
+
+        // Re-subscribe to webhooks on reconnect
+        try {
+          console.log("Re-subscribing page to webhooks...");
+          const subscribeResponse = await fetch(
+            `https://graph.facebook.com/v19.0/${pageId}/subscribed_apps`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                subscribed_fields: "messages,messaging_postbacks,messaging_optins",
+                access_token: accessToken,
+              }),
+            }
+          );
+
+          if (subscribeResponse.ok) {
+            const subscribeData = await subscribeResponse.json();
+            console.log("Webhook subscription result:", subscribeData);
+          } else {
+            const subscribeError = await subscribeResponse.json();
+            console.warn("Webhook subscription failed (non-blocking):", subscribeError);
+          }
+        } catch (webhookError) {
+          console.warn("Webhook subscription error (non-blocking):", webhookError);
+        }
         
         return new Response(
           JSON.stringify({ success: true, message: "Page reconnected", pageId: existingPage.id }),
@@ -148,6 +174,33 @@ serve(async (req) => {
       if (insertError) {
         console.error("Insert error:", insertError);
         throw insertError;
+      }
+
+      // Subscribe page to webhooks for real-time message updates
+      try {
+        console.log("Subscribing page to webhooks...");
+        const subscribeResponse = await fetch(
+          `https://graph.facebook.com/v19.0/${pageId}/subscribed_apps`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              subscribed_fields: "messages,messaging_postbacks,messaging_optins",
+              access_token: accessToken,
+            }),
+          }
+        );
+
+        if (subscribeResponse.ok) {
+          const subscribeData = await subscribeResponse.json();
+          console.log("Webhook subscription result:", subscribeData);
+        } else {
+          const subscribeError = await subscribeResponse.json();
+          console.warn("Webhook subscription failed (non-blocking):", subscribeError);
+          // Don't fail the connection - webhook subscription is optional
+        }
+      } catch (webhookError) {
+        console.warn("Webhook subscription error (non-blocking):", webhookError);
       }
 
       console.log("Page connected successfully:", newPage.id);
