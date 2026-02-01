@@ -33,94 +33,169 @@ serve(async (req) => {
     // Get page access token
     const { data: page, error: pageError } = await supabase
       .from("connected_pages")
-      .select("page_access_token, page_id")
+      .select("page_access_token, page_id, page_name")
       .eq("id", pageId)
       .single();
 
     if (pageError || !page) {
-      throw new Error("Page not found");
+      console.error("Page not found error:", pageError);
+      throw new Error("Page not found. Make sure the page is connected.");
     }
 
     if (action === "fetch_conversations") {
+      console.log("Fetching conversations for page:", page.page_id, page.page_name);
+      
+      // First, verify the token is valid
+      const tokenCheckResponse = await fetch(
+        `https://graph.facebook.com/v19.0/${page.page_id}?fields=id,name&access_token=${page.page_access_token}`
+      );
+      
+      if (!tokenCheckResponse.ok) {
+        const tokenError = await tokenCheckResponse.json();
+        console.error("Token validation failed:", tokenError);
+        
+        // Update page status to indicate token issue
+        await supabase
+          .from("connected_pages")
+          .update({ connection_status: "token_expired" })
+          .eq("id", pageId);
+        
+        let errorMessage = tokenError.error?.message || "Token validation failed";
+        if (errorMessage.includes("expired")) {
+          errorMessage = "Page access token has expired. Please reconnect the page through Facebook Login.";
+        } else if (errorMessage.includes("permission")) {
+          errorMessage = "Missing required permissions. Please reconnect with pages_messaging permission.";
+        }
+        
+        throw new Error(errorMessage);
+      }
+
       // Fetch conversations from Facebook
-      console.log("Fetching conversations for page:", page.page_id);
       const response = await fetch(
-        `https://graph.facebook.com/v19.0/${page.page_id}/conversations?fields=id,participants,updated_time,messages.limit(1){message,from,created_time}&access_token=${page.page_access_token}`
+        `https://graph.facebook.com/v19.0/${page.page_id}/conversations?fields=id,participants,updated_time,messages.limit(1){message,from,created_time}&limit=50&access_token=${page.page_access_token}`
       );
 
       if (!response.ok) {
         const error = await response.json();
-        console.error("Facebook API error:", error);
-        throw new Error(error.error?.message || "Failed to fetch conversations. Check token permissions.");
+        console.error("Facebook API error fetching conversations:", error);
+        
+        let errorMessage = error.error?.message || "Failed to fetch conversations";
+        if (error.error?.code === 190) {
+          errorMessage = "Access token is invalid or expired. Please reconnect the page.";
+        } else if (error.error?.code === 10 || error.error?.code === 200) {
+          errorMessage = "Missing required permissions. Make sure pages_messaging permission is granted.";
+        }
+        
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       const conversations = data.data || [];
       console.log("Found conversations:", conversations.length);
 
+      let syncedCount = 0;
+      let messagesSyncedCount = 0;
+
       // Sync conversations to database
       for (const conv of conversations) {
-        const participant = conv.participants?.data?.find(
-          (p: any) => p.id !== page.page_id
-        );
-        const lastMessage = conv.messages?.data?.[0];
+        try {
+          const participant = conv.participants?.data?.find(
+            (p: any) => p.id !== page.page_id
+          );
+          const lastMessage = conv.messages?.data?.[0];
 
-        console.log("Syncing conversation:", conv.id, "participant:", participant?.name);
+          console.log("Syncing conversation:", conv.id, "participant:", participant?.name);
 
-        const { error: upsertError } = await supabase
-          .from("conversations")
-          .upsert({
-            external_conversation_id: conv.id,
-            page_id: pageId,
-            participant_id: participant?.id,
-            participant_name: participant?.name || "Unknown",
-            last_message_at: conv.updated_time,
-            last_message_preview: lastMessage?.message?.substring(0, 100),
-            status: "unreplied",
-          }, { onConflict: "external_conversation_id" });
+          // Upsert conversation
+          const { data: upsertedConv, error: upsertError } = await supabase
+            .from("conversations")
+            .upsert({
+              external_conversation_id: conv.id,
+              page_id: pageId,
+              participant_id: participant?.id,
+              participant_name: participant?.name || "Facebook User",
+              last_message_at: conv.updated_time,
+              last_message_preview: lastMessage?.message?.substring(0, 100),
+              status: "unreplied",
+            }, { 
+              onConflict: "external_conversation_id",
+              ignoreDuplicates: false 
+            })
+            .select("id")
+            .single();
 
-        if (upsertError) {
-          console.error("Upsert error:", upsertError);
-        }
+          if (upsertError) {
+            console.error("Upsert conversation error:", upsertError);
+            continue;
+          }
 
-        // Also fetch and save messages for this conversation
-        const messagesResponse = await fetch(
-          `https://graph.facebook.com/v19.0/${conv.id}/messages?fields=id,message,from,created_time,attachments&limit=25&access_token=${page.page_access_token}`
-        );
+          syncedCount++;
+          const dbConvId = upsertedConv?.id;
 
-        if (messagesResponse.ok) {
-          const messagesData = await messagesResponse.json();
-          const messages = messagesData.data || [];
-          console.log("Fetched messages for conversation:", conv.id, "count:", messages.length);
+          if (!dbConvId) {
+            // Try to get the existing conversation ID
+            const { data: existingConv } = await supabase
+              .from("conversations")
+              .select("id")
+              .eq("external_conversation_id", conv.id)
+              .single();
+            
+            if (!existingConv) continue;
+          }
 
-          // Get the conversation ID from our database
-          const { data: dbConv } = await supabase
+          const conversationDbId = dbConvId || (await supabase
             .from("conversations")
             .select("id")
             .eq("external_conversation_id", conv.id)
-            .single();
+            .single()).data?.id;
 
-          if (dbConv) {
+          if (!conversationDbId) continue;
+
+          // Fetch messages for this conversation
+          const messagesResponse = await fetch(
+            `https://graph.facebook.com/v19.0/${conv.id}/messages?fields=id,message,from,created_time,attachments&limit=50&access_token=${page.page_access_token}`
+          );
+
+          if (messagesResponse.ok) {
+            const messagesData = await messagesResponse.json();
+            const messages = messagesData.data || [];
+            console.log("Fetched messages for conversation:", conv.id, "count:", messages.length);
+
             for (const msg of messages) {
               const isFromPage = msg.from?.id === page.page_id;
               
-              await supabase
+              const { error: msgError } = await supabase
                 .from("messages")
                 .upsert({
                   external_message_id: msg.id,
-                  conversation_id: dbConv.id,
+                  conversation_id: conversationDbId,
                   content: msg.message || "",
                   sender_type: isFromPage ? "page" : "customer",
                   created_at: msg.created_time,
-                  media_url: msg.attachments?.data?.[0]?.image_data?.url || null,
+                  media_url: msg.attachments?.data?.[0]?.image_data?.url || 
+                            msg.attachments?.data?.[0]?.file_url || null,
                 }, { onConflict: "external_message_id" });
+
+              if (!msgError) {
+                messagesSyncedCount++;
+              }
             }
+          } else {
+            console.error("Failed to fetch messages for conversation:", conv.id);
           }
+        } catch (convError) {
+          console.error("Error processing conversation:", conv.id, convError);
         }
       }
 
+      console.log("Sync complete. Conversations:", syncedCount, "Messages:", messagesSyncedCount);
+
       return new Response(
-        JSON.stringify({ success: true, count: conversations.length }),
+        JSON.stringify({ 
+          success: true, 
+          conversations: syncedCount,
+          messages: messagesSyncedCount,
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -159,7 +234,8 @@ serve(async (req) => {
             content: msg.message,
             sender_type: isFromPage ? "page" : "customer",
             created_at: msg.created_time,
-            media_url: msg.attachments?.data?.[0]?.image_data?.url || null,
+            media_url: msg.attachments?.data?.[0]?.image_data?.url || 
+                      msg.attachments?.data?.[0]?.file_url || null,
           }, { onConflict: "external_message_id" });
       }
 
@@ -178,12 +254,18 @@ serve(async (req) => {
 
     if (action === "send_message") {
       // Send message via Facebook Graph API
-      const body: any = { message };
+      const messagePayload: any = {
+        recipient: { id: recipientId },
+        message: {}
+      };
+
       if (mediaUrl) {
-        body.attachment = {
+        messagePayload.message.attachment = {
           type: "image",
           payload: { url: mediaUrl, is_reusable: true }
         };
+      } else {
+        messagePayload.message.text = message;
       }
 
       const response = await fetch(
@@ -191,15 +273,13 @@ serve(async (req) => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recipient: { id: recipientId },
-            message: mediaUrl ? body.attachment : { text: message },
-          }),
+          body: JSON.stringify(messagePayload),
         }
       );
 
       if (!response.ok) {
         const error = await response.json();
+        console.error("Failed to send message:", error);
         throw new Error(error.error?.message || "Failed to send message");
       }
 

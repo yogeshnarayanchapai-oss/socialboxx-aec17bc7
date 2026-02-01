@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2, Inbox } from "lucide-react";
+import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2, Inbox, AlertCircle } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useConnectedPages, useConnectPage, useDisconnectPage, useValidatePageToken } from "@/hooks/usePages";
 import { useFacebookLogin } from "@/hooks/useFacebookPages";
@@ -38,11 +39,13 @@ export default function Pages() {
   const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [manualToken, setManualToken] = useState("");
   const [manualPageId, setManualPageId] = useState("");
+  const [syncingPageId, setSyncingPageId] = useState<string | null>(null);
 
   const {
     pages: fbPages,
     isLoading: fbLoading,
     showPageSelection,
+    error: fbError,
     initiateLogin,
     reset: resetFbLogin,
     setShowPageSelection,
@@ -52,7 +55,7 @@ export default function Pages() {
     try {
       await initiateLogin();
     } catch (error) {
-      toast.error("Failed to start Facebook login");
+      // Error is handled in the hook
     }
   };
 
@@ -98,17 +101,35 @@ export default function Pages() {
   };
 
   const handleSyncMessages = async (pageId: string) => {
+    setSyncingPageId(pageId);
     try {
-      await fetchConversations.mutateAsync(pageId);
-      toast.success("Messages synced! Check your Inbox.");
+      const result = await fetchConversations.mutateAsync(pageId);
+      toast.success(`Synced ${result.conversations || 0} conversations and ${result.messages || 0} messages!`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to sync messages");
+    } finally {
+      setSyncingPageId(null);
     }
   };
 
   const handlePageSelectionSuccess = () => {
     resetFbLogin();
     setIsConnectOpen(false);
+  };
+
+  const handleDialogClose = (open: boolean) => {
+    setIsConnectOpen(open);
+    if (!open) {
+      resetFbLogin();
+      setManualToken("");
+      setManualPageId("");
+    }
+  };
+
+  const getStatusVariant = (status: string): "active" | "warning" | "error" => {
+    if (status === "active") return "active";
+    if (status === "token_expired") return "warning";
+    return "error";
   };
 
   if (isLoading) {
@@ -125,10 +146,7 @@ export default function Pages() {
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
         action={
-          <Dialog open={isConnectOpen} onOpenChange={(open) => {
-            setIsConnectOpen(open);
-            if (!open) resetFbLogin();
-          }}>
+          <Dialog open={isConnectOpen} onOpenChange={handleDialogClose}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -150,10 +168,20 @@ export default function Pages() {
                 </TabsList>
                 
                 <TabsContent value="oauth" className="mt-4 space-y-4">
+                  {fbError && (
+                    <Alert variant="destructive">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>{fbError}</AlertDescription>
+                    </Alert>
+                  )}
+                  
                   <div className="rounded-lg border border-border bg-muted/50 p-4 text-center">
                     <Facebook className="mx-auto h-12 w-12 text-[#1877F2]" />
                     <p className="mt-2 text-sm text-muted-foreground">
                       Sign in with Facebook to automatically connect your pages
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Required permissions: pages_show_list, pages_messaging, pages_read_engagement
                     </p>
                   </div>
                   <Button 
@@ -163,7 +191,7 @@ export default function Pages() {
                   >
                     {fbLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     <Facebook className="mr-2 h-4 w-4" />
-                    Continue with Facebook
+                    {fbLoading ? "Connecting..." : "Continue with Facebook"}
                   </Button>
                 </TabsContent>
                 
@@ -225,6 +253,8 @@ export default function Pages() {
         onOpenChange={setShowPageSelection}
         pages={fbPages}
         onSuccess={handlePageSelectionSuccess}
+        isLoading={fbLoading && !showPageSelection}
+        error={fbError}
       />
 
       <div className="p-4 md:p-6">
@@ -289,13 +319,22 @@ export default function Pages() {
                   </div>
                   
                   <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <StatusBadge status={page.connection_status === "active" ? "active" : "error"}>
-                      {page.connection_status}
+                    <StatusBadge status={getStatusVariant(page.connection_status)}>
+                      {page.connection_status === "token_expired" ? "Token Expired" : page.connection_status}
                     </StatusBadge>
                     <span className="text-xs text-muted-foreground">
                       Connected {new Date(page.created_at).toLocaleDateString()}
                     </span>
                   </div>
+
+                  {page.connection_status === "token_expired" && (
+                    <Alert variant="destructive" className="mt-4">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="text-xs">
+                        Token expired. Please reconnect this page.
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
                   {/* Sync Messages Button */}
                   <Button
@@ -303,14 +342,14 @@ export default function Pages() {
                     size="sm"
                     className="mt-4 w-full"
                     onClick={() => handleSyncMessages(page.id)}
-                    disabled={fetchConversations.isPending}
+                    disabled={syncingPageId === page.id || page.connection_status === "token_expired"}
                   >
-                    {fetchConversations.isPending ? (
+                    {syncingPageId === page.id ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    Sync Messages
+                    {syncingPageId === page.id ? "Syncing..." : "Sync Messages"}
                   </Button>
                 </CardContent>
               </Card>
