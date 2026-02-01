@@ -30,10 +30,10 @@ serve(async (req) => {
 
     const { action, pageId, conversationId, recipientId, message, mediaUrl } = await req.json();
 
-    // Get page access token
+    // Get page access token from DB
     const { data: page, error: pageError } = await supabase
       .from("connected_pages")
-      .select("page_access_token, page_id, page_name")
+      .select("page_access_token, page_id, page_name, id")
       .eq("id", pageId)
       .single();
 
@@ -42,159 +42,230 @@ serve(async (req) => {
       throw new Error("Page not found. Make sure the page is connected.");
     }
 
+    const pageAccessToken = page.page_access_token;
+    const fbPageId = page.page_id;
+    const dbPageId = page.id;
+
+    console.log(`[${action}] Processing for page: ${page.page_name} (${fbPageId})`);
+
     if (action === "fetch_conversations") {
-      console.log("Fetching conversations for page:", page.page_id, page.page_name);
+      // STEP 1: Validate token first
+      console.log("Step 1: Validating page access token...");
+      const tokenCheckUrl = `https://graph.facebook.com/v19.0/${fbPageId}?fields=id,name&access_token=${pageAccessToken}`;
+      console.log("Token check URL:", tokenCheckUrl.replace(pageAccessToken, "TOKEN_HIDDEN"));
       
-      // First, verify the token is valid
-      const tokenCheckResponse = await fetch(
-        `https://graph.facebook.com/v19.0/${page.page_id}?fields=id,name&access_token=${page.page_access_token}`
-      );
+      const tokenCheckResponse = await fetch(tokenCheckUrl);
+      const tokenCheckData = await tokenCheckResponse.json();
       
       if (!tokenCheckResponse.ok) {
-        const tokenError = await tokenCheckResponse.json();
-        console.error("Token validation failed:", tokenError);
+        console.error("Token validation failed:", JSON.stringify(tokenCheckData));
         
-        // Update page status to indicate token issue
         await supabase
           .from("connected_pages")
           .update({ connection_status: "token_expired" })
-          .eq("id", pageId);
+          .eq("id", dbPageId);
         
-        let errorMessage = tokenError.error?.message || "Token validation failed";
-        if (errorMessage.includes("expired")) {
-          errorMessage = "Page access token has expired. Please reconnect the page through Facebook Login.";
-        } else if (errorMessage.includes("permission")) {
-          errorMessage = "Missing required permissions. Please reconnect with pages_messaging permission.";
+        const errorMsg = tokenCheckData.error?.message || "Token validation failed";
+        if (errorMsg.includes("expired")) {
+          throw new Error("Page access token has expired. Please reconnect the page.");
+        } else if (errorMsg.includes("permission")) {
+          throw new Error("Missing required permissions. Please reconnect with pages_messaging permission.");
         }
+        throw new Error(`Token error: ${errorMsg}`);
+      }
+      
+      console.log("Token valid for page:", tokenCheckData.name);
+
+      // STEP 2: Fetch conversations - EXACTLY matching working Graph API call
+      console.log("Step 2: Fetching conversations...");
+      const conversationsUrl = `https://graph.facebook.com/v19.0/${fbPageId}/conversations?fields=id,updated_time,participants&limit=50&access_token=${pageAccessToken}`;
+      console.log("Conversations URL:", conversationsUrl.replace(pageAccessToken, "TOKEN_HIDDEN"));
+      
+      const conversationsResponse = await fetch(conversationsUrl);
+      const conversationsData = await conversationsResponse.json();
+      
+      console.log("Conversations API Response status:", conversationsResponse.status);
+      console.log("Conversations API Response:", JSON.stringify(conversationsData, null, 2));
+
+      if (!conversationsResponse.ok) {
+        console.error("Failed to fetch conversations:", JSON.stringify(conversationsData));
+        const errorMsg = conversationsData.error?.message || "Failed to fetch conversations";
         
-        throw new Error(errorMessage);
+        if (conversationsData.error?.code === 190) {
+          throw new Error("Access token is invalid or expired. Please reconnect the page.");
+        } else if (conversationsData.error?.code === 10 || conversationsData.error?.code === 200) {
+          throw new Error("Missing required permissions. Make sure pages_messaging and pages_read_engagement are granted.");
+        }
+        throw new Error(`Facebook API Error: ${errorMsg}`);
       }
 
-      // Fetch conversations from Facebook
-      const response = await fetch(
-        `https://graph.facebook.com/v19.0/${page.page_id}/conversations?fields=id,participants,updated_time,messages.limit(1){message,from,created_time}&limit=50&access_token=${page.page_access_token}`
-      );
+      const conversations = conversationsData.data || [];
+      console.log(`Found ${conversations.length} conversations from Facebook API`);
 
-      if (!response.ok) {
-        const error = await response.json();
-        console.error("Facebook API error fetching conversations:", error);
-        
-        let errorMessage = error.error?.message || "Failed to fetch conversations";
-        if (error.error?.code === 190) {
-          errorMessage = "Access token is invalid or expired. Please reconnect the page.";
-        } else if (error.error?.code === 10 || error.error?.code === 200) {
-          errorMessage = "Missing required permissions. Make sure pages_messaging permission is granted.";
-        }
-        
-        throw new Error(errorMessage);
+      if (conversations.length === 0) {
+        return new Response(
+          JSON.stringify({ 
+            success: true, 
+            conversations: 0,
+            messages: 0,
+            note: "No conversations found. This page might not have any messages yet."
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
 
-      const data = await response.json();
-      const conversations = data.data || [];
-      console.log("Found conversations:", conversations.length);
+      let syncedConversations = 0;
+      let syncedMessages = 0;
+      const errors: string[] = [];
 
-      let syncedCount = 0;
-      let messagesSyncedCount = 0;
-
-      // Sync conversations to database
+      // STEP 3: Process each conversation
       for (const conv of conversations) {
         try {
+          console.log(`Processing conversation: ${conv.id}`);
+          
+          // Find the participant (not the page itself)
           const participant = conv.participants?.data?.find(
-            (p: any) => p.id !== page.page_id
+            (p: any) => p.id !== fbPageId
           );
-          const lastMessage = conv.messages?.data?.[0];
+          
+          console.log(`Participant: ${participant?.name || "Unknown"} (${participant?.id || "no-id"})`);
 
-          console.log("Syncing conversation:", conv.id, "participant:", participant?.name);
-
-          // Upsert conversation
-          const { data: upsertedConv, error: upsertError } = await supabase
-            .from("conversations")
-            .upsert({
-              external_conversation_id: conv.id,
-              page_id: pageId,
-              participant_id: participant?.id,
-              participant_name: participant?.name || "Facebook User",
-              last_message_at: conv.updated_time,
-              last_message_preview: lastMessage?.message?.substring(0, 100),
-              status: "unreplied",
-            }, { 
-              onConflict: "external_conversation_id",
-              ignoreDuplicates: false 
-            })
-            .select("id")
-            .single();
-
-          if (upsertError) {
-            console.error("Upsert conversation error:", upsertError);
-            continue;
-          }
-
-          syncedCount++;
-          const dbConvId = upsertedConv?.id;
-
-          if (!dbConvId) {
-            // Try to get the existing conversation ID
-            const { data: existingConv } = await supabase
-              .from("conversations")
-              .select("id")
-              .eq("external_conversation_id", conv.id)
-              .single();
-            
-            if (!existingConv) continue;
-          }
-
-          const conversationDbId = dbConvId || (await supabase
+          // Insert or update conversation in DB
+          const { data: existingConv } = await supabase
             .from("conversations")
             .select("id")
             .eq("external_conversation_id", conv.id)
-            .single()).data?.id;
+            .maybeSingle();
 
-          if (!conversationDbId) continue;
+          let dbConversationId: string;
 
-          // Fetch messages for this conversation
-          const messagesResponse = await fetch(
-            `https://graph.facebook.com/v19.0/${conv.id}/messages?fields=id,message,from,created_time,attachments&limit=50&access_token=${page.page_access_token}`
-          );
-
-          if (messagesResponse.ok) {
-            const messagesData = await messagesResponse.json();
-            const messages = messagesData.data || [];
-            console.log("Fetched messages for conversation:", conv.id, "count:", messages.length);
-
-            for (const msg of messages) {
-              const isFromPage = msg.from?.id === page.page_id;
-              
-              const { error: msgError } = await supabase
-                .from("messages")
-                .upsert({
-                  external_message_id: msg.id,
-                  conversation_id: conversationDbId,
-                  content: msg.message || "",
-                  sender_type: isFromPage ? "page" : "customer",
-                  created_at: msg.created_time,
-                  media_url: msg.attachments?.data?.[0]?.image_data?.url || 
-                            msg.attachments?.data?.[0]?.file_url || null,
-                }, { onConflict: "external_message_id" });
-
-              if (!msgError) {
-                messagesSyncedCount++;
-              }
+          if (existingConv) {
+            // Update existing
+            const { error: updateError } = await supabase
+              .from("conversations")
+              .update({
+                participant_id: participant?.id,
+                participant_name: participant?.name || "Facebook User",
+                last_message_at: conv.updated_time,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", existingConv.id);
+            
+            if (updateError) {
+              console.error("Update conversation error:", updateError);
+              errors.push(`Update conv ${conv.id}: ${updateError.message}`);
+              continue;
             }
+            dbConversationId = existingConv.id;
+            console.log(`Updated existing conversation: ${dbConversationId}`);
           } else {
-            console.error("Failed to fetch messages for conversation:", conv.id);
+            // Insert new
+            const { data: newConv, error: insertError } = await supabase
+              .from("conversations")
+              .insert({
+                external_conversation_id: conv.id,
+                page_id: dbPageId,
+                participant_id: participant?.id,
+                participant_name: participant?.name || "Facebook User",
+                last_message_at: conv.updated_time,
+                status: "unreplied",
+              })
+              .select("id")
+              .single();
+            
+            if (insertError) {
+              console.error("Insert conversation error:", insertError);
+              errors.push(`Insert conv ${conv.id}: ${insertError.message}`);
+              continue;
+            }
+            dbConversationId = newConv.id;
+            console.log(`Inserted new conversation: ${dbConversationId}`);
           }
+
+          syncedConversations++;
+
+          // STEP 4: Fetch messages for this conversation
+          console.log(`Fetching messages for conversation: ${conv.id}`);
+          const messagesUrl = `https://graph.facebook.com/v19.0/${conv.id}/messages?fields=message,from,created_time&limit=50&access_token=${pageAccessToken}`;
+          
+          const messagesResponse = await fetch(messagesUrl);
+          const messagesData = await messagesResponse.json();
+
+          if (!messagesResponse.ok) {
+            console.error(`Failed to fetch messages for ${conv.id}:`, JSON.stringify(messagesData));
+            errors.push(`Fetch messages ${conv.id}: ${messagesData.error?.message || "Unknown error"}`);
+            continue;
+          }
+
+          const messages = messagesData.data || [];
+          console.log(`Found ${messages.length} messages for conversation ${conv.id}`);
+
+          let lastMessagePreview: string | null = null;
+
+          // STEP 5: Save messages to DB
+          for (const msg of messages) {
+            const isFromPage = msg.from?.id === fbPageId;
+            const messageContent = msg.message || "";
+            
+            if (!lastMessagePreview && messageContent) {
+              lastMessagePreview = messageContent.substring(0, 100);
+            }
+
+            // Check if message exists
+            const { data: existingMsg } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("external_message_id", msg.id)
+              .maybeSingle();
+
+            if (existingMsg) {
+              // Message already exists, skip
+              continue;
+            }
+
+            const { error: msgInsertError } = await supabase
+              .from("messages")
+              .insert({
+                external_message_id: msg.id,
+                conversation_id: dbConversationId,
+                content: messageContent,
+                sender_type: isFromPage ? "page" : "customer",
+                created_at: msg.created_time,
+              });
+
+            if (msgInsertError) {
+              console.error(`Insert message error for ${msg.id}:`, msgInsertError);
+              continue;
+            }
+            
+            syncedMessages++;
+          }
+
+          // Update conversation with last message preview
+          if (lastMessagePreview) {
+            await supabase
+              .from("conversations")
+              .update({ last_message_preview: lastMessagePreview })
+              .eq("id", dbConversationId);
+          }
+
         } catch (convError) {
-          console.error("Error processing conversation:", conv.id, convError);
+          console.error(`Error processing conversation ${conv.id}:`, convError);
+          errors.push(`Process conv ${conv.id}: ${convError instanceof Error ? convError.message : "Unknown"}`);
         }
       }
 
-      console.log("Sync complete. Conversations:", syncedCount, "Messages:", messagesSyncedCount);
+      console.log(`Sync complete. Conversations: ${syncedConversations}, Messages: ${syncedMessages}`);
+      if (errors.length > 0) {
+        console.log("Errors during sync:", errors);
+      }
 
       return new Response(
         JSON.stringify({ 
           success: true, 
-          conversations: syncedCount,
-          messages: messagesSyncedCount,
+          conversations: syncedConversations,
+          messages: syncedMessages,
+          errors: errors.length > 0 ? errors : undefined,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
@@ -211,7 +282,7 @@ serve(async (req) => {
       if (!conv) throw new Error("Conversation not found");
 
       const response = await fetch(
-        `https://graph.facebook.com/v19.0/${conv.external_conversation_id}/messages?fields=id,message,from,created_time,attachments&limit=50&access_token=${page.page_access_token}`
+        `https://graph.facebook.com/v19.0/${conv.external_conversation_id}/messages?fields=id,message,from,created_time,attachments&limit=50&access_token=${pageAccessToken}`
       );
 
       if (!response.ok) {
@@ -224,19 +295,27 @@ serve(async (req) => {
 
       // Sync messages to database
       for (const msg of messages) {
-        const isFromPage = msg.from?.id === page.page_id;
+        const isFromPage = msg.from?.id === fbPageId;
         
-        await supabase
+        const { data: existingMsg } = await supabase
           .from("messages")
-          .upsert({
-            external_message_id: msg.id,
-            conversation_id: conversationId,
-            content: msg.message,
-            sender_type: isFromPage ? "page" : "customer",
-            created_at: msg.created_time,
-            media_url: msg.attachments?.data?.[0]?.image_data?.url || 
-                      msg.attachments?.data?.[0]?.file_url || null,
-          }, { onConflict: "external_message_id" });
+          .select("id")
+          .eq("external_message_id", msg.id)
+          .maybeSingle();
+
+        if (!existingMsg) {
+          await supabase
+            .from("messages")
+            .insert({
+              external_message_id: msg.id,
+              conversation_id: conversationId,
+              content: msg.message || "",
+              sender_type: isFromPage ? "page" : "customer",
+              created_at: msg.created_time,
+              media_url: msg.attachments?.data?.[0]?.image_data?.url || 
+                        msg.attachments?.data?.[0]?.file_url || null,
+            });
+        }
       }
 
       // Fetch synced messages from DB
@@ -269,7 +348,7 @@ serve(async (req) => {
       }
 
       const response = await fetch(
-        `https://graph.facebook.com/v19.0/me/messages?access_token=${page.page_access_token}`,
+        `https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -324,7 +403,10 @@ serve(async (req) => {
   } catch (error) {
     console.error("Facebook messages error:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ 
+        error: error instanceof Error ? error.message : "Unknown error",
+        details: error instanceof Error ? error.stack : undefined
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
