@@ -4,6 +4,7 @@ import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase
 
 export type Lead = Tables<"leads"> & {
   connected_pages?: { page_name: string };
+  source?: string;
 };
 
 export function useLeads(filters?: {

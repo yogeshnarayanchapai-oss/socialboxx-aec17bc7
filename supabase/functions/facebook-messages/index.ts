@@ -6,6 +6,85 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Nepali phone number patterns
+const NEPALI_PHONE_PATTERNS = [
+  /\b(98\d{8})\b/,           // 98XXXXXXXX
+  /\b(97\d{8})\b/,           // 97XXXXXXXX  
+  /\b(96\d{8})\b/,           // 96XXXXXXXX
+  /\+977\s*(98\d{8})\b/,     // +977 98XXXXXXXX
+  /\+977\s*(97\d{8})\b/,     // +977 97XXXXXXXX
+  /\+977\s*(96\d{8})\b/,     // +977 96XXXXXXXX
+  /\+977(98\d{8})\b/,        // +97798XXXXXXXX
+  /\+977(97\d{8})\b/,        // +97797XXXXXXXX
+  /\+977(96\d{8})\b/,        // +97796XXXXXXXX
+];
+
+function extractNepaliPhone(text: string): string | null {
+  if (!text) return null;
+  
+  for (const pattern of NEPALI_PHONE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) {
+      // Return normalized format: 98XXXXXXXX
+      return match[1] || match[0].replace(/\+977\s*/, '');
+    }
+  }
+  return null;
+}
+
+async function checkAndCreateLead(
+  supabase: any, 
+  messageContent: string, 
+  conversationId: string, 
+  dbPageId: string, 
+  pageName: string,
+  participantName: string | null
+) {
+  const nepaliPhone = extractNepaliPhone(messageContent);
+  if (!nepaliPhone) return;
+
+  console.log("Nepali phone detected:", nepaliPhone);
+  
+  // Check if lead with this phone already exists
+  const { data: existingLead } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("phone", nepaliPhone)
+    .maybeSingle();
+
+  if (existingLead) {
+    // Update existing lead
+    await supabase
+      .from("leads")
+      .update({
+        conversation_id: conversationId,
+        last_message: messageContent.substring(0, 200),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingLead.id);
+    console.log("Updated existing lead:", existingLead.id);
+  } else {
+    // Create new lead with page name as source
+    const { error: leadError } = await supabase
+      .from("leads")
+      .insert({
+        phone: nepaliPhone,
+        full_name: participantName,
+        conversation_id: conversationId,
+        page_id: dbPageId,
+        source: pageName,
+        last_message: messageContent.substring(0, 200),
+        status: "new",
+      });
+
+    if (leadError) {
+      console.error("Error creating lead:", leadError);
+    } else {
+      console.log("Created new lead for phone:", nepaliPhone, "source:", pageName);
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -202,13 +281,26 @@ serve(async (req) => {
 
           let lastMessagePreview: string | null = null;
 
-          // STEP 5: Save messages to DB
+          // STEP 5: Save messages to DB and check for leads
           for (const msg of messages) {
             const isFromPage = msg.from?.id === fbPageId;
             const messageContent = msg.message || "";
             
             if (!lastMessagePreview && messageContent) {
               lastMessagePreview = messageContent.substring(0, 100);
+            }
+
+            // Check for Nepali phone number and create lead (only for customer messages)
+            // Do this for ALL messages, not just new ones
+            if (!isFromPage && messageContent) {
+              await checkAndCreateLead(
+                supabase, 
+                messageContent, 
+                dbConversationId, 
+                dbPageId, 
+                page.page_name,
+                participant?.name || null
+              );
             }
 
             // Check if message exists
@@ -219,7 +311,7 @@ serve(async (req) => {
               .maybeSingle();
 
             if (existingMsg) {
-              // Message already exists, skip
+              // Message already exists, skip saving
               continue;
             }
 

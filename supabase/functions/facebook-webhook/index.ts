@@ -127,7 +127,7 @@ serve(async (req) => {
         // Find the connected page in our database
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_access_token, automation_enabled, auto_reply_first_message, auto_reply_followup, auto_reply_keywords")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, auto_reply_first_message, auto_reply_followup, auto_reply_keywords")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -266,7 +266,7 @@ serve(async (req) => {
                 .eq("id", conversationId)
                 .single();
 
-              // Create new lead
+              // Create new lead with page name as source
               const { error: leadError } = await supabase
                 .from("leads")
                 .insert({
@@ -274,6 +274,7 @@ serve(async (req) => {
                   full_name: conv?.participant_name,
                   conversation_id: conversationId,
                   page_id: page.id,
+                  source: page.page_name,
                   last_message: message.text?.substring(0, 200),
                   status: "new",
                 });
