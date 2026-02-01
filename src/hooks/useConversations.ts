@@ -148,19 +148,38 @@ export function useRealtimeConversations() {
       .channel("conversations-changes")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "conversations" },
+        { event: "INSERT", schema: "public", table: "conversations" },
+        (payload) => {
+          console.log("New conversation:", payload);
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "conversations" },
         () => {
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
         }
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "messages" },
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          console.log("New message received via realtime:", payload);
+          queryClient.invalidateQueries({ queryKey: ["messages"] });
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
         () => {
           queryClient.invalidateQueries({ queryKey: ["messages"] });
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("Realtime subscription status:", status);
+      });
 
     return () => {
       supabase.removeChannel(channel);

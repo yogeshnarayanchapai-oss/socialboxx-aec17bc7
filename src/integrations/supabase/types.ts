@@ -96,6 +96,10 @@ export type Database = {
       }
       connected_pages: {
         Row: {
+          auto_reply_first_message: string | null
+          auto_reply_followup: string | null
+          auto_reply_keywords: Json | null
+          automation_enabled: boolean | null
           connected_by: string | null
           connection_status: string
           created_at: string
@@ -108,6 +112,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_reply_first_message?: string | null
+          auto_reply_followup?: string | null
+          auto_reply_keywords?: Json | null
+          automation_enabled?: boolean | null
           connected_by?: string | null
           connection_status?: string
           created_at?: string
@@ -120,6 +128,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_reply_first_message?: string | null
+          auto_reply_followup?: string | null
+          auto_reply_keywords?: Json | null
+          automation_enabled?: boolean | null
           connected_by?: string | null
           connection_status?: string
           created_at?: string

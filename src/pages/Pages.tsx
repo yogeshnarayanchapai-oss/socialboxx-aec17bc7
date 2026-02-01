@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2, Inbox, AlertCircle } from "lucide-react";
+import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2, Inbox, AlertCircle, Settings2, Zap } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,17 +17,21 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { useConnectedPages, useConnectPage, useDisconnectPage, useValidatePageToken } from "@/hooks/usePages";
 import { useFacebookLogin } from "@/hooks/useFacebookPages";
 import { PageSelectionDialog } from "@/components/pages/PageSelectionDialog";
+import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { useFetchConversations } from "@/hooks/useConversations";
+import { useTogglePageAutomation } from "@/hooks/usePageSettings";
 
 export default function Pages() {
   const { data: pages = [], isLoading } = useConnectedPages();
@@ -35,11 +39,13 @@ export default function Pages() {
   const disconnectPage = useDisconnectPage();
   const validateToken = useValidatePageToken();
   const fetchConversations = useFetchConversations();
+  const toggleAutomation = useTogglePageAutomation();
   
   const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [manualToken, setManualToken] = useState("");
   const [manualPageId, setManualPageId] = useState("");
   const [syncingPageId, setSyncingPageId] = useState<string | null>(null);
+  const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
 
   const {
     pages: fbPages,
@@ -130,6 +136,15 @@ export default function Pages() {
     if (status === "active") return "active";
     if (status === "token_expired") return "warning";
     return "error";
+  };
+
+  const handleToggleAutomation = async (page: typeof pages[0], enabled: boolean) => {
+    try {
+      await toggleAutomation.mutateAsync({ pageId: page.id, enabled });
+      toast.success(enabled ? "Automation enabled" : "Automation disabled");
+    } catch (error) {
+      toast.error("Failed to toggle automation");
+    }
   };
 
   if (isLoading) {
@@ -257,6 +272,13 @@ export default function Pages() {
         error={fbError}
       />
 
+      {/* Automation Settings Dialog */}
+      <PageAutomationDialog
+        open={!!automationPage}
+        onOpenChange={(open) => !open && setAutomationPage(null)}
+        page={automationPage}
+      />
+
       <div className="p-4 md:p-6">
         {pages.length === 0 ? (
           <EmptyState
@@ -303,6 +325,11 @@ export default function Pages() {
                           <Inbox className="mr-2 h-4 w-4" />
                           Sync Messages
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setAutomationPage(page)}>
+                          <Settings2 className="mr-2 h-4 w-4" />
+                          Automation Settings
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => handleRefresh(page)}>
                           <RefreshCw className="mr-2 h-4 w-4" />
                           Validate Token
@@ -325,6 +352,19 @@ export default function Pages() {
                     <span className="text-xs text-muted-foreground">
                       Connected {new Date(page.created_at).toLocaleDateString()}
                     </span>
+                  </div>
+
+                  {/* Automation Toggle */}
+                  <div className="mt-4 flex items-center justify-between rounded-lg border p-3">
+                    <div className="flex items-center gap-2">
+                      <Zap className={`h-4 w-4 ${(page as any).automation_enabled ? 'text-warning' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium">Automation</span>
+                    </div>
+                    <Switch
+                      checked={(page as any).automation_enabled || false}
+                      onCheckedChange={(checked) => handleToggleAutomation(page, checked)}
+                      disabled={page.connection_status === "token_expired"}
+                    />
                   </div>
 
                   {page.connection_status === "token_expired" && (
