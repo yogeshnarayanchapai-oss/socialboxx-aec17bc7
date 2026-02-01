@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,12 +14,56 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useSettings, useUpdateSettings, type AppSettings } from "@/hooks/useSettings";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Settings() {
-  const handleSave = () => {
-    toast.success("Settings saved successfully");
+  const { data: settings, isLoading } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const { user } = useAuth();
+  
+  const [localSettings, setLocalSettings] = useState<AppSettings>({});
+  const [workingDays, setWorkingDays] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (settings) {
+      setLocalSettings(settings);
+      setWorkingDays(settings.working_days || ["Mon", "Tue", "Wed", "Thu", "Fri"]);
+    }
+  }, [settings]);
+
+  const handleSave = async (updates: Partial<AppSettings>) => {
+    try {
+      await updateSettings.mutateAsync(updates);
+      toast.success("Settings saved successfully");
+    } catch (error) {
+      toast.error("Failed to save settings");
+    }
   };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    toast.success("Signed out successfully");
+  };
+
+  const toggleWorkingDay = (day: string) => {
+    const newDays = workingDays.includes(day)
+      ? workingDays.filter(d => d !== day)
+      : [...workingDays, day];
+    setWorkingDays(newDays);
+    setLocalSettings({ ...localSettings, working_days: newDays });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -48,12 +93,20 @@ export default function Settings() {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="company">Company Name</Label>
-                  <Input id="company" placeholder="Your Company" />
+                  <Input 
+                    id="company" 
+                    placeholder="Your Company"
+                    value={localSettings.company_name || ""}
+                    onChange={(e) => setLocalSettings({ ...localSettings, company_name: e.target.value })}
+                  />
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="timezone">Timezone</Label>
-                  <Select defaultValue="utc-8">
+                  <Select 
+                    value={localSettings.timezone || "utc-8"}
+                    onValueChange={(value) => setLocalSettings({ ...localSettings, timezone: value })}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select timezone" />
                     </SelectTrigger>
@@ -73,10 +126,43 @@ export default function Settings() {
                       Receive email alerts for important events
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch 
+                    checked={localSettings.email_notifications ?? true}
+                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, email_notifications: checked })}
+                  />
                 </div>
 
-                <Button onClick={handleSave}>Save Changes</Button>
+                <Button 
+                  onClick={() => handleSave({
+                    company_name: localSettings.company_name,
+                    timezone: localSettings.timezone,
+                    email_notifications: localSettings.email_notifications,
+                  })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Account</CardTitle>
+                <CardDescription>
+                  Manage your account
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                  <div>
+                    <p className="font-medium">{user?.email}</p>
+                    <p className="text-sm text-muted-foreground">Signed in</p>
+                  </div>
+                  <Button variant="outline" onClick={handleSignOut}>
+                    Sign Out
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -97,29 +183,41 @@ export default function Settings() {
                       Only send automated replies during business hours
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch 
+                    checked={localSettings.business_hours_enabled ?? true}
+                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, business_hours_enabled: checked })}
+                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Start Time</Label>
-                    <Input type="time" defaultValue="09:00" />
+                    <Input 
+                      type="time" 
+                      value={localSettings.business_hours_start || "09:00"}
+                      onChange={(e) => setLocalSettings({ ...localSettings, business_hours_start: e.target.value })}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>End Time</Label>
-                    <Input type="time" defaultValue="18:00" />
+                    <Input 
+                      type="time" 
+                      value={localSettings.business_hours_end || "18:00"}
+                      onChange={(e) => setLocalSettings({ ...localSettings, business_hours_end: e.target.value })}
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Working Days</Label>
                   <div className="flex flex-wrap gap-2">
-                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, idx) => (
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
                       <Button
                         key={day}
-                        variant={idx < 5 ? "default" : "outline"}
+                        variant={workingDays.includes(day) ? "default" : "outline"}
                         size="sm"
                         className="w-12"
+                        onClick={() => toggleWorkingDay(day)}
                       >
                         {day}
                       </Button>
@@ -127,7 +225,18 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <Button onClick={handleSave}>Save Changes</Button>
+                <Button 
+                  onClick={() => handleSave({
+                    business_hours_enabled: localSettings.business_hours_enabled,
+                    business_hours_start: localSettings.business_hours_start,
+                    business_hours_end: localSettings.business_hours_end,
+                    working_days: workingDays,
+                  })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
+                </Button>
               </CardContent>
             </Card>
 
@@ -146,21 +255,42 @@ export default function Settings() {
                       No automated messages will be sent during quiet hours
                     </p>
                   </div>
-                  <Switch />
+                  <Switch 
+                    checked={localSettings.quiet_hours_enabled ?? false}
+                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, quiet_hours_enabled: checked })}
+                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Quiet Start</Label>
-                    <Input type="time" defaultValue="22:00" />
+                    <Input 
+                      type="time" 
+                      value={localSettings.quiet_hours_start || "22:00"}
+                      onChange={(e) => setLocalSettings({ ...localSettings, quiet_hours_start: e.target.value })}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Quiet End</Label>
-                    <Input type="time" defaultValue="08:00" />
+                    <Input 
+                      type="time" 
+                      value={localSettings.quiet_hours_end || "08:00"}
+                      onChange={(e) => setLocalSettings({ ...localSettings, quiet_hours_end: e.target.value })}
+                    />
                   </div>
                 </div>
 
-                <Button onClick={handleSave}>Save Changes</Button>
+                <Button 
+                  onClick={() => handleSave({
+                    quiet_hours_enabled: localSettings.quiet_hours_enabled,
+                    quiet_hours_start: localSettings.quiet_hours_start,
+                    quiet_hours_end: localSettings.quiet_hours_end,
+                  })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -181,34 +311,62 @@ export default function Settings() {
                       Add random delays and limits to mimic human behavior
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch 
+                    checked={localSettings.human_mode_enabled ?? true}
+                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, human_mode_enabled: checked })}
+                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Min Delay (seconds)</Label>
-                    <Input type="number" defaultValue="15" min="5" />
+                    <Input 
+                      type="number" 
+                      value={localSettings.min_delay || 15}
+                      onChange={(e) => setLocalSettings({ ...localSettings, min_delay: parseInt(e.target.value) })}
+                      min="5" 
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Max Delay (seconds)</Label>
-                    <Input type="number" defaultValue="90" min="10" />
+                    <Input 
+                      type="number" 
+                      value={localSettings.max_delay || 90}
+                      onChange={(e) => setLocalSettings({ ...localSettings, max_delay: parseInt(e.target.value) })}
+                      min="10" 
+                    />
                   </div>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Max Messages per Conversation/Day</Label>
-                    <Input type="number" defaultValue="5" min="1" />
+                    <Input 
+                      type="number" 
+                      value={localSettings.max_messages_per_conversation || 5}
+                      onChange={(e) => setLocalSettings({ ...localSettings, max_messages_per_conversation: parseInt(e.target.value) })}
+                      min="1" 
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Max Messages per Page/Hour</Label>
-                    <Input type="number" defaultValue="30" min="10" />
+                    <Input 
+                      type="number" 
+                      value={localSettings.max_messages_per_page_hour || 30}
+                      onChange={(e) => setLocalSettings({ ...localSettings, max_messages_per_page_hour: parseInt(e.target.value) })}
+                      min="10" 
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>Min Gap Between Messages (seconds)</Label>
-                  <Input type="number" defaultValue="60" min="30" />
+                  <Input 
+                    type="number" 
+                    value={localSettings.min_gap_between_messages || 60}
+                    onChange={(e) => setLocalSettings({ ...localSettings, min_gap_between_messages: parseInt(e.target.value) })}
+                    min="30" 
+                  />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -218,10 +376,27 @@ export default function Settings() {
                       Require approval for AI-generated replies by default
                     </p>
                   </div>
-                  <Switch defaultChecked />
+                  <Switch 
+                    checked={localSettings.approve_before_send ?? true}
+                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, approve_before_send: checked })}
+                  />
                 </div>
 
-                <Button onClick={handleSave}>Save Changes</Button>
+                <Button 
+                  onClick={() => handleSave({
+                    human_mode_enabled: localSettings.human_mode_enabled,
+                    min_delay: localSettings.min_delay,
+                    max_delay: localSettings.max_delay,
+                    max_messages_per_conversation: localSettings.max_messages_per_conversation,
+                    max_messages_per_page_hour: localSettings.max_messages_per_page_hour,
+                    min_gap_between_messages: localSettings.min_gap_between_messages,
+                    approve_before_send: localSettings.approve_before_send,
+                  })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Changes
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -238,11 +413,11 @@ export default function Settings() {
                 <div className="flex items-center justify-between rounded-lg border border-border p-4">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-medium">
-                      AD
+                      {user?.email?.substring(0, 2).toUpperCase()}
                     </div>
                     <div>
-                      <p className="font-medium">Admin User</p>
-                      <p className="text-sm text-muted-foreground">admin@example.com</p>
+                      <p className="font-medium">{user?.email}</p>
+                      <p className="text-sm text-muted-foreground">You</p>
                     </div>
                   </div>
                   <span className="status-badge bg-primary/10 text-primary">Admin</span>
@@ -267,12 +442,19 @@ export default function Settings() {
                 <Textarea
                   placeholder="Enter keywords, one per line..."
                   className="min-h-[150px]"
-                  defaultValue="spam
-scam
-unsubscribe
-stop messaging"
+                  value={(localSettings.blacklist_keywords || []).join("\n")}
+                  onChange={(e) => setLocalSettings({ 
+                    ...localSettings, 
+                    blacklist_keywords: e.target.value.split("\n").filter(Boolean) 
+                  })}
                 />
-                <Button onClick={handleSave}>Save Keywords</Button>
+                <Button 
+                  onClick={() => handleSave({ blacklist_keywords: localSettings.blacklist_keywords })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save Keywords
+                </Button>
               </CardContent>
             </Card>
 
@@ -287,8 +469,19 @@ stop messaging"
                 <Textarea
                   placeholder="Enter phone numbers or Facebook IDs, one per line..."
                   className="min-h-[150px]"
+                  value={(localSettings.do_not_contact || []).join("\n")}
+                  onChange={(e) => setLocalSettings({ 
+                    ...localSettings, 
+                    do_not_contact: e.target.value.split("\n").filter(Boolean) 
+                  })}
                 />
-                <Button onClick={handleSave}>Save List</Button>
+                <Button 
+                  onClick={() => handleSave({ do_not_contact: localSettings.do_not_contact })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save List
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>

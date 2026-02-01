@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink } from "lucide-react";
+import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,69 +23,70 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-
-// Mock connected pages
-const mockPages = [
-  {
-    id: "1",
-    page_name: "My Business Store",
-    page_id: "123456789",
-    connection_status: "active",
-    page_picture_url: null,
-    created_at: "2024-01-15",
-  },
-  {
-    id: "2",
-    page_name: "Customer Support",
-    page_id: "987654321",
-    connection_status: "active",
-    page_picture_url: null,
-    created_at: "2024-01-20",
-  },
-];
+import { useConnectedPages, useConnectPage, useDisconnectPage, useValidatePageToken } from "@/hooks/usePages";
 
 export default function Pages() {
-  const [pages, setPages] = useState(mockPages);
+  const { data: pages = [], isLoading } = useConnectedPages();
+  const connectPage = useConnectPage();
+  const disconnectPage = useDisconnectPage();
+  const validateToken = useValidatePageToken();
+  
   const [isConnectOpen, setIsConnectOpen] = useState(false);
   const [manualToken, setManualToken] = useState("");
   const [manualPageId, setManualPageId] = useState("");
 
   const handleOAuthConnect = () => {
-    // In production, this would redirect to Facebook OAuth
-    toast.info("Facebook OAuth would open here. This requires Meta App setup.");
+    toast.info("Facebook OAuth requires Meta App setup. Use manual token entry for now.");
   };
 
-  const handleManualConnect = () => {
+  const handleManualConnect = async () => {
     if (!manualToken || !manualPageId) {
       toast.error("Please provide both Page ID and Access Token");
       return;
     }
-    
-    // Mock adding a page
-    const newPage = {
-      id: String(Date.now()),
-      page_name: `Page ${manualPageId}`,
-      page_id: manualPageId,
-      connection_status: "active",
-      page_picture_url: null,
-      created_at: new Date().toISOString(),
-    };
-    
-    setPages([...pages, newPage]);
-    setIsConnectOpen(false);
-    setManualToken("");
-    setManualPageId("");
-    toast.success("Page connected successfully!");
+
+    try {
+      await connectPage.mutateAsync({
+        pageId: manualPageId,
+        accessToken: manualToken,
+      });
+      setIsConnectOpen(false);
+      setManualToken("");
+      setManualPageId("");
+      toast.success("Page connected successfully!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to connect page");
+    }
   };
 
-  const handleDisconnect = (pageId: string) => {
-    setPages(pages.filter((p) => p.id !== pageId));
-    toast.success("Page disconnected");
+  const handleDisconnect = async (pageId: string) => {
+    try {
+      await disconnectPage.mutateAsync(pageId);
+      toast.success("Page disconnected");
+    } catch (error) {
+      toast.error("Failed to disconnect page");
+    }
   };
 
-  const handleRefresh = (pageId: string) => {
-    toast.success("Token validated successfully");
+  const handleRefresh = async (page: { id: string; page_id: string; page_access_token: string }) => {
+    try {
+      await validateToken.mutateAsync({
+        pageId: page.page_id,
+        accessToken: page.page_access_token,
+      });
+      toast.success("Token validated successfully");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Token validation failed");
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen">
@@ -164,7 +165,12 @@ export default function Pages() {
                       </a>
                     </p>
                   </div>
-                  <Button onClick={handleManualConnect} className="w-full">
+                  <Button 
+                    onClick={handleManualConnect} 
+                    className="w-full"
+                    disabled={connectPage.isPending}
+                  >
+                    {connectPage.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Connect Page
                   </Button>
                 </TabsContent>
@@ -191,7 +197,15 @@ export default function Pages() {
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#1877F2]/10">
-                        <Facebook className="h-6 w-6 text-[#1877F2]" />
+                        {page.page_picture_url ? (
+                          <img 
+                            src={page.page_picture_url} 
+                            alt={page.page_name} 
+                            className="h-12 w-12 rounded-full object-cover"
+                          />
+                        ) : (
+                          <Facebook className="h-6 w-6 text-[#1877F2]" />
+                        )}
                       </div>
                       <div>
                         <h3 className="font-semibold">{page.page_name}</h3>
@@ -208,7 +222,7 @@ export default function Pages() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleRefresh(page.id)}>
+                        <DropdownMenuItem onClick={() => handleRefresh(page)}>
                           <RefreshCw className="mr-2 h-4 w-4" />
                           Validate Token
                         </DropdownMenuItem>
