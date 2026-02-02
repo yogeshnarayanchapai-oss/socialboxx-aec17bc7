@@ -6,17 +6,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Facebook OAuth configuration
-const FB_GRAPH_VERSION = "v19.0";
+// Facebook OAuth configuration - Using v24.0 like Sambad.io reference
+const FB_GRAPH_VERSION = "v24.0";
 const FB_GRAPH_URL = `https://graph.facebook.com/${FB_GRAPH_VERSION}`;
 
-// Required permissions for page connection and messaging
+// Required permissions for page connection and messaging (matching reference app)
 const REQUIRED_SCOPES = [
+  "business_management",
+  "pages_manage_metadata",
+  "pages_messaging",
   "pages_show_list",
   "pages_read_engagement",
-  "pages_manage_metadata",
-  "pages_manage_posts",
-  "pages_messaging",
+  "public_profile",
 ].join(",");
 
 interface OAuthState {
