@@ -75,6 +75,7 @@ serve(async (req) => {
       }
 
       // Exchange for long-lived token
+      console.log("Exchanging token with App ID:", appId.substring(0, 5) + "...");
       const exchangeUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${userAccessToken}`;
       
       const exchangeResponse = await fetch(exchangeUrl);
@@ -82,10 +83,24 @@ serve(async (req) => {
 
       if (!exchangeResponse.ok || exchangeData.error) {
         console.error("Token exchange failed:", exchangeData);
+        
+        // Provide helpful error messages for common issues
+        let errorMessage = exchangeData.error?.message || "Failed to exchange token";
+        const errorCode = exchangeData.error?.code;
+        
+        if (errorMessage.includes("could not be decrypted") || errorCode === 190) {
+          errorMessage = "App Secret doesn't match the App ID. Please verify your Facebook App credentials in Settings match exactly with Facebook Developer Console.";
+        } else if (errorMessage.includes("Invalid OAuth access token")) {
+          errorMessage = "Invalid token. Please try logging in with Facebook again.";
+        } else if (errorCode === 101) {
+          errorMessage = "Invalid App ID. Please check your Facebook App ID in Settings.";
+        }
+        
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: exchangeData.error?.message || "Failed to exchange token" 
+            error: errorMessage,
+            debug: { code: errorCode, original: exchangeData.error?.message }
           }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
