@@ -7,7 +7,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
-import Integrations from "./pages/Integrations";
+import Pages from "./pages/Pages";
 import Inbox from "./pages/Inbox";
 import Leads from "./pages/Leads";
 import Automation from "./pages/Automation";
@@ -30,8 +30,7 @@ const App = () => (
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/integrations" element={<Integrations />} />
-              <Route path="/pages" element={<Navigate to="/integrations?channel=facebook" replace />} />
+              <Route path="/pages" element={<Pages />} />
               <Route path="/inbox" element={<Inbox />} />
               <Route path="/leads" element={<Leads />} />
               <Route path="/automation" element={<Automation />} />

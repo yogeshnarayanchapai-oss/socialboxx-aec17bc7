@@ -1,7 +1,7 @@
 import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
-  Plug,
+  FileText,
   Inbox,
   Users,
   Zap,
@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 
 const navigationItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Integrations", href: "/integrations", icon: Plug },
+  { name: "Pages", href: "/pages", icon: FileText },
   { name: "Inbox", href: "/inbox", icon: Inbox },
   { name: "Leads", href: "/leads", icon: Users },
   { name: "Automation", href: "/automation", icon: Zap },
