@@ -99,8 +99,43 @@ export function useFacebookLogin() {
 
   const fetchUserPages = async (userAccessToken: string) => {
     try {
+      // First, exchange for long-lived token via our edge function
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("Not authenticated. Please log in first.");
+      }
+
+      console.log("Exchanging for long-lived token...");
+      const exchangeResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/facebook-connect`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action: "exchangeLongLivedToken",
+            userAccessToken: userAccessToken,
+          }),
+        }
+      );
+
+      const exchangeData = await exchangeResponse.json();
+      
+      // Use long-lived token if exchange succeeded, otherwise fall back to original
+      let tokenToUse = userAccessToken;
+      if (exchangeResponse.ok && exchangeData.access_token) {
+        console.log("Got long-lived token, expires:", exchangeData.token_expiry);
+        tokenToUse = exchangeData.access_token;
+      } else {
+        console.warn("Token exchange failed, using short-lived token:", exchangeData.error);
+        // Don't fail - try with short-lived token (might work for immediate use)
+      }
+
+      // Now fetch pages using the (preferably long-lived) token
       const response = await fetch(
-        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,picture.type(square),tasks&access_token=${userAccessToken}`
+        `https://graph.facebook.com/v19.0/me/accounts?fields=id,name,access_token,picture.type(square),tasks&access_token=${tokenToUse}`
       );
       const data = await response.json();
 
