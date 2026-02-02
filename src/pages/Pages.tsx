@@ -1,18 +1,10 @@
-import { useState } from "react";
-import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, ExternalLink, Loader2, Inbox, AlertCircle, Settings2, Zap } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, Facebook, MoreVertical, RefreshCw, Trash2, Loader2, Inbox, AlertCircle, Settings2, Zap, Link2Off } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,77 +12,40 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { useConnectedPages, useConnectPage, useDisconnectPage, useValidatePageToken } from "@/hooks/usePages";
-import { useFacebookLogin } from "@/hooks/useFacebookPages";
-import { PageSelectionDialog } from "@/components/pages/PageSelectionDialog";
+import { useConnectedPages, useValidatePageToken } from "@/hooks/usePages";
+import { FacebookConnectWizard } from "@/components/facebook/FacebookConnectWizard";
 import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { useFetchConversations } from "@/hooks/useConversations";
 import { useTogglePageAutomation } from "@/hooks/usePageSettings";
+import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
 
 export default function Pages() {
-  const { data: pages = [], isLoading } = useConnectedPages();
-  const connectPage = useConnectPage();
+  const { data: pages = [], isLoading, refetch } = useConnectedPages();
   const disconnectPage = useDisconnectPage();
   const validateToken = useValidatePageToken();
   const fetchConversations = useFetchConversations();
   const toggleAutomation = useTogglePageAutomation();
   
-  const [isConnectOpen, setIsConnectOpen] = useState(false);
-  const [manualToken, setManualToken] = useState("");
-  const [manualPageId, setManualPageId] = useState("");
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [syncingPageId, setSyncingPageId] = useState<string | null>(null);
   const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
 
-  const {
-    pages: fbPages,
-    isLoading: fbLoading,
-    showPageSelection,
-    error: fbError,
-    initiateLogin,
-    reset: resetFbLogin,
-    setShowPageSelection,
-  } = useFacebookLogin();
-
-  const handleOAuthConnect = async () => {
-    try {
-      await initiateLogin();
-    } catch (error) {
-      // Error is handled in the hook
+  // Check URL for OAuth callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("fb_session") || params.has("fb_error")) {
+      setIsWizardOpen(true);
     }
-  };
-
-  const handleManualConnect = async () => {
-    if (!manualToken || !manualPageId) {
-      toast.error("Please provide both Page ID and Access Token");
-      return;
-    }
-
-    try {
-      await connectPage.mutateAsync({
-        pageId: manualPageId,
-        accessToken: manualToken,
-      });
-      setIsConnectOpen(false);
-      setManualToken("");
-      setManualPageId("");
-      toast.success("Page connected successfully!");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to connect page");
-    }
-  };
+  }, []);
 
   const handleDisconnect = async (pageId: string) => {
     try {
       await disconnectPage.mutateAsync(pageId);
-      toast.success("Page disconnected");
     } catch (error) {
-      toast.error("Failed to disconnect page");
+      // Error handled in hook
     }
   };
 
@@ -118,20 +73,6 @@ export default function Pages() {
     }
   };
 
-  const handlePageSelectionSuccess = () => {
-    resetFbLogin();
-    setIsConnectOpen(false);
-  };
-
-  const handleDialogClose = (open: boolean) => {
-    setIsConnectOpen(open);
-    if (!open) {
-      resetFbLogin();
-      setManualToken("");
-      setManualPageId("");
-    }
-  };
-
   const getStatusVariant = (status: string): "active" | "warning" | "error" => {
     if (status === "active") return "active";
     if (status === "token_expired") return "warning";
@@ -145,6 +86,10 @@ export default function Pages() {
     } catch (error) {
       toast.error("Failed to toggle automation");
     }
+  };
+
+  const handleWizardSuccess = () => {
+    refetch();
   };
 
   if (isLoading) {
@@ -161,137 +106,18 @@ export default function Pages() {
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
         action={
-          <Dialog open={isConnectOpen} onOpenChange={handleDialogClose}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Connect New Page
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Connect Facebook Page</DialogTitle>
-                <DialogDescription>
-                  Connect your Facebook Page to start receiving messages
-                </DialogDescription>
-              </DialogHeader>
-              
-              <Tabs defaultValue="oauth" className="mt-4">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="oauth">Login with Facebook</TabsTrigger>
-                  <TabsTrigger value="manual">Manual Token</TabsTrigger>
-                </TabsList>
-                
-                <TabsContent value="oauth" className="mt-4 space-y-4">
-                  {fbError && (
-                    <Alert variant="destructive">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>{fbError}</AlertDescription>
-                    </Alert>
-                  )}
-                  
-                  <div className="rounded-lg border border-border bg-muted/50 p-4 text-center">
-                    <Facebook className="mx-auto h-12 w-12 text-[#1877F2]" />
-                    <p className="mt-2 text-sm font-medium">
-                      One-Click Setup
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Login → Select Pages → Done! Webhooks setup automatically.
-                    </p>
-                  </div>
-                  
-                  {/* Checklist */}
-                  <div className="rounded-lg border border-dashed p-3 space-y-2 text-xs">
-                    <p className="font-medium text-muted-foreground">What happens automatically:</p>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                      <span>Facebook Page connected</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                      <span>Webhook subscription created</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                      <span>Token stored securely</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                      <span>Enable Auto-Reply after connecting</span>
-                    </div>
-                  </div>
-
-                  <Button 
-                    onClick={handleOAuthConnect} 
-                    className="w-full bg-[#1877F2] hover:bg-[#1877F2]/90"
-                    disabled={fbLoading}
-                  >
-                    {fbLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    <Facebook className="mr-2 h-4 w-4" />
-                    {fbLoading ? "Connecting..." : "Connect with Facebook"}
-                  </Button>
-                </TabsContent>
-                
-                <TabsContent value="manual" className="mt-4 space-y-4">
-                  <div className="space-y-3">
-                    <div>
-                      <Label htmlFor="pageId">Page ID</Label>
-                      <Input
-                        id="pageId"
-                        placeholder="Enter your Facebook Page ID"
-                        value={manualPageId}
-                        onChange={(e) => setManualPageId(e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="token">Page Access Token</Label>
-                      <Input
-                        id="token"
-                        type="password"
-                        placeholder="Enter your Page Access Token"
-                        value={manualToken}
-                        onChange={(e) => setManualToken(e.target.value)}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      You can get these from the{" "}
-                      <a
-                        href="https://developers.facebook.com/tools/explorer"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        Meta Graph API Explorer
-                        <ExternalLink className="ml-1 inline h-3 w-3" />
-                      </a>
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Required permissions: pages_show_list, pages_messaging, pages_read_engagement
-                    </p>
-                  </div>
-                  <Button 
-                    onClick={handleManualConnect} 
-                    className="w-full"
-                    disabled={connectPage.isPending}
-                  >
-                    {connectPage.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Connect Page
-                  </Button>
-                </TabsContent>
-              </Tabs>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={() => setIsWizardOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Connect New Page
+          </Button>
         }
       />
 
-      {/* Page Selection Dialog for Facebook OAuth */}
-      <PageSelectionDialog
-        open={showPageSelection}
-        onOpenChange={setShowPageSelection}
-        pages={fbPages}
-        onSuccess={handlePageSelectionSuccess}
-        isLoading={fbLoading && !showPageSelection}
-        error={fbError}
+      {/* Facebook Connect Wizard */}
+      <FacebookConnectWizard
+        open={isWizardOpen}
+        onOpenChange={setIsWizardOpen}
+        onSuccess={handleWizardSuccess}
       />
 
       {/* Automation Settings Dialog */}
@@ -308,7 +134,7 @@ export default function Pages() {
             title="No pages connected"
             description="Connect your Facebook Pages to start managing messages from a unified inbox"
             actionLabel="Connect Page"
-            onAction={() => setIsConnectOpen(true)}
+            onAction={() => setIsWizardOpen(true)}
           />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -317,7 +143,7 @@ export default function Pages() {
                 <CardContent className="p-4 md:p-6">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-[#1877F2]/10">
+                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
                         {page.page_picture_url ? (
                           <img 
                             src={page.page_picture_url} 
@@ -325,7 +151,7 @@ export default function Pages() {
                             className="h-12 w-12 rounded-full object-cover"
                           />
                         ) : (
-                          <Facebook className="h-6 w-6 text-[#1877F2]" />
+                          <Facebook className="h-6 w-6 text-primary" />
                         )}
                       </div>
                       <div className="min-w-0">
@@ -356,6 +182,12 @@ export default function Pages() {
                           <RefreshCw className="mr-2 h-4 w-4" />
                           Validate Token
                         </DropdownMenuItem>
+                        {page.connection_status === "token_expired" && (
+                          <DropdownMenuItem onClick={() => setIsWizardOpen(true)}>
+                            <Link2Off className="mr-2 h-4 w-4" />
+                            Reconnect
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                           onClick={() => handleDisconnect(page.id)}
                           className="text-destructive focus:text-destructive"
@@ -379,13 +211,13 @@ export default function Pages() {
                   {/* Automation Toggle - More Prominent */}
                   <div className={`mt-4 flex items-center justify-between rounded-lg border-2 p-3 transition-colors ${
                     (page as any).automation_enabled 
-                      ? 'border-green-500/50 bg-green-500/5' 
+                      ? 'border-accent/50 bg-accent/5' 
                       : 'border-dashed border-muted-foreground/30'
                   }`}>
                     <div className="flex items-center gap-2">
                       <div className={`rounded-full p-1.5 ${
                         (page as any).automation_enabled 
-                          ? 'bg-green-500/20 text-green-500' 
+                          ? 'bg-accent/20 text-accent-foreground' 
                           : 'bg-muted text-muted-foreground'
                       }`}>
                         <Zap className="h-4 w-4" />
@@ -410,7 +242,7 @@ export default function Pages() {
                     <Alert variant="destructive" className="mt-4">
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription className="text-xs">
-                        Token expired. Please reconnect this page.
+                        Token expired. Click "Reconnect" to fix.
                       </AlertDescription>
                     </Alert>
                   )}
