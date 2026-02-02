@@ -32,42 +32,156 @@ function extractNepaliPhone(text: string): string | null {
   return null;
 }
 
-function checkKeywordMatch(text: string, keywords: { keywords: string[]; reply: string }[]): string | null {
+interface KeywordRule {
+  keywords: string[];
+  reply: string;
+  media?: MediaAttachment;
+  enabled?: boolean;
+}
+
+interface KeywordMatch {
+  reply: string;
+  media?: MediaAttachment;
+}
+
+function checkKeywordMatch(text: string, keywords: KeywordRule[]): KeywordMatch | null {
   if (!text || !keywords || keywords.length === 0) return null;
   
   const lowerText = text.toLowerCase();
   for (const rule of keywords) {
+    // Skip disabled rules
+    if (rule.enabled === false) continue;
+    
     for (const keyword of rule.keywords) {
       if (lowerText.includes(keyword.toLowerCase())) {
-        return rule.reply;
+        return {
+          reply: rule.reply,
+          media: rule.media
+        };
       }
     }
   }
   return null;
 }
 
-async function sendAutoReply(pageAccessToken: string, recipientId: string, message: string): Promise<boolean> {
+interface MediaAttachment {
+  type: "image" | "video" | "link";
+  url: string;
+}
+
+interface MessagePayload {
+  text?: string;
+  media?: MediaAttachment;
+}
+
+function parseMessageContent(content: string): MessagePayload {
+  // Try to parse as JSON (new format with media)
   try {
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/me/messages`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipient: { id: recipientId },
-          message: { text: message },
-          access_token: pageAccessToken,
-        }),
+    const parsed = JSON.parse(content);
+    if (parsed.text !== undefined) {
+      return parsed;
+    }
+  } catch {
+    // Not JSON, treat as plain text
+  }
+  return { text: content };
+}
+
+async function sendAutoReply(
+  pageAccessToken: string, 
+  recipientId: string, 
+  messageContent: string,
+  media?: MediaAttachment | null
+): Promise<boolean> {
+  try {
+    // Parse message content to check for embedded media
+    const parsed = parseMessageContent(messageContent);
+    const textMessage = parsed.text || messageContent;
+    const mediaToSend = media || parsed.media;
+
+    // Send text message first
+    if (textMessage) {
+      const textResponse = await fetch(
+        `https://graph.facebook.com/v19.0/me/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recipient: { id: recipientId },
+            message: { text: textMessage },
+            access_token: pageAccessToken,
+          }),
+        }
+      );
+      
+      if (!textResponse.ok) {
+        const err = await textResponse.json();
+        console.error("Auto-reply text failed:", err);
+        return false;
       }
-    );
-    
-    if (!response.ok) {
-      const err = await response.json();
-      console.error("Auto-reply failed:", err);
-      return false;
+      console.log("Auto-reply text sent successfully to", recipientId);
+    }
+
+    // Send media if present
+    if (mediaToSend && mediaToSend.url) {
+      let mediaPayload: any;
+      
+      if (mediaToSend.type === "image") {
+        mediaPayload = {
+          attachment: {
+            type: "image",
+            payload: { url: mediaToSend.url, is_reusable: true }
+          }
+        };
+      } else if (mediaToSend.type === "video") {
+        mediaPayload = {
+          attachment: {
+            type: "video",
+            payload: { url: mediaToSend.url, is_reusable: true }
+          }
+        };
+      } else if (mediaToSend.type === "link") {
+        // For links, send as a button template
+        mediaPayload = {
+          attachment: {
+            type: "template",
+            payload: {
+              template_type: "button",
+              text: "🔗 Link:",
+              buttons: [{
+                type: "web_url",
+                url: mediaToSend.url,
+                title: "Open Link"
+              }]
+            }
+          }
+        };
+      }
+
+      if (mediaPayload) {
+        const mediaResponse = await fetch(
+          `https://graph.facebook.com/v19.0/me/messages`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipient: { id: recipientId },
+              message: mediaPayload,
+              access_token: pageAccessToken,
+            }),
+          }
+        );
+        
+        if (!mediaResponse.ok) {
+          const err = await mediaResponse.json();
+          console.error("Auto-reply media failed:", err);
+          // Don't fail completely if media fails, text was sent
+        } else {
+          console.log("Auto-reply media sent successfully to", recipientId);
+        }
+      }
     }
     
-    console.log("Auto-reply sent successfully to", recipientId);
     return true;
   } catch (error) {
     console.error("Auto-reply error:", error);
@@ -303,33 +417,36 @@ serve(async (req) => {
             console.log("Automation enabled, checking auto-reply rules");
             
             let autoReplyMessage: string | null = null;
+            let autoReplyMedia: MediaAttachment | undefined = undefined;
             let autoReplyType: string | null = null;
 
             // Check keyword-based replies first
-            const keywordReply = checkKeywordMatch(
+            const keywordMatch = checkKeywordMatch(
               message.text || "",
-              (page.auto_reply_keywords as { keywords: string[]; reply: string }[]) || []
+              (page.auto_reply_keywords as KeywordRule[]) || []
             );
             
-            if (keywordReply) {
-              autoReplyMessage = keywordReply;
+            if (keywordMatch) {
+              autoReplyMessage = keywordMatch.reply;
+              autoReplyMedia = keywordMatch.media;
               autoReplyType = "keyword";
             } else if (isFirstMessage && page.auto_reply_first_message) {
               // First message auto-reply
               autoReplyMessage = page.auto_reply_first_message;
               autoReplyType = "first_message";
             } else if (!isFirstMessage && page.auto_reply_followup) {
-              // Follow-up auto-reply (only if no keyword matched)
-              // Only send follow-up if explicitly configured
-              // Commenting out follow-up for now to avoid spam
-              // autoReplyMessage = page.auto_reply_followup;
-              // autoReplyType = "followup";
+              // Follow-up auto-reply (enabled now)
+              autoReplyMessage = page.auto_reply_followup;
+              autoReplyType = "followup";
             }
 
             if (autoReplyMessage) {
-              console.log(`Sending ${autoReplyType} auto-reply:`, autoReplyMessage.substring(0, 50));
+              // Parse the message content to get text for logging
+              const parsed = parseMessageContent(autoReplyMessage);
+              const logText = parsed.text || autoReplyMessage;
+              console.log(`Sending ${autoReplyType} auto-reply:`, logText.substring(0, 50));
               
-              const sent = await sendAutoReply(page.page_access_token, senderId, autoReplyMessage);
+              const sent = await sendAutoReply(page.page_access_token, senderId, autoReplyMessage, autoReplyMedia);
               
               if (sent) {
                 // Save the auto-reply message to database
@@ -337,9 +454,10 @@ serve(async (req) => {
                   .from("messages")
                   .insert({
                     conversation_id: conversationId,
-                    content: autoReplyMessage,
+                    content: parsed.text || autoReplyMessage,
                     sender_type: "page",
-                    message_type: "text",
+                    message_type: autoReplyMedia ? "media" : "text",
+                    media_url: autoReplyMedia?.url || parsed.media?.url,
                     created_at: new Date().toISOString(),
                   });
 
@@ -348,7 +466,7 @@ serve(async (req) => {
                   .from("conversations")
                   .update({
                     status: "replied",
-                    last_message_preview: autoReplyMessage.substring(0, 100),
+                    last_message_preview: (parsed.text || autoReplyMessage).substring(0, 100),
                     last_message_at: new Date().toISOString(),
                   })
                   .eq("id", conversationId);
