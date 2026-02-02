@@ -29,7 +29,82 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { action, pageId, accessToken, pageName, pagePictureUrl } = await req.json();
+    const { action, pageId, accessToken, pageName, pagePictureUrl, userAccessToken } = await req.json();
+
+    // Helper function to get Facebook app credentials from DB
+    async function getFacebookCredentials() {
+      const { data: settingsData } = await supabase
+        .from("app_settings")
+        .select("setting_key, setting_value")
+        .in("setting_key", ["facebook_app_id", "facebook_app_secret"]);
+
+      let appId = "";
+      let appSecret = "";
+
+      settingsData?.forEach((s) => {
+        if (s.setting_key === "facebook_app_id") {
+          appId = typeof s.setting_value === "string" ? s.setting_value : "";
+        }
+        if (s.setting_key === "facebook_app_secret") {
+          appSecret = typeof s.setting_value === "string" ? s.setting_value : "";
+        }
+      });
+
+      return { appId, appSecret };
+    }
+
+    // Action: Exchange short-lived token for long-lived token
+    if (action === "exchangeLongLivedToken") {
+      const { appId, appSecret } = await getFacebookCredentials();
+
+      if (!appId || !appSecret) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: "Facebook App credentials not configured. Please set up in Settings." 
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      if (!userAccessToken) {
+        return new Response(
+          JSON.stringify({ success: false, error: "User access token required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Exchange for long-lived token
+      const exchangeUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${userAccessToken}`;
+      
+      const exchangeResponse = await fetch(exchangeUrl);
+      const exchangeData = await exchangeResponse.json();
+
+      if (!exchangeResponse.ok || exchangeData.error) {
+        console.error("Token exchange failed:", exchangeData);
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: exchangeData.error?.message || "Failed to exchange token" 
+          }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Calculate expiry (typically 60 days for long-lived tokens)
+      const expiresIn = exchangeData.expires_in || 60 * 24 * 60 * 60; // Default 60 days in seconds
+      const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
+
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          access_token: exchangeData.access_token,
+          token_expiry: tokenExpiry.toISOString(),
+          expires_in: expiresIn
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     if (action === "validate") {
       // Validate the token by calling Facebook Graph API
@@ -97,12 +172,16 @@ serve(async (req) => {
       const pageData = await validateResponse.json();
       console.log("Token validated for page:", pageData.name);
 
+      // Calculate token expiry (page tokens from long-lived user tokens are long-lived)
+      // They typically don't expire but we set a reasonable expiry for health checks
+      const tokenExpiry = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000); // 60 days
+
       // Check if page already connected
       const { data: existingPage } = await supabase
         .from("connected_pages")
         .select("id")
         .eq("page_id", pageId)
-        .single();
+        .maybeSingle();
 
       if (existingPage) {
         console.log("Updating existing page connection:", existingPage.id);
@@ -115,6 +194,7 @@ serve(async (req) => {
             page_picture_url: pageData.picture?.data?.url || pagePictureUrl,
             connection_status: "active",
             connected_by: user.id,
+            token_expiry: tokenExpiry.toISOString(),
             updated_at: new Date().toISOString(),
           })
           .eq("id", existingPage.id);
@@ -151,7 +231,12 @@ serve(async (req) => {
         }
         
         return new Response(
-          JSON.stringify({ success: true, message: "Page reconnected", pageId: existingPage.id }),
+          JSON.stringify({ 
+            success: true, 
+            message: "Page reconnected", 
+            pageId: existingPage.id,
+            token_expiry: tokenExpiry.toISOString()
+          }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -167,6 +252,7 @@ serve(async (req) => {
           page_picture_url: pageData.picture?.data?.url || pagePictureUrl,
           connected_by: user.id,
           connection_status: "active",
+          token_expiry: tokenExpiry.toISOString(),
         })
         .select()
         .single();
@@ -205,7 +291,12 @@ serve(async (req) => {
 
       console.log("Page connected successfully:", newPage.id);
       return new Response(
-        JSON.stringify({ success: true, message: "Page connected", pageId: newPage.id }),
+        JSON.stringify({ 
+          success: true, 
+          message: "Page connected", 
+          pageId: newPage.id,
+          token_expiry: tokenExpiry.toISOString()
+        }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

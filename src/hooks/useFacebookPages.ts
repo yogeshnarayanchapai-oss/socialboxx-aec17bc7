@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { fetchFacebookAppId } from "./useAppSettings";
 
 export interface FacebookPage {
   id: string;
@@ -210,17 +211,24 @@ export function useConnectMultiplePages() {
   });
 }
 
-// Helper to load Facebook SDK
-function loadFacebookSDK(): Promise<void> {
-  return new Promise((resolve, reject) => {
+// Helper to load Facebook SDK with runtime App ID from DB
+async function loadFacebookSDK(): Promise<void> {
+  return new Promise(async (resolve, reject) => {
     if (window.FB) {
       resolve();
       return;
     }
 
-    const appId = import.meta.env.VITE_FACEBOOK_APP_ID;
+    // Try to get App ID from database first, then fallback to env
+    let appId = await fetchFacebookAppId();
+    
+    if (!appId) {
+      // Fallback to environment variable
+      appId = import.meta.env.VITE_FACEBOOK_APP_ID;
+    }
+
     if (!appId || appId === "YOUR_APP_ID") {
-      reject(new Error("Facebook App ID not configured. Please set VITE_FACEBOOK_APP_ID."));
+      reject(new Error("Facebook App ID not configured. Please set up in Settings → Facebook Integration."));
       return;
     }
 
