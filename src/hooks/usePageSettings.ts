@@ -25,18 +25,42 @@ export function useUpdatePageSettings() {
       pageId: string;
       settings: Partial<PageAutomationSettings>;
     }) => {
-      // Cast auto_reply_keywords to Json for Supabase compatibility
-      const updateData: Record<string, unknown> = { ...settings };
-      if (settings.auto_reply_keywords) {
+      // Build update data with proper types for Supabase
+      const updateData: {
+        automation_enabled?: boolean;
+        auto_reply_first_message?: string;
+        auto_reply_followup?: string;
+        auto_reply_keywords?: Json;
+      } = {};
+
+      if (settings.automation_enabled !== undefined) {
+        updateData.automation_enabled = settings.automation_enabled;
+      }
+      if (settings.auto_reply_first_message !== undefined) {
+        updateData.auto_reply_first_message = settings.auto_reply_first_message;
+      }
+      if (settings.auto_reply_followup !== undefined) {
+        updateData.auto_reply_followup = settings.auto_reply_followup;
+      }
+      if (settings.auto_reply_keywords !== undefined) {
         updateData.auto_reply_keywords = settings.auto_reply_keywords as unknown as Json;
       }
 
-      const { error } = await supabase
+      console.log("Updating page settings:", { pageId, updateData });
+
+      const { data, error } = await supabase
         .from("connected_pages")
         .update(updateData)
-        .eq("id", pageId);
+        .eq("id", pageId)
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Update error:", error);
+        throw error;
+      }
+
+      console.log("Update success:", data);
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["connected-pages"] });
