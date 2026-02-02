@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,15 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, Image, Video, Link2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdatePageSettings, type AutoReplyKeyword } from "@/hooks/usePageSettings";
 import type { Json } from "@/integrations/supabase/types";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { supabase } from "@/integrations/supabase/client";
 
 interface MediaAttachment {
   type: "image" | "video" | "link";
@@ -28,7 +24,6 @@ interface MediaAttachment {
 
 interface ExtendedAutoReplyKeyword extends AutoReplyKeyword {
   media?: MediaAttachment;
-  enabled?: boolean;
 }
 
 interface PageAutomationDialogProps {
@@ -52,8 +47,6 @@ export function PageAutomationDialog({
   const updateSettings = useUpdatePageSettings();
   
   const [automationEnabled, setAutomationEnabled] = useState(false);
-  const [firstMessageEnabled, setFirstMessageEnabled] = useState(true);
-  const [followupEnabled, setFollowupEnabled] = useState(false);
   const [firstMessage, setFirstMessage] = useState("");
   const [firstMessageMedia, setFirstMessageMedia] = useState<MediaAttachment | null>(null);
   const [followupMessage, setFollowupMessage] = useState("");
@@ -66,35 +59,158 @@ export function PageAutomationDialog({
   const [newMediaType, setNewMediaType] = useState<"image" | "video" | "link" | null>(null);
   const [newMediaUrl, setNewMediaUrl] = useState("");
   
-  // Media input toggles
-  const [showFirstMessageMedia, setShowFirstMessageMedia] = useState(false);
-  const [showFollowupMedia, setShowFollowupMedia] = useState(false);
+  // Edit keyword state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editKeyword, setEditKeyword] = useState("");
+  const [editReply, setEditReply] = useState("");
+  const [editMediaType, setEditMediaType] = useState<"image" | "video" | "link" | null>(null);
+  const [editMediaUrl, setEditMediaUrl] = useState("");
+  
+  // Upload states
+  const [uploadingFirst, setUploadingFirst] = useState(false);
+  const [uploadingFollowup, setUploadingFollowup] = useState(false);
+  const [uploadingKeyword, setUploadingKeyword] = useState(false);
+  
+  // File input refs
+  const firstMediaRef = useRef<HTMLInputElement>(null);
+  const followupMediaRef = useRef<HTMLInputElement>(null);
+  const keywordMediaRef = useRef<HTMLInputElement>(null);
+  const editMediaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (page) {
       setAutomationEnabled(page.automation_enabled || false);
-      setFirstMessage(page.auto_reply_first_message || "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।");
-      setFollowupMessage(page.auto_reply_followup || "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।");
+      
+      // Parse first message (could be JSON with media or plain text)
+      try {
+        const firstMsgData = page.auto_reply_first_message ? JSON.parse(page.auto_reply_first_message) : null;
+        if (firstMsgData && typeof firstMsgData === 'object' && firstMsgData.text) {
+          setFirstMessage(firstMsgData.text);
+          setFirstMessageMedia(firstMsgData.media || null);
+        } else {
+          setFirstMessage(page.auto_reply_first_message || "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।");
+          setFirstMessageMedia(null);
+        }
+      } catch {
+        setFirstMessage(page.auto_reply_first_message || "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।");
+        setFirstMessageMedia(null);
+      }
+      
+      // Parse followup message
+      try {
+        const followupData = page.auto_reply_followup ? JSON.parse(page.auto_reply_followup) : null;
+        if (followupData && typeof followupData === 'object' && followupData.text) {
+          setFollowupMessage(followupData.text);
+          setFollowupMedia(followupData.media || null);
+        } else {
+          setFollowupMessage(page.auto_reply_followup || "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।");
+          setFollowupMedia(null);
+        }
+      } catch {
+        setFollowupMessage(page.auto_reply_followup || "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।");
+        setFollowupMedia(null);
+      }
       
       // Parse keywords from database
       const keywordsData = page.auto_reply_keywords;
-      if (Array.isArray(keywordsData)) {
+      if (Array.isArray(keywordsData) && keywordsData.length > 0) {
         const parsedKeywords = keywordsData.map((k: any) => ({
           keywords: k.keywords || [],
           reply: k.reply || "",
           media: k.media || null,
-          enabled: k.enabled !== false, // default to true if not set
         }));
         setKeywords(parsedKeywords);
       } else {
         setKeywords([]);
       }
-      
-      // Check if first message has media stored (parse from JSON structure if needed)
-      setFirstMessageMedia(null);
-      setFollowupMedia(null);
     }
-  }, [page]);
+  }, [page, open]);
+
+  const uploadImage = async (file: File): Promise<string | null> => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `${page?.id}/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('automation-media')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        toast.error("Image upload गर्न सकिएन");
+        return null;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('automation-media')
+        .getPublicUrl(filePath);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error("Image upload गर्न सकिएन");
+      return null;
+    }
+  };
+
+  const handleFirstMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploadingFirst(true);
+    const url = await uploadImage(file);
+    if (url) {
+      setFirstMessageMedia({ type: 'image', url });
+      toast.success("Image upload भयो!");
+    }
+    setUploadingFirst(false);
+    if (firstMediaRef.current) firstMediaRef.current.value = '';
+  };
+
+  const handleFollowupMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploadingFollowup(true);
+    const url = await uploadImage(file);
+    if (url) {
+      setFollowupMedia({ type: 'image', url });
+      toast.success("Image upload भयो!");
+    }
+    setUploadingFollowup(false);
+    if (followupMediaRef.current) followupMediaRef.current.value = '';
+  };
+
+  const handleKeywordMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploadingKeyword(true);
+    const url = await uploadImage(file);
+    if (url) {
+      setNewMediaType('image');
+      setNewMediaUrl(url);
+      toast.success("Image upload भयो!");
+    }
+    setUploadingKeyword(false);
+    if (keywordMediaRef.current) keywordMediaRef.current.value = '';
+  };
+
+  const handleEditMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setUploadingKeyword(true);
+    const url = await uploadImage(file);
+    if (url) {
+      setEditMediaType('image');
+      setEditMediaUrl(url);
+      toast.success("Image upload भयो!");
+    }
+    setUploadingKeyword(false);
+    if (editMediaRef.current) editMediaRef.current.value = '';
+  };
 
   const handleAddKeyword = () => {
     if (!newKeyword.trim() || !newReply.trim()) {
@@ -111,7 +227,6 @@ export function PageAutomationDialog({
     const newRule: ExtendedAutoReplyKeyword = {
       keywords: keywordList,
       reply: newReply,
-      enabled: true,
     };
     
     if (newMediaType && newMediaUrl.trim()) {
@@ -134,41 +249,95 @@ export function PageAutomationDialog({
     toast.success("Keyword rule हटाइयो");
   };
 
-  const handleToggleKeyword = (index: number) => {
+  const startEditKeyword = (index: number) => {
+    const rule = keywords[index];
+    setEditingIndex(index);
+    setEditKeyword(rule.keywords.join(", "));
+    setEditReply(rule.reply);
+    setEditMediaType(rule.media?.type || null);
+    setEditMediaUrl(rule.media?.url || "");
+  };
+
+  const saveEditKeyword = () => {
+    if (editingIndex === null) return;
+    
+    if (!editKeyword.trim() || !editReply.trim()) {
+      toast.error("Keywords र Reply दुवै भर्नुहोस्");
+      return;
+    }
+
+    const keywordList = editKeyword.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
+    
+    const updatedRule: ExtendedAutoReplyKeyword = {
+      keywords: keywordList,
+      reply: editReply,
+    };
+    
+    if (editMediaType && editMediaUrl.trim()) {
+      updatedRule.media = {
+        type: editMediaType,
+        url: editMediaUrl.trim(),
+      };
+    }
+
     const updated = [...keywords];
-    updated[index] = { ...updated[index], enabled: !updated[index].enabled };
+    updated[editingIndex] = updatedRule;
     setKeywords(updated);
+    setEditingIndex(null);
+    setEditKeyword("");
+    setEditReply("");
+    setEditMediaType(null);
+    setEditMediaUrl("");
+    toast.success("Keyword rule update भयो");
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditKeyword("");
+    setEditReply("");
+    setEditMediaType(null);
+    setEditMediaUrl("");
   };
 
   const handleSave = async () => {
     if (!page) return;
 
     try {
-      // Prepare data structure for saving
+      // Prepare keywords data
       const keywordsToSave = keywords.map(k => ({
         keywords: k.keywords,
         reply: k.reply,
         media: k.media || null,
-        enabled: k.enabled !== false,
       }));
 
       // Build first message with media info
-      let firstMsgContent = firstMessage;
+      let firstMsgContent: string;
       if (firstMessageMedia) {
         firstMsgContent = JSON.stringify({
           text: firstMessage,
           media: firstMessageMedia,
         });
+      } else {
+        firstMsgContent = firstMessage;
       }
 
       // Build followup message with media info
-      let followupMsgContent = followupMessage;
+      let followupMsgContent: string;
       if (followupMedia) {
         followupMsgContent = JSON.stringify({
           text: followupMessage,
           media: followupMedia,
         });
+      } else {
+        followupMsgContent = followupMessage;
       }
+
+      console.log("Saving settings:", {
+        automationEnabled,
+        keywordsToSave,
+        firstMsgContent,
+        followupMsgContent,
+      });
 
       await updateSettings.mutateAsync({
         pageId: page.id,
@@ -179,6 +348,7 @@ export function PageAutomationDialog({
           auto_reply_keywords: keywordsToSave,
         },
       });
+      
       toast.success("Settings save भयो!");
       onOpenChange(false);
     } catch (error) {
@@ -187,27 +357,54 @@ export function PageAutomationDialog({
     }
   };
 
-  const MediaTypeButton = ({ 
-    type, 
-    icon: Icon, 
-    selected, 
-    onClick 
+  const MediaButtons = ({ 
+    selectedType, 
+    onSelectType,
+    onUploadClick,
+    isUploading,
   }: { 
-    type: string; 
-    icon: any; 
-    selected: boolean; 
-    onClick: () => void;
+    selectedType: "image" | "video" | "link" | null;
+    onSelectType: (type: "image" | "video" | "link" | null) => void;
+    onUploadClick: () => void;
+    isUploading: boolean;
   }) => (
-    <Button
-      type="button"
-      variant={selected ? "default" : "outline"}
-      size="sm"
-      onClick={onClick}
-      className="h-8"
-    >
-      <Icon className="h-3 w-3 mr-1" />
-      {type}
-    </Button>
+    <div className="flex gap-2 flex-wrap">
+      <Button
+        type="button"
+        variant={selectedType === 'image' ? "default" : "outline"}
+        size="sm"
+        onClick={onUploadClick}
+        disabled={isUploading}
+        className="h-8"
+      >
+        {isUploading ? (
+          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+        ) : (
+          <Upload className="h-3 w-3 mr-1" />
+        )}
+        Image Upload
+      </Button>
+      <Button
+        type="button"
+        variant={selectedType === 'video' ? "default" : "outline"}
+        size="sm"
+        onClick={() => onSelectType(selectedType === 'video' ? null : 'video')}
+        className="h-8"
+      >
+        <Video className="h-3 w-3 mr-1" />
+        Video URL
+      </Button>
+      <Button
+        type="button"
+        variant={selectedType === 'link' ? "default" : "outline"}
+        size="sm"
+        onClick={() => onSelectType(selectedType === 'link' ? null : 'link')}
+        className="h-8"
+      >
+        <Link2 className="h-3 w-3 mr-1" />
+        Link
+      </Button>
+    </div>
   );
 
   return (
@@ -216,12 +413,12 @@ export function PageAutomationDialog({
         <DialogHeader>
           <DialogTitle>Automation Settings</DialogTitle>
           <DialogDescription>
-            {page?.page_name} को auto-reply rules configure गर्नुहोस्
+            {page?.page_name} को auto-reply configure गर्नुहोस्
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Master Toggle */}
+          {/* Master Toggle - Only One */}
           <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${
             automationEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'
           }`}>
@@ -239,133 +436,129 @@ export function PageAutomationDialog({
 
           {/* First Message Reply */}
           <div className="space-y-3 rounded-lg border p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">First Message Auto-Reply</Label>
-                <p className="text-xs text-muted-foreground">
-                  नयाँ customer ले पहिलो पटक message गर्दा automatic reply
-                </p>
-              </div>
-              <Switch
-                checked={firstMessageEnabled}
-                onCheckedChange={setFirstMessageEnabled}
-              />
+            <div>
+              <Label className="text-sm font-medium">First Message Auto-Reply</Label>
+              <p className="text-xs text-muted-foreground">
+                नयाँ customer ले पहिलो पटक message गर्दा automatic reply
+              </p>
             </div>
             
-            {firstMessageEnabled && (
-              <>
-                <Textarea
-                  value={firstMessage}
-                  onChange={(e) => setFirstMessage(e.target.value)}
-                  placeholder="First message auto-reply..."
-                  rows={3}
-                />
-                
-                {/* Media attachment for first message */}
-                <Collapsible open={showFirstMessageMedia} onOpenChange={setShowFirstMessageMedia}>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-xs">
-                      <Plus className="h-3 w-3 mr-1" />
-                      {showFirstMessageMedia ? 'Media Hide गर्नुहोस्' : 'Image/Video/Link थप्नुहोस्'}
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pt-2">
-                    <div className="flex gap-2">
-                      <MediaTypeButton 
-                        type="Image" 
-                        icon={Image} 
-                        selected={firstMessageMedia?.type === 'image'}
-                        onClick={() => setFirstMessageMedia(firstMessageMedia?.type === 'image' ? null : { type: 'image', url: '' })}
-                      />
-                      <MediaTypeButton 
-                        type="Video" 
-                        icon={Video} 
-                        selected={firstMessageMedia?.type === 'video'}
-                        onClick={() => setFirstMessageMedia(firstMessageMedia?.type === 'video' ? null : { type: 'video', url: '' })}
-                      />
-                      <MediaTypeButton 
-                        type="Link" 
-                        icon={Link2} 
-                        selected={firstMessageMedia?.type === 'link'}
-                        onClick={() => setFirstMessageMedia(firstMessageMedia?.type === 'link' ? null : { type: 'link', url: '' })}
-                      />
-                    </div>
-                    {firstMessageMedia && (
-                      <Input
-                        placeholder={`${firstMessageMedia.type === 'image' ? 'Image' : firstMessageMedia.type === 'video' ? 'Facebook Video' : 'Link'} URL...`}
-                        value={firstMessageMedia.url}
-                        onChange={(e) => setFirstMessageMedia({ ...firstMessageMedia, url: e.target.value })}
-                      />
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
-              </>
+            <Textarea
+              value={firstMessage}
+              onChange={(e) => setFirstMessage(e.target.value)}
+              placeholder="First message auto-reply..."
+              rows={3}
+            />
+            
+            {/* Media for first message */}
+            <input
+              ref={firstMediaRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFirstMediaUpload}
+            />
+            
+            {firstMessageMedia && (
+              <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+                {firstMessageMedia.type === 'image' && (
+                  <img src={firstMessageMedia.url} alt="Media" className="h-12 w-12 object-cover rounded" />
+                )}
+                <span className="text-xs text-muted-foreground flex-1 truncate">
+                  {firstMessageMedia.type}: {firstMessageMedia.url.substring(0, 40)}...
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => setFirstMessageMedia(null)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+            
+            <MediaButtons
+              selectedType={firstMessageMedia?.type || null}
+              onSelectType={(type) => {
+                if (type === 'video' || type === 'link') {
+                  setFirstMessageMedia(type ? { type, url: '' } : null);
+                }
+              }}
+              onUploadClick={() => firstMediaRef.current?.click()}
+              isUploading={uploadingFirst}
+            />
+            
+            {firstMessageMedia && (firstMessageMedia.type === 'video' || firstMessageMedia.type === 'link') && (
+              <Input
+                placeholder={`${firstMessageMedia.type === 'video' ? 'Facebook Video' : 'Link'} URL...`}
+                value={firstMessageMedia.url}
+                onChange={(e) => setFirstMessageMedia({ ...firstMessageMedia, url: e.target.value })}
+              />
             )}
           </div>
 
           {/* Follow-up Message Reply */}
           <div className="space-y-3 rounded-lg border p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">Follow-up Auto-Reply</Label>
-                <p className="text-xs text-muted-foreground">
-                  दोस्रो/पछिको messages मा automatic reply
-                </p>
-              </div>
-              <Switch
-                checked={followupEnabled}
-                onCheckedChange={setFollowupEnabled}
-              />
+            <div>
+              <Label className="text-sm font-medium">Follow-up Auto-Reply</Label>
+              <p className="text-xs text-muted-foreground">
+                दोस्रो/पछिको messages मा automatic reply
+              </p>
             </div>
             
-            {followupEnabled && (
-              <>
-                <Textarea
-                  value={followupMessage}
-                  onChange={(e) => setFollowupMessage(e.target.value)}
-                  placeholder="Follow-up auto-reply..."
-                  rows={2}
-                />
-                
-                {/* Media attachment for followup */}
-                <Collapsible open={showFollowupMedia} onOpenChange={setShowFollowupMedia}>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-xs">
-                      <Plus className="h-3 w-3 mr-1" />
-                      {showFollowupMedia ? 'Media Hide गर्नुहोस्' : 'Image/Video/Link थप्नुहोस्'}
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pt-2">
-                    <div className="flex gap-2">
-                      <MediaTypeButton 
-                        type="Image" 
-                        icon={Image} 
-                        selected={followupMedia?.type === 'image'}
-                        onClick={() => setFollowupMedia(followupMedia?.type === 'image' ? null : { type: 'image', url: '' })}
-                      />
-                      <MediaTypeButton 
-                        type="Video" 
-                        icon={Video} 
-                        selected={followupMedia?.type === 'video'}
-                        onClick={() => setFollowupMedia(followupMedia?.type === 'video' ? null : { type: 'video', url: '' })}
-                      />
-                      <MediaTypeButton 
-                        type="Link" 
-                        icon={Link2} 
-                        selected={followupMedia?.type === 'link'}
-                        onClick={() => setFollowupMedia(followupMedia?.type === 'link' ? null : { type: 'link', url: '' })}
-                      />
-                    </div>
-                    {followupMedia && (
-                      <Input
-                        placeholder={`${followupMedia.type === 'image' ? 'Image' : followupMedia.type === 'video' ? 'Facebook Video' : 'Link'} URL...`}
-                        value={followupMedia.url}
-                        onChange={(e) => setFollowupMedia({ ...followupMedia, url: e.target.value })}
-                      />
-                    )}
-                  </CollapsibleContent>
-                </Collapsible>
-              </>
+            <Textarea
+              value={followupMessage}
+              onChange={(e) => setFollowupMessage(e.target.value)}
+              placeholder="Follow-up auto-reply..."
+              rows={2}
+            />
+            
+            {/* Media for followup */}
+            <input
+              ref={followupMediaRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFollowupMediaUpload}
+            />
+            
+            {followupMedia && (
+              <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
+                {followupMedia.type === 'image' && (
+                  <img src={followupMedia.url} alt="Media" className="h-12 w-12 object-cover rounded" />
+                )}
+                <span className="text-xs text-muted-foreground flex-1 truncate">
+                  {followupMedia.type}: {followupMedia.url.substring(0, 40)}...
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => setFollowupMedia(null)}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+            
+            <MediaButtons
+              selectedType={followupMedia?.type || null}
+              onSelectType={(type) => {
+                if (type === 'video' || type === 'link') {
+                  setFollowupMedia(type ? { type, url: '' } : null);
+                }
+              }}
+              onUploadClick={() => followupMediaRef.current?.click()}
+              isUploading={uploadingFollowup}
+            />
+            
+            {followupMedia && (followupMedia.type === 'video' || followupMedia.type === 'link') && (
+              <Input
+                placeholder={`${followupMedia.type === 'video' ? 'Facebook Video' : 'Link'} URL...`}
+                value={followupMedia.url}
+                onChange={(e) => setFollowupMedia({ ...followupMedia, url: e.target.value })}
+              />
             )}
           </div>
 
@@ -378,40 +571,111 @@ export function PageAutomationDialog({
 
             {/* Existing Keywords */}
             {keywords.length > 0 && (
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-64 overflow-y-auto">
                 {keywords.map((rule, index) => (
-                  <div
-                    key={index}
-                    className={`flex items-start gap-2 rounded-lg border p-3 transition-colors ${
-                      rule.enabled ? 'bg-background' : 'bg-muted/50 opacity-60'
-                    }`}
-                  >
-                    <Switch
-                      checked={rule.enabled !== false}
-                      onCheckedChange={() => handleToggleKeyword(index)}
-                      className="mt-1 flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">
-                        {rule.keywords.join(", ")}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                        {rule.reply}
-                      </p>
-                      {rule.media && (
-                        <p className="text-xs text-blue-500 mt-1">
-                          📎 {rule.media.type}: {rule.media.url.substring(0, 30)}...
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="flex-shrink-0 h-8 w-8 text-destructive hover:text-destructive"
-                      onClick={() => handleRemoveKeyword(index)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  <div key={index}>
+                    {editingIndex === index ? (
+                      // Edit mode
+                      <div className="space-y-2 rounded-lg border-2 border-primary p-3">
+                        <Input
+                          value={editKeyword}
+                          onChange={(e) => setEditKeyword(e.target.value)}
+                          placeholder="Keywords (comma separated)"
+                        />
+                        <Textarea
+                          value={editReply}
+                          onChange={(e) => setEditReply(e.target.value)}
+                          placeholder="Reply message..."
+                          rows={2}
+                        />
+                        
+                        <input
+                          ref={editMediaRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleEditMediaUpload}
+                        />
+                        
+                        {editMediaUrl && (
+                          <div className="flex items-center gap-2 p-2 bg-muted rounded">
+                            {editMediaType === 'image' && (
+                              <img src={editMediaUrl} alt="Media" className="h-10 w-10 object-cover rounded" />
+                            )}
+                            <span className="text-xs flex-1 truncate">{editMediaUrl.substring(0, 30)}...</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditMediaType(null); setEditMediaUrl(""); }}>
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        )}
+                        
+                        <div className="flex gap-2 flex-wrap">
+                          <Button size="sm" variant="outline" onClick={() => editMediaRef.current?.click()} disabled={uploadingKeyword}>
+                            {uploadingKeyword ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
+                            Image
+                          </Button>
+                          <Button size="sm" variant={editMediaType === 'video' ? "default" : "outline"} onClick={() => { setEditMediaType('video'); setEditMediaUrl(''); }}>
+                            <Video className="h-3 w-3 mr-1" />Video
+                          </Button>
+                          <Button size="sm" variant={editMediaType === 'link' ? "default" : "outline"} onClick={() => { setEditMediaType('link'); setEditMediaUrl(''); }}>
+                            <Link2 className="h-3 w-3 mr-1" />Link
+                          </Button>
+                        </div>
+                        
+                        {editMediaType && editMediaType !== 'image' && (
+                          <Input
+                            value={editMediaUrl}
+                            onChange={(e) => setEditMediaUrl(e.target.value)}
+                            placeholder={`${editMediaType === 'video' ? 'Video' : 'Link'} URL...`}
+                          />
+                        )}
+                        
+                        <div className="flex gap-2 pt-2">
+                          <Button size="sm" onClick={saveEditKeyword}>Save</Button>
+                          <Button size="sm" variant="outline" onClick={cancelEdit}>Cancel</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      // View mode
+                      <div className="flex items-start gap-2 rounded-lg border p-3 bg-background">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">
+                            {rule.keywords.join(", ")}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                            {rule.reply}
+                          </p>
+                          {rule.media && (
+                            <div className="flex items-center gap-2 mt-1">
+                              {rule.media.type === 'image' && (
+                                <img src={rule.media.url} alt="Media" className="h-8 w-8 object-cover rounded" />
+                              )}
+                              <span className="text-xs text-blue-500">
+                                📎 {rule.media.type}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => startEditKeyword(index)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveKeyword(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -433,35 +697,64 @@ export function PageAutomationDialog({
               />
               
               {/* Media for new keyword */}
-              <div className="space-y-2">
-                <div className="flex gap-2 flex-wrap">
-                  <MediaTypeButton 
-                    type="Image" 
-                    icon={Image} 
-                    selected={newMediaType === 'image'}
-                    onClick={() => setNewMediaType(newMediaType === 'image' ? null : 'image')}
-                  />
-                  <MediaTypeButton 
-                    type="Video" 
-                    icon={Video} 
-                    selected={newMediaType === 'video'}
-                    onClick={() => setNewMediaType(newMediaType === 'video' ? null : 'video')}
-                  />
-                  <MediaTypeButton 
-                    type="Link" 
-                    icon={Link2} 
-                    selected={newMediaType === 'link'}
-                    onClick={() => setNewMediaType(newMediaType === 'link' ? null : 'link')}
-                  />
+              <input
+                ref={keywordMediaRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleKeywordMediaUpload}
+              />
+              
+              {newMediaUrl && (
+                <div className="flex items-center gap-2 p-2 bg-background rounded">
+                  {newMediaType === 'image' && (
+                    <img src={newMediaUrl} alt="Media" className="h-10 w-10 object-cover rounded" />
+                  )}
+                  <span className="text-xs flex-1 truncate">{newMediaUrl.substring(0, 30)}...</span>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setNewMediaType(null); setNewMediaUrl(""); }}>
+                    <X className="h-3 w-3" />
+                  </Button>
                 </div>
-                {newMediaType && (
-                  <Input
-                    placeholder={`${newMediaType === 'image' ? 'Image' : newMediaType === 'video' ? 'Facebook Video' : 'Link'} URL...`}
-                    value={newMediaUrl}
-                    onChange={(e) => setNewMediaUrl(e.target.value)}
-                  />
-                )}
+              )}
+              
+              <div className="flex gap-2 flex-wrap">
+                <Button 
+                  type="button" 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => keywordMediaRef.current?.click()}
+                  disabled={uploadingKeyword}
+                >
+                  {uploadingKeyword ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
+                  Image Upload
+                </Button>
+                <Button
+                  type="button"
+                  variant={newMediaType === 'video' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => { setNewMediaType(newMediaType === 'video' ? null : 'video'); setNewMediaUrl(''); }}
+                >
+                  <Video className="h-3 w-3 mr-1" />
+                  Video URL
+                </Button>
+                <Button
+                  type="button"
+                  variant={newMediaType === 'link' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => { setNewMediaType(newMediaType === 'link' ? null : 'link'); setNewMediaUrl(''); }}
+                >
+                  <Link2 className="h-3 w-3 mr-1" />
+                  Link
+                </Button>
               </div>
+              
+              {newMediaType && newMediaType !== 'image' && (
+                <Input
+                  placeholder={`${newMediaType === 'video' ? 'Facebook Video' : 'Link'} URL...`}
+                  value={newMediaUrl}
+                  onChange={(e) => setNewMediaUrl(e.target.value)}
+                />
+              )}
               
               <Button
                 type="button"
