@@ -222,22 +222,6 @@ export default function Inbox() {
       <PageHeader
         title="Inbox"
         description="Manage all your conversations"
-        action={
-          <Button 
-            variant="outline" 
-            onClick={handleRefreshConversations} 
-            disabled={fetchConversations.isPending}
-            size="sm"
-          >
-            {fetchConversations.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">Sync Messages</span>
-            <span className="sm:hidden">Sync</span>
-          </Button>
-        }
       />
 
       <div className="flex flex-1 overflow-hidden">

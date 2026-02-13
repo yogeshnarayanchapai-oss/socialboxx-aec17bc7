@@ -306,11 +306,37 @@ serve(async (req) => {
               .single();
 
             if (convError || !newConv) {
-              console.error("Error creating conversation:", convError);
-              continue;
+              // If duplicate key error, find existing conversation by external_conversation_id
+              if (convError?.code === "23505") {
+                console.log("Conversation already exists, finding by external_conversation_id");
+                const { data: existingByExtId } = await supabase
+                  .from("conversations")
+                  .select("id, tags")
+                  .eq("external_conversation_id", `${pageId}_${senderId}`)
+                  .single();
+                
+                if (existingByExtId) {
+                  conversationId = existingByExtId.id;
+                  conversationTags = existingByExtId.tags || [];
+                  
+                  // Update participant_id if missing
+                  await supabase
+                    .from("conversations")
+                    .update({ participant_id: senderId })
+                    .eq("id", conversationId)
+                    .is("participant_id", null);
+                } else {
+                  console.error("Could not find conversation even by external_id");
+                  continue;
+                }
+              } else {
+                console.error("Error creating conversation:", convError);
+                continue;
+              }
+            } else {
+              conversationId = newConv.id;
+              conversationTags = newConv.tags || [];
             }
-            conversationId = newConv.id;
-            conversationTags = newConv.tags || [];
           } else {
             conversationId = existingConv.id;
             conversationTags = existingConv.tags || [];
