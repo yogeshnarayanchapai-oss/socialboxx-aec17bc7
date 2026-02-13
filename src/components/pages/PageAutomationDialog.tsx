@@ -11,11 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare, Bot } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdatePageSettings, type AutoReplyKeyword } from "@/hooks/usePageSettings";
 import type { Json } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
 
 interface MediaAttachment {
   type: "image" | "video" | "link";
@@ -44,7 +46,10 @@ interface PageAutomationDialogProps {
     auto_reply_messages?: Json;
     auto_followup_messages?: Json;
     ai_enabled?: boolean;
+    ai_description?: string;
     comment_auto_reply?: string;
+    product_name?: string;
+    product_description?: string;
   } | null;
 }
 
@@ -67,8 +72,18 @@ export function PageAutomationDialog({
   page,
 }: PageAutomationDialogProps) {
   const updateSettings = useUpdatePageSettings();
+  const queryClient = useQueryClient();
   
+  const [activeTab, setActiveTab] = useState("automation");
   const [automationEnabled, setAutomationEnabled] = useState(false);
+  // AI states
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiDescription, setAiDescription] = useState("");
+  const [savingAI, setSavingAI] = useState(false);
+  // Product states
+  const [productName, setProductName] = useState("");
+  const [productDescription, setProductDescription] = useState("");
+  const [savingProduct, setSavingProduct] = useState(false);
   const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
   const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
   const [replyIndex, setReplyIndex] = useState(0);
@@ -149,16 +164,31 @@ export function PageAutomationDialog({
       } else {
         setKeywords([]);
       }
+      
+      // AI states
+      setAiEnabled((page as any).ai_enabled || false);
+      setAiDescription((page as any).ai_description || "");
+      // Product states
+      setProductName((page as any).product_name || "");
+      setProductDescription((page as any).product_description || "");
     }
   }, [page, open]);
 
   // Mutual exclusivity: if automation is turned on, check if AI is on
   const handleToggleAutomation = (checked: boolean) => {
-    if (checked && (page as any)?.ai_enabled) {
-      toast.error("Automation and AI cannot be enabled together. This may cause message conflicts.");
+    if (checked && aiEnabled) {
+      toast.error("Automation र AI एकसाथ enable गर्न मिल्दैन।");
       return;
     }
     setAutomationEnabled(checked);
+  };
+
+  const handleToggleAI = (checked: boolean) => {
+    if (checked && automationEnabled) {
+      toast.error("Automation र AI एकसाथ enable गर्न मिल्दैन।");
+      return;
+    }
+    setAiEnabled(checked);
   };
 
   const uploadImage = async (file: File): Promise<string | null> => {
@@ -283,15 +313,56 @@ export function PageAutomationDialog({
       });
       
       // If automation enabled, disable AI
-      if (automationEnabled && (page as any)?.ai_enabled) {
+      if (automationEnabled && aiEnabled) {
+        setAiEnabled(false);
         await supabase.from("connected_pages").update({ ai_enabled: false } as any).eq("id", page.id);
       }
       
-      toast.success("Settings save भयो!");
+      toast.success("Automation settings save भयो!");
       onOpenChange(false);
     } catch (error) {
       console.error("Save error:", error);
       toast.error("Settings save गर्न सकिएन");
+    }
+  };
+
+  const handleSaveAI = async () => {
+    if (!page) return;
+    setSavingAI(true);
+    try {
+      const updateData: Record<string, any> = {
+        ai_enabled: aiEnabled,
+        ai_description: aiDescription,
+      };
+      if (aiEnabled && automationEnabled) {
+        updateData.automation_enabled = false;
+        setAutomationEnabled(false);
+      }
+      const { error } = await supabase.from("connected_pages").update(updateData as any).eq("id", page.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["connected-pages"] });
+      toast.success("AI settings save भयो!");
+      onOpenChange(false);
+    } catch (error) {
+      console.error("AI save error:", error);
+      toast.error("AI settings save गर्न सकिएन");
+    } finally {
+      setSavingAI(false);
+    }
+  };
+
+  const handleSaveProduct = async () => {
+    if (!page) return;
+    setSavingProduct(true);
+    try {
+      const { error } = await supabase.from("connected_pages").update({ product_name: productName, product_description: productDescription } as any).eq("id", page.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["connected-pages"] });
+      toast.success("Product settings save भयो!");
+    } catch (error) {
+      toast.error("Product settings save गर्न सकिएन");
+    } finally {
+      setSavingProduct(false);
     }
   };
 
@@ -356,11 +427,19 @@ export function PageAutomationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Automation Settings</DialogTitle>
-          <DialogDescription>{page?.page_name} को auto-reply configure गर्नुहोस्</DialogDescription>
+          <DialogTitle>Page Settings</DialogTitle>
+          <DialogDescription>{page?.page_name} को settings configure गर्नुहोस्</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="automation">Automation</TabsTrigger>
+            <TabsTrigger value="ai">AI</TabsTrigger>
+            <TabsTrigger value="product">Product</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="automation" className="mt-4">
+        <div className="space-y-6">
           {/* Master Toggle */}
           <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${automationEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'}`}>
             <div>
@@ -562,9 +641,85 @@ export function PageAutomationDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={updateSettings.isPending}>
             {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Settings
+            Save Automation
           </Button>
         </div>
+          </TabsContent>
+
+          <TabsContent value="ai" className="mt-4">
+            <div className="space-y-6">
+              <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${aiEnabled ? 'border-primary/50 bg-primary/5' : 'border-dashed'}`}>
+                <div>
+                  <Label className="text-base font-medium">Enable AI</Label>
+                  <p className="text-sm text-muted-foreground">AI ले यस page को business बुझेर reply गर्छ</p>
+                </div>
+                <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
+              </div>
+
+              <div className="space-y-3 rounded-lg border p-4">
+                <div>
+                  <Label className="text-sm font-medium">Business Description</Label>
+                  <p className="text-xs text-muted-foreground">तपाईंको business बारेमा AI लाई सिकाउनुहोस्</p>
+                </div>
+                <Textarea
+                  value={aiDescription}
+                  onChange={(e) => setAiDescription(e.target.value)}
+                  placeholder={`Example:\n- हामी car accessories बेच्छौं\n- Location: काठमाडौं\n- Products: seat cover (Rs 2000-5000)\n- Delivery: काठमाडौं भित्र free\n- Payment: Cash on delivery, eSewa\n- Contact: 98XXXXXXXX`}
+                  rows={10}
+                />
+                <p className="text-xs text-muted-foreground">जति detail दिनुहुन्छ, AI ले त्यति राम्रो reply गर्छ</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button onClick={handleSaveAI} disabled={savingAI}>
+                {savingAI && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save AI Settings
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="product" className="mt-4">
+            <div className="space-y-6">
+              <div className="space-y-3 rounded-lg border p-4">
+                <div>
+                  <Label className="text-sm font-medium">Product Name</Label>
+                  <p className="text-xs text-muted-foreground">यस page को main product/service को नाम</p>
+                </div>
+                <Input
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  placeholder="e.g., Car Scratches, Seat Covers, Mobile Accessories"
+                />
+              </div>
+
+              <div className="space-y-3 rounded-lg border p-4">
+                <div>
+                  <Label className="text-sm font-medium">Product Description</Label>
+                  <p className="text-xs text-muted-foreground">Product बारेमा थप जानकारी</p>
+                </div>
+                <Textarea
+                  value={productDescription}
+                  onChange={(e) => setProductDescription(e.target.value)}
+                  placeholder="Product को details, pricing, features, etc."
+                  rows={5}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                यो product name lead create हुँदा automatically lead मा save हुन्छ।
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button onClick={handleSaveProduct} disabled={savingProduct}>
+                {savingProduct && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save Product
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
