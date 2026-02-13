@@ -26,11 +26,16 @@ serve(async (req) => {
       throw new Error("No authorization header");
     }
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
-    if (userError || !user) {
-      throw new Error("Unauthorized");
+    const token = authHeader.replace("Bearer ", "");
+    
+    // Allow service role key (for internal calls from webhook)
+    const isServiceRole = token === supabaseKey;
+    
+    if (!isServiceRole) {
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      if (userError || !user) {
+        throw new Error("Unauthorized");
+      }
     }
 
     const { conversationId, customerMessage, conversationHistory, pageName, businessDescription } = await req.json();
@@ -51,28 +56,33 @@ serve(async (req) => {
 
     const aiTone = settings?.setting_value || "friendly and professional";
 
-    const systemPrompt = `You are a helpful customer service assistant for "${pageName || 'our business'}". 
+    const systemPrompt = `You are a friendly customer service assistant for "${pageName || 'our business'}". 
 Your tone should be ${aiTone}.
 
 ${businessDescription ? `About this business:\n${businessDescription}\n` : ''}
 
+CRITICAL LANGUAGE RULE - You MUST follow this:
+- If the customer writes in Nepali (देवनागरी script like "नमस्ते", "कति हो"), reply in Nepali देवनागरी script.
+- If the customer writes in Roman Nepali (like "namaste", "kati ho", "mero lagi ke chha"), reply in Roman Nepali.
+- If the customer writes in English, reply in English.
+- Always match the EXACT language and script the customer used.
+
 Guidelines:
-- Be concise but helpful
-- Address the customer's specific question or concern
-- If you don't have specific information, offer to help find it or suggest they provide more details
-- Never make up product details, prices, or delivery times
-- Be warm and personable, like a human would be
-- Keep responses under 150 words unless more detail is needed
+- Reply like a real human in a chat - SHORT and natural
+- Keep replies 1-3 sentences max
+- Use emojis sparingly but naturally 😊
+- Address their question directly
+- If you don't know specific details, say you'll check and get back
+- Never make up prices, delivery times, or product details
+- Sound warm and casual, not robotic or formal
 
 ${templates && templates.length > 0 ? `
-Available reply templates for reference:
-${templates.map(t => `- ${t.name} (${t.category}): ${t.content.substring(0, 100)}...`).join('\n')}
+Reply templates for reference:
+${templates.map(t => `- ${t.name}: ${t.content.substring(0, 80)}`).join('\n')}
 ` : ''}
 
-Conversation context:
-${conversationHistory || 'This is the start of the conversation.'}
-
-Generate a helpful reply to the customer's message.`;
+Conversation so far:
+${conversationHistory || 'First message from customer.'}`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -84,7 +94,7 @@ Generate a helpful reply to the customer's message.`;
         model: "google/gemini-3-flash-preview",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: `Customer message: "${customerMessage}"\n\nGenerate a helpful, human-like reply:` },
+          { role: "user", content: customerMessage },
         ],
         max_tokens: 500,
         temperature: 0.7,
