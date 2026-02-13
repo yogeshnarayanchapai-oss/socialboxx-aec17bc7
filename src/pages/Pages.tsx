@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Zap, Link2Off, Settings2, Bot, Trash2 } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Bot, Trash2, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -12,24 +12,34 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { useConnectedPages } from "@/hooks/usePages";
 import { FacebookConnectWizard } from "@/components/facebook/FacebookConnectWizard";
 import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { PageAIDialog } from "@/components/pages/PageAIDialog";
-import { useTogglePageAutomation } from "@/hooks/usePageSettings";
 import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
   const disconnectPage = useDisconnectPage();
-  const toggleAutomation = useTogglePageAutomation();
   
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
   const [aiPage, setAiPage] = useState<typeof pages[0] | null>(null);
+  const [deletePageId, setDeletePageId] = useState<string | null>(null);
+  const [reconnecting, setReconnecting] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -38,27 +48,37 @@ export default function Pages() {
     }
   }, []);
 
-  const handleDisconnect = async (pageId: string) => {
+  const handleDelete = async () => {
+    if (!deletePageId) return;
     try {
-      await disconnectPage.mutateAsync(pageId);
+      await disconnectPage.mutateAsync(deletePageId);
+      toast.success("Page deleted successfully");
     } catch (error) {
       // Error handled in hook
     }
+    setDeletePageId(null);
+  };
+
+  const handleReconnect = async (pageId: string) => {
+    setReconnecting(pageId);
+    try {
+      const { error } = await supabase
+        .from("connected_pages")
+        .update({ connection_status: "active" } as any)
+        .eq("id", pageId);
+      if (error) throw error;
+      await refetch();
+      toast.success("Page reconnected successfully!");
+    } catch (error) {
+      toast.error("Reconnect गर्न सकिएन");
+    }
+    setReconnecting(null);
   };
 
   const getStatusVariant = (status: string): "active" | "warning" | "error" => {
     if (status === "active") return "active";
     if (status === "token_expired") return "warning";
     return "error";
-  };
-
-  const handleToggleAutomation = async (page: typeof pages[0], enabled: boolean) => {
-    try {
-      await toggleAutomation.mutateAsync({ pageId: page.id, enabled });
-      toast.success(enabled ? "Automation enabled" : "Automation disabled");
-    } catch (error) {
-      toast.error("Failed to toggle automation");
-    }
   };
 
   if (isLoading) {
@@ -99,6 +119,24 @@ export default function Pages() {
         onOpenChange={(open) => !open && setAiPage(null)}
         page={aiPage}
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deletePageId} onOpenChange={(open) => !open && setDeletePageId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Page Connection?</AlertDialogTitle>
+            <AlertDialogDescription>
+              यो page connection permanently delete हुनेछ। यो action undo गर्न सकिँदैन।
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="p-4 md:p-6">
         {pages.length === 0 ? (
@@ -144,22 +182,22 @@ export default function Pages() {
                           <Bot className="mr-2 h-4 w-4" />
                           AI
                         </DropdownMenuItem>
-                        {page.connection_status === "token_expired" && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setIsWizardOpen(true)}>
-                              <Link2Off className="mr-2 h-4 w-4" />
-                              Reconnect
-                            </DropdownMenuItem>
-                          </>
-                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleReconnect(page.id)} disabled={reconnecting === page.id}>
+                          {reconnecting === page.id ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                          )}
+                          Reconnect
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          onClick={() => handleDisconnect(page.id)}
+                          onClick={() => setDeletePageId(page.id)}
                           className="text-destructive focus:text-destructive"
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
-                          Disconnect
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -172,60 +210,6 @@ export default function Pages() {
                     <span className="text-xs text-muted-foreground">
                       Connected {new Date(page.created_at).toLocaleDateString()}
                     </span>
-                  </div>
-
-                  {/* Automation Toggle */}
-                  <div className={`mt-4 flex items-center justify-between rounded-lg border-2 p-3 transition-colors ${
-                    (page as any).automation_enabled 
-                      ? 'border-accent/50 bg-accent/5' 
-                      : 'border-dashed border-muted-foreground/30'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <div className={`rounded-full p-1.5 ${
-                        (page as any).automation_enabled 
-                          ? 'bg-accent/20 text-accent-foreground' 
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        <Zap className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium">Auto-Reply</span>
-                        <p className="text-xs text-muted-foreground">
-                          {(page as any).automation_enabled ? '✓ Active' : 'Off'}
-                        </p>
-                      </div>
-                    </div>
-                    <Switch
-                      checked={(page as any).automation_enabled || false}
-                      onCheckedChange={(checked) => handleToggleAutomation(page, checked)}
-                      disabled={page.connection_status === "token_expired"}
-                    />
-                  </div>
-
-                  {/* AI Toggle */}
-                  <div className={`mt-3 flex items-center justify-between rounded-lg border-2 p-3 transition-colors ${
-                    (page as any).ai_enabled 
-                      ? 'border-blue-500/50 bg-blue-500/5' 
-                      : 'border-dashed border-muted-foreground/30'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <div className={`rounded-full p-1.5 ${
-                        (page as any).ai_enabled 
-                          ? 'bg-blue-500/20 text-blue-600' 
-                          : 'bg-muted text-muted-foreground'
-                      }`}>
-                        <Bot className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium">AI</span>
-                        <p className="text-xs text-muted-foreground">
-                          {(page as any).ai_enabled ? '✓ Learning & replying' : 'Off'}
-                        </p>
-                      </div>
-                    </div>
-                    <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setAiPage(page)}>
-                      Configure
-                    </Button>
                   </div>
 
                   {page.connection_status === "token_expired" && (

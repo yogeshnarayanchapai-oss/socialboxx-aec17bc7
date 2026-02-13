@@ -104,6 +104,7 @@ export type Database = {
           auto_reply_keywords: Json | null
           auto_reply_messages: Json | null
           automation_enabled: boolean | null
+          comment_auto_reply: string | null
           connected_by: string | null
           connection_status: string
           created_at: string
@@ -124,6 +125,7 @@ export type Database = {
           auto_reply_keywords?: Json | null
           auto_reply_messages?: Json | null
           automation_enabled?: boolean | null
+          comment_auto_reply?: string | null
           connected_by?: string | null
           connection_status?: string
           created_at?: string
@@ -144,6 +146,7 @@ export type Database = {
           auto_reply_keywords?: Json | null
           auto_reply_messages?: Json | null
           automation_enabled?: boolean | null
+          comment_auto_reply?: string | null
           connected_by?: string | null
           connection_status?: string
           created_at?: string
