@@ -33,7 +33,7 @@ serve(async (req) => {
       throw new Error("Unauthorized");
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription } = await req.json();
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -53,6 +53,8 @@ serve(async (req) => {
 
     const systemPrompt = `You are a helpful customer service assistant for "${pageName || 'our business'}". 
 Your tone should be ${aiTone}.
+
+${businessDescription ? `About this business:\n${businessDescription}\n` : ''}
 
 Guidelines:
 - Be concise but helpful
