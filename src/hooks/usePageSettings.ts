@@ -28,6 +28,7 @@ export function useUpdatePageSettings() {
       extraData?: {
         auto_reply_messages?: any[];
         auto_followup_messages?: any[];
+        comment_auto_reply?: string;
       };
     }) => {
       const updateData: Record<string, any> = {};
@@ -50,6 +51,9 @@ export function useUpdatePageSettings() {
       }
       if (extraData?.auto_followup_messages) {
         updateData.auto_followup_messages = extraData.auto_followup_messages as unknown as Json;
+      }
+      if (extraData?.comment_auto_reply !== undefined) {
+        updateData.comment_auto_reply = extraData.comment_auto_reply;
       }
 
       console.log("Updating page settings:", { pageId, updateData });

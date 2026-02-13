@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdatePageSettings, type AutoReplyKeyword } from "@/hooks/usePageSettings";
 import type { Json } from "@/integrations/supabase/types";
@@ -43,6 +43,8 @@ interface PageAutomationDialogProps {
     auto_reply_keywords?: Json;
     auto_reply_messages?: Json;
     auto_followup_messages?: Json;
+    ai_enabled?: boolean;
+    comment_auto_reply?: string;
   } | null;
 }
 
@@ -72,6 +74,7 @@ export function PageAutomationDialog({
   const [replyIndex, setReplyIndex] = useState(0);
   const [followupIndex, setFollowupIndex] = useState(0);
   const [keywords, setKeywords] = useState<ExtendedAutoReplyKeyword[]>([]);
+  const [commentAutoReply, setCommentAutoReply] = useState("");
   
   // New keyword form
   const [newKeyword, setNewKeyword] = useState("");
@@ -101,12 +104,11 @@ export function PageAutomationDialog({
       setAutomationEnabled(page.automation_enabled || false);
       setReplyIndex(0);
       setFollowupIndex(0);
+      setCommentAutoReply((page as any).comment_auto_reply || "");
       
-      // Parse multi-step reply messages
       const pageAny = page as any;
       const replyMsgs = parseMessages(pageAny.auto_reply_messages, "");
       if (replyMsgs.length === 0 || (replyMsgs.length === 1 && !replyMsgs[0].text)) {
-        // Fallback to old single field
         try {
           const old = page.auto_reply_first_message ? JSON.parse(page.auto_reply_first_message) : null;
           if (old && typeof old === 'object' && old.text) {
@@ -137,7 +139,6 @@ export function PageAutomationDialog({
         setFollowupMessages(followMsgs);
       }
       
-      // Parse keywords
       const keywordsData = page.auto_reply_keywords;
       if (Array.isArray(keywordsData) && keywordsData.length > 0) {
         setKeywords(keywordsData.map((k: any) => ({
@@ -151,6 +152,15 @@ export function PageAutomationDialog({
     }
   }, [page, open]);
 
+  // Mutual exclusivity: if automation is turned on, check if AI is on
+  const handleToggleAutomation = (checked: boolean) => {
+    if (checked && (page as any)?.ai_enabled) {
+      toast.error("Automation and AI cannot be enabled together. This may cause message conflicts.");
+      return;
+    }
+    setAutomationEnabled(checked);
+  };
+
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
       const fileExt = file.name.split('.').pop();
@@ -163,7 +173,6 @@ export function PageAutomationDialog({
     } catch { toast.error("Image upload गर्न सकिएन"); return null; }
   };
 
-  // Multi-step reply helpers
   const updateReplyMsg = (index: number, update: Partial<ReplyMessage>) => {
     setReplyMessages(prev => prev.map((m, i) => i === index ? { ...m, ...update } : m));
   };
@@ -255,8 +264,6 @@ export function PageAutomationDialog({
     if (!page) return;
     try {
       const keywordsToSave = keywords.map(k => ({ keywords: k.keywords, reply: k.reply, media: k.media || null }));
-      
-      // Save first message (backward compat) + new multi-step
       const firstMsgCompat = replyMessages[0]?.text || DEFAULT_FIRST_MSG;
       const followupCompat = followupMessages[0]?.text || DEFAULT_FOLLOWUP_MSG;
 
@@ -271,8 +278,14 @@ export function PageAutomationDialog({
         extraData: {
           auto_reply_messages: replyMessages,
           auto_followup_messages: followupMessages,
+          comment_auto_reply: commentAutoReply,
         },
       });
+      
+      // If automation enabled, disable AI
+      if (automationEnabled && (page as any)?.ai_enabled) {
+        await supabase.from("connected_pages").update({ ai_enabled: false } as any).eq("id", page.id);
+      }
       
       toast.success("Settings save भयो!");
       onOpenChange(false);
@@ -302,7 +315,7 @@ export function PageAutomationDialog({
     </div>
   );
 
-  // Step navigation component
+  // Cleaned up StepNav - icon-only, no text labels
   const StepNav = ({ current, total, onPrev, onNext, onAdd, onRemove, label }: {
     current: number; total: number; onPrev: () => void; onNext: () => void; onAdd: () => void; onRemove: (i: number) => void; label: string;
   }) => (
@@ -323,8 +336,8 @@ export function PageAutomationDialog({
           <ChevronRight className="h-4 w-4" />
         </Button>
         {total < 3 && (
-          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={onAdd}>
-            <Plus className="h-3 w-3 mr-1" />Next
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onAdd} title="Add step">
+            <Plus className="h-4 w-4" />
           </Button>
         )}
         {total > 1 && (
@@ -354,7 +367,7 @@ export function PageAutomationDialog({
               <Label className="text-base font-medium">Enable Automation</Label>
               <p className="text-sm text-muted-foreground">यस page को auto-replies {automationEnabled ? 'सक्रिय छ' : 'बन्द छ'}</p>
             </div>
-            <Switch checked={automationEnabled} onCheckedChange={setAutomationEnabled} />
+            <Switch checked={automationEnabled} onCheckedChange={handleToggleAutomation} />
           </div>
 
           {/* First Message Auto-Reply (Multi-step) */}
@@ -429,6 +442,23 @@ export function PageAutomationDialog({
             {currentFollowup.media && (currentFollowup.media.type === 'video' || currentFollowup.media.type === 'link') && (
               <Input placeholder={`${currentFollowup.media.type === 'video' ? 'Video' : 'Link'} URL...`} value={currentFollowup.media.url} onChange={(e) => updateFollowupMsg(followupIndex, { media: { ...currentFollowup.media!, url: e.target.value } })} />
             )}
+          </div>
+
+          {/* Comment Auto-Reply */}
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <Label className="text-sm font-medium">Comment Auto-Reply</Label>
+                <p className="text-xs text-muted-foreground">Post मा comment आउँदा auto reply (खाली छोड्नुभयो भने reply जाँदैन)</p>
+              </div>
+            </div>
+            <Textarea
+              value={commentAutoReply}
+              onChange={(e) => setCommentAutoReply(e.target.value)}
+              placeholder="Example: धन्यवाद! कृपया हाम्रो inbox मा message गर्नुहोस् विस्तृत जानकारीको लागि।"
+              rows={3}
+            />
           </div>
 
           {/* Keyword-based Replies */}

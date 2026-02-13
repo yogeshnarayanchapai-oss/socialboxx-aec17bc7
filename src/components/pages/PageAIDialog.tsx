@@ -14,7 +14,6 @@ import { Loader2, Bot } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Json } from "@/integrations/supabase/types";
 
 interface PageAIDialogProps {
   open: boolean;
@@ -24,6 +23,7 @@ interface PageAIDialogProps {
     page_name: string;
     ai_enabled?: boolean;
     ai_description?: string;
+    automation_enabled?: boolean;
   } | null;
 }
 
@@ -40,16 +40,31 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
     }
   }, [page, open]);
 
+  const handleToggleAI = (checked: boolean) => {
+    if (checked && (page as any)?.automation_enabled) {
+      toast.error("Automation and AI cannot be enabled together. This may cause message conflicts.");
+      return;
+    }
+    setAiEnabled(checked);
+  };
+
   const handleSave = async () => {
     if (!page) return;
     setSaving(true);
     try {
+      const updateData: Record<string, any> = {
+        ai_enabled: aiEnabled,
+        ai_description: description,
+      };
+      
+      // If AI enabled, disable automation
+      if (aiEnabled && (page as any)?.automation_enabled) {
+        updateData.automation_enabled = false;
+      }
+
       const { error } = await supabase
         .from("connected_pages")
-        .update({
-          ai_enabled: aiEnabled,
-          ai_description: description,
-        } as any)
+        .update(updateData as any)
         .eq("id", page.id);
 
       if (error) throw error;
@@ -88,7 +103,7 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
                 AI ले यस page को business बुझेर reply गर्छ
               </p>
             </div>
-            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
+            <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
           </div>
 
           {/* Business Description */}
