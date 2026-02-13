@@ -96,9 +96,13 @@ export type Database = {
       }
       connected_pages: {
         Row: {
+          ai_description: string | null
+          ai_enabled: boolean | null
+          auto_followup_messages: Json | null
           auto_reply_first_message: string | null
           auto_reply_followup: string | null
           auto_reply_keywords: Json | null
+          auto_reply_messages: Json | null
           automation_enabled: boolean | null
           connected_by: string | null
           connection_status: string
@@ -112,9 +116,13 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_description?: string | null
+          ai_enabled?: boolean | null
+          auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
           auto_reply_keywords?: Json | null
+          auto_reply_messages?: Json | null
           automation_enabled?: boolean | null
           connected_by?: string | null
           connection_status?: string
@@ -128,9 +136,13 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_description?: string | null
+          ai_enabled?: boolean | null
+          auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
           auto_reply_keywords?: Json | null
+          auto_reply_messages?: Json | null
           automation_enabled?: boolean | null
           connected_by?: string | null
           connection_status?: string

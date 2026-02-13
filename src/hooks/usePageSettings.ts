@@ -21,17 +21,16 @@ export function useUpdatePageSettings() {
     mutationFn: async ({
       pageId,
       settings,
+      extraData,
     }: {
       pageId: string;
       settings: Partial<PageAutomationSettings>;
+      extraData?: {
+        auto_reply_messages?: any[];
+        auto_followup_messages?: any[];
+      };
     }) => {
-      // Build update data with proper types for Supabase
-      const updateData: {
-        automation_enabled?: boolean;
-        auto_reply_first_message?: string;
-        auto_reply_followup?: string;
-        auto_reply_keywords?: Json;
-      } = {};
+      const updateData: Record<string, any> = {};
 
       if (settings.automation_enabled !== undefined) {
         updateData.automation_enabled = settings.automation_enabled;
@@ -44,6 +43,13 @@ export function useUpdatePageSettings() {
       }
       if (settings.auto_reply_keywords !== undefined) {
         updateData.auto_reply_keywords = settings.auto_reply_keywords as unknown as Json;
+      }
+      // Multi-step messages
+      if (extraData?.auto_reply_messages) {
+        updateData.auto_reply_messages = extraData.auto_reply_messages as unknown as Json;
+      }
+      if (extraData?.auto_followup_messages) {
+        updateData.auto_followup_messages = extraData.auto_followup_messages as unknown as Json;
       }
 
       console.log("Updating page settings:", { pageId, updateData });
