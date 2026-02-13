@@ -235,7 +235,7 @@ serve(async (req) => {
         // Find the connected page in our database
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, auto_reply_first_message, auto_reply_followup, auto_reply_keywords")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -406,8 +406,85 @@ serve(async (req) => {
             }
           }
 
+          // AI reply logic (only if AI is enabled and automation is NOT enabled)
+          if (page.ai_enabled && !page.automation_enabled) {
+            console.log("AI enabled for page, generating AI reply");
+            
+            try {
+              // Get recent conversation history for context
+              const { data: recentMessages } = await supabase
+                .from("messages")
+                .select("content, sender_type, created_at")
+                .eq("conversation_id", conversationId)
+                .order("created_at", { ascending: false })
+                .limit(10);
+
+              const conversationHistory = (recentMessages || [])
+                .reverse()
+                .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
+                .join('\n');
+
+              // Call ai-reply edge function
+              const aiResponse = await fetch(
+                `${supabaseUrl}/functions/v1/ai-reply`,
+                {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    conversationId,
+                    customerMessage: message.text || "",
+                    conversationHistory,
+                    pageName: page.page_name,
+                    businessDescription: page.ai_description || "",
+                  }),
+                }
+              );
+
+              if (aiResponse.ok) {
+                const aiData = await aiResponse.json();
+                const suggestedReply = aiData.suggestedReply;
+
+                if (suggestedReply) {
+                  console.log("AI reply generated:", suggestedReply.substring(0, 50));
+                  
+                  const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
+                  
+                  if (sent) {
+                    await supabase
+                      .from("messages")
+                      .insert({
+                        conversation_id: conversationId,
+                        content: suggestedReply,
+                        sender_type: "page",
+                        message_type: "text",
+                        created_at: new Date().toISOString(),
+                      });
+
+                    await supabase
+                      .from("conversations")
+                      .update({
+                        status: "replied",
+                        last_message_preview: suggestedReply.substring(0, 100),
+                        last_message_at: new Date().toISOString(),
+                      })
+                      .eq("id", conversationId);
+                      
+                    console.log("AI reply sent and saved");
+                  }
+                }
+              } else {
+                console.error("AI reply function error:", aiResponse.status, await aiResponse.text());
+              }
+            } catch (aiError) {
+              console.error("AI reply error:", aiError);
+            }
+          }
+          
           // Auto-reply logic (only if automation is enabled for this page)
-          if (page.automation_enabled) {
+          else if (page.automation_enabled) {
             console.log("Automation enabled, checking auto-reply rules");
             
             let autoReplyMessage: string | null = null;
@@ -435,7 +512,6 @@ serve(async (req) => {
             }
 
             if (autoReplyMessage) {
-              // Parse the message content to get text for logging
               const parsed = parseMessageContent(autoReplyMessage);
               const logText = parsed.text || autoReplyMessage;
               console.log(`Sending ${autoReplyType} auto-reply:`, logText.substring(0, 50));
@@ -443,7 +519,6 @@ serve(async (req) => {
               const sent = await sendAutoReply(page.page_access_token, senderId, autoReplyMessage, autoReplyMedia);
               
               if (sent) {
-                // Save the auto-reply message to database
                 await supabase
                   .from("messages")
                   .insert({
@@ -455,7 +530,6 @@ serve(async (req) => {
                     created_at: new Date().toISOString(),
                   });
 
-                // Update conversation status
                 await supabase
                   .from("conversations")
                   .update({
