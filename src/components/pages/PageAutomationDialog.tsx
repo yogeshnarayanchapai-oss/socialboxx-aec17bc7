@@ -33,6 +33,17 @@ interface ExtendedAutoReplyKeyword extends AutoReplyKeyword {
   media?: MediaAttachment;
 }
 
+interface AiFollowupStep {
+  delay_hours: number;
+  message_hint: string;
+  media?: MediaAttachment | null;
+}
+
+interface AiFollowupSettings {
+  enabled: boolean;
+  steps: AiFollowupStep[];
+}
+
 interface PageAutomationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,6 +61,7 @@ interface PageAutomationDialogProps {
     comment_auto_reply?: string;
     product_name?: string;
     product_description?: string;
+    ai_followup_settings?: Json;
   } | null;
 }
 
@@ -83,6 +95,16 @@ export function PageAutomationDialog({
   // Product states
   const [productName, setProductName] = useState("");
   const [productDescription, setProductDescription] = useState("");
+  // AI Follow-up states
+  const defaultFollowupSteps: AiFollowupStep[] = [
+    { delay_hours: 6, message_hint: "Product को video/photo सहित जानकारी दिनुहोस्", media: null },
+    { delay_hours: 24, message_hint: "Special offer/discount बारेमा बताउनुहोस्", media: null },
+    { delay_hours: 72, message_hint: "के विचार गर्नुभयो? Reminder पठाउनुहोस्", media: null },
+    { delay_hours: 120, message_hint: "Limited stock/time offer बारेमा बताउनुहोस्", media: null },
+    { delay_hours: 168, message_hint: "Final follow-up - अन्तिम पटक सम्झाउनुहोस्", media: null },
+  ];
+  const [aiFollowupEnabled, setAiFollowupEnabled] = useState(false);
+  const [aiFollowupSteps, setAiFollowupSteps] = useState<AiFollowupStep[]>(defaultFollowupSteps);
   const [savingProduct, setSavingProduct] = useState(false);
   const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
   const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
@@ -168,6 +190,19 @@ export function PageAutomationDialog({
       // AI states
       setAiEnabled((page as any).ai_enabled || false);
       setAiDescription((page as any).ai_description || "");
+      // AI Follow-up states
+      const followupSettings = (page as any).ai_followup_settings as AiFollowupSettings | null;
+      if (followupSettings) {
+        setAiFollowupEnabled(followupSettings.enabled || false);
+        if (followupSettings.steps && followupSettings.steps.length > 0) {
+          setAiFollowupSteps(followupSettings.steps);
+        } else {
+          setAiFollowupSteps(defaultFollowupSteps);
+        }
+      } else {
+        setAiFollowupEnabled(false);
+        setAiFollowupSteps(defaultFollowupSteps);
+      }
       // Product states
       setProductName((page as any).product_name || "");
       setProductDescription((page as any).product_description || "");
@@ -333,6 +368,10 @@ export function PageAutomationDialog({
       const updateData: Record<string, any> = {
         ai_enabled: aiEnabled,
         ai_description: aiDescription,
+        ai_followup_settings: {
+          enabled: aiFollowupEnabled,
+          steps: aiFollowupSteps,
+        },
       };
       if (aiEnabled && automationEnabled) {
         updateData.automation_enabled = false;
@@ -665,9 +704,82 @@ export function PageAutomationDialog({
                   value={aiDescription}
                   onChange={(e) => setAiDescription(e.target.value)}
                   placeholder={`Example:\n- हामी car accessories बेच्छौं\n- Location: काठमाडौं\n- Products: seat cover (Rs 2000-5000)\n- Delivery: काठमाडौं भित्र free\n- Payment: Cash on delivery, eSewa\n- Contact: 98XXXXXXXX`}
-                  rows={10}
+                  rows={8}
                 />
                 <p className="text-xs text-muted-foreground">जति detail दिनुहुन्छ, AI ले त्यति राम्रो reply गर्छ</p>
+              </div>
+
+              {/* AI Follow-up Schedule */}
+              <div className="space-y-4 rounded-lg border p-4">
+                <div className={`flex items-center justify-between rounded-lg border-2 p-3 transition-colors ${aiFollowupEnabled ? 'border-blue-500/50 bg-blue-500/5' : 'border-dashed'}`}>
+                  <div>
+                    <Label className="text-sm font-medium">AI Follow-up</Label>
+                    <p className="text-xs text-muted-foreground">Number नदिने/order confirm नगर्ने लाई AI ले follow-up गर्छ</p>
+                  </div>
+                  <Switch checked={aiFollowupEnabled} onCheckedChange={setAiFollowupEnabled} />
+                </div>
+
+                {aiFollowupEnabled && (
+                  <div className="space-y-3">
+                    <p className="text-xs text-muted-foreground">५ ओटा follow-up steps configure गर्नुहोस्। AI ले यी hints अनुसार message generate गर्छ।</p>
+                    {aiFollowupSteps.map((step, idx) => (
+                      <div key={idx} className="rounded-lg border p-3 space-y-2 bg-muted/20">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-muted-foreground">Follow-up #{idx + 1}</span>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-xs">पछि (hours):</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              className="w-20 h-7 text-xs"
+                              value={step.delay_hours}
+                              onChange={(e) => {
+                                const updated = [...aiFollowupSteps];
+                                updated[idx] = { ...updated[idx], delay_hours: parseInt(e.target.value) || 1 };
+                                setAiFollowupSteps(updated);
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <Input
+                          value={step.message_hint}
+                          onChange={(e) => {
+                            const updated = [...aiFollowupSteps];
+                            updated[idx] = { ...updated[idx], message_hint: e.target.value };
+                            setAiFollowupSteps(updated);
+                          }}
+                          placeholder="AI लाई के बारेमा message गर्ने hint दिनुहोस्..."
+                          className="text-xs"
+                        />
+                        {/* Media for follow-up step */}
+                        <div className="flex gap-2 items-center">
+                          <Input
+                            value={step.media?.url || ""}
+                            onChange={(e) => {
+                              const updated = [...aiFollowupSteps];
+                              updated[idx] = { ...updated[idx], media: e.target.value ? { type: "link", url: e.target.value } : null };
+                              setAiFollowupSteps(updated);
+                            }}
+                            placeholder="Video/Link URL (optional)"
+                            className="text-xs flex-1"
+                          />
+                          {step.media?.url && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                              const updated = [...aiFollowupSteps];
+                              updated[idx] = { ...updated[idx], media: null };
+                              setAiFollowupSteps(updated);
+                            }}><X className="h-3 w-3" /></Button>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          {step.delay_hours < 24
+                            ? `${step.delay_hours} घण्टा पछि`
+                            : `${Math.round(step.delay_hours / 24)} दिन पछि`} follow-up जान्छ
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
