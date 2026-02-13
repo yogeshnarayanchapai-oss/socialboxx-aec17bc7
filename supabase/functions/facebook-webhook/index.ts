@@ -206,20 +206,14 @@ serve(async (req) => {
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
 
-    // Get verify token from settings
-    const { data: settings } = await supabase
-      .from("app_settings")
-      .select("setting_value")
-      .eq("setting_key", "webhook_verify_token")
-      .single();
-
-    const verifyToken = settings?.setting_value || "socialbox_verify_token";
+    // Use env variable for verify token
+    const verifyToken = Deno.env.get("FACEBOOK_WEBHOOK_VERIFY_TOKEN") || "socialbox_verify_token";
 
     if (mode === "subscribe" && token === verifyToken) {
       console.log("Webhook verified successfully");
       return new Response(challenge, { status: 200 });
     } else {
-      console.log("Webhook verification failed - token mismatch");
+      console.log("Webhook verification failed - token mismatch, expected:", verifyToken, "got:", token);
       return new Response("Forbidden", { status: 403 });
     }
   }
