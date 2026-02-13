@@ -464,7 +464,7 @@ export function PageAutomationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[95vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>Page Settings</DialogTitle>
           <DialogDescription>{page?.page_name} को settings configure गर्नुहोस्</DialogDescription>
