@@ -98,6 +98,7 @@ export type Database = {
         Row: {
           ai_description: string | null
           ai_enabled: boolean | null
+          ai_followup_settings: Json | null
           auto_followup_messages: Json | null
           auto_reply_first_message: string | null
           auto_reply_followup: string | null
@@ -121,6 +122,7 @@ export type Database = {
         Insert: {
           ai_description?: string | null
           ai_enabled?: boolean | null
+          ai_followup_settings?: Json | null
           auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
@@ -144,6 +146,7 @@ export type Database = {
         Update: {
           ai_description?: string | null
           ai_enabled?: boolean | null
+          ai_followup_settings?: Json | null
           auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
@@ -168,6 +171,8 @@ export type Database = {
       }
       conversations: {
         Row: {
+          ai_followup_next_at: string | null
+          ai_followup_step: number | null
           assigned_to: string | null
           created_at: string
           external_conversation_id: string
@@ -183,6 +188,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_followup_next_at?: string | null
+          ai_followup_step?: number | null
           assigned_to?: string | null
           created_at?: string
           external_conversation_id: string
@@ -198,6 +205,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_followup_next_at?: string | null
+          ai_followup_step?: number | null
           assigned_to?: string | null
           created_at?: string
           external_conversation_id?: string

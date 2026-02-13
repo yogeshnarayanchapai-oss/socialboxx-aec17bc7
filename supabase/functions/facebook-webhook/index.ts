@@ -256,7 +256,7 @@ serve(async (req) => {
         // Find the connected page in our database
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -458,6 +458,17 @@ serve(async (req) => {
           if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
             
+            // Customer replied - reset follow-up timer (they're engaged)
+            const followupSettings = (page as any).ai_followup_settings;
+            if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
+              // Reset to step 0 with fresh delay from first step
+              const firstStep = followupSettings.steps[0];
+              await supabase.from("conversations").update({
+                ai_followup_step: 0,
+                ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
+              }).eq("id", conversationId);
+            }
+            
             // Check if message is just emoji or nonsense after lead is already created
             const isNonsenseOrEmoji = isEmojiOrNonsense(message.text || "");
             const hasLeadTag = conversationTags.includes("lead-created");
@@ -556,19 +567,33 @@ serve(async (req) => {
                             })
                             .eq("id", conversationId);
                             
-                          console.log("AI reply sent and saved");
+                        console.log("AI reply sent and saved");
+                        
+                        // Start AI follow-up tracking if no lead yet
+                        if (!hasLeadTag) {
+                          const followupSettings = (page as any).ai_followup_settings;
+                          if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
+                            const firstStep = followupSettings.steps[0];
+                            const nextAt = new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString();
+                            await supabase.from("conversations").update({
+                              ai_followup_step: 0,
+                              ai_followup_next_at: nextAt,
+                            }).eq("id", conversationId);
+                            console.log("AI follow-up tracking started, first follow-up at:", nextAt);
+                          }
                         }
                       }
-                    } else {
-                      console.error("AI reply function error:", aiResponse.status, await aiResponse.text());
                     }
+                  } else {
+                    console.error("AI reply function error:", aiResponse.status, await aiResponse.text());
                   }
                 }
-              } catch (aiError) {
-                console.error("AI reply error:", aiError);
               }
+            } catch (aiError) {
+              console.error("AI reply error:", aiError);
             }
           }
+        }
           
           // Auto-reply logic (only if automation is enabled for this page)
           else if (page.automation_enabled) {
