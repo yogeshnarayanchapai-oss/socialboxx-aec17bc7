@@ -64,6 +64,28 @@ function checkKeywordMatch(text: string, keywords: KeywordRule[]): KeywordMatch 
   return null;
 }
 
+// Check if a message is just emoji, sticker reaction, or nonsense (single word like "ok", "hmm", thumbs up)
+function isEmojiOrNonsense(text: string): boolean {
+  if (!text) return true;
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return true;
+  
+  // Remove all emoji characters and see if anything meaningful remains
+  const withoutEmoji = trimmed.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu, '').trim();
+  
+  // Pure emoji message
+  if (withoutEmoji.length === 0) return true;
+  
+  // Very short nonsense responses (1-2 chars or common filler words)
+  const nonsensePatterns = /^(ok|k|hmm+|hm+|oh|ah|ha+|haha+|lol|yes|no|ya|ho|👍|okay|oho|aha|thik|thx|ty|bye|👋|🙏|❤️|♥️|😊|😂|🤣|😍|huss|hus)$/i;
+  if (nonsensePatterns.test(trimmed)) return true;
+  
+  // Messages shorter than 3 characters (excluding spaces)
+  if (withoutEmoji.length <= 2) return true;
+  
+  return false;
+}
+
 interface MediaAttachment {
   type: "image" | "video" | "link";
   url: string;
@@ -434,78 +456,117 @@ serve(async (req) => {
 
           // AI reply logic (only if AI is enabled and automation is NOT enabled)
           if (page.ai_enabled && !page.automation_enabled) {
-            console.log("AI enabled for page, generating AI reply");
+            console.log("AI enabled for page, checking if reply needed");
             
-            try {
-              // Get recent conversation history for context
-              const { data: recentMessages } = await supabase
-                .from("messages")
-                .select("content, sender_type, created_at")
-                .eq("conversation_id", conversationId)
-                .order("created_at", { ascending: false })
-                .limit(10);
+            // Check if message is just emoji or nonsense after lead is already created
+            const isNonsenseOrEmoji = isEmojiOrNonsense(message.text || "");
+            const hasLeadTag = conversationTags.includes("lead-created");
+            
+            if (hasLeadTag && isNonsenseOrEmoji) {
+              console.log("Skipping AI reply - lead already created and message is emoji/nonsense:", message.text);
+            } else {
+              // Wait 7 seconds to batch multiple incoming messages
+              console.log("Waiting 7 seconds to batch messages...");
+              await new Promise(resolve => setTimeout(resolve, 7000));
+              
+              try {
+                // Get recent conversation history for context
+                const { data: recentMessages } = await supabase
+                  .from("messages")
+                  .select("content, sender_type, created_at")
+                  .eq("conversation_id", conversationId)
+                  .order("created_at", { ascending: false })
+                  .limit(15);
 
-              const conversationHistory = (recentMessages || [])
-                .reverse()
-                .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
-                .join('\n');
+                // Check if there's already a page reply after the latest customer messages
+                // (another webhook instance may have already replied)
+                const latestMessages = (recentMessages || []).reverse();
+                const lastPageReplyIndex = latestMessages.map(m => m.sender_type).lastIndexOf('page');
+                const lastCustomerIndex = latestMessages.map(m => m.sender_type).lastIndexOf('customer');
+                
+                if (lastPageReplyIndex > lastCustomerIndex) {
+                  console.log("Already replied to latest messages, skipping");
+                } else {
+                  // Collect all unreplied customer messages
+                  const unrepliedCustomerMessages: string[] = [];
+                  for (let i = latestMessages.length - 1; i >= 0; i--) {
+                    if (latestMessages[i].sender_type === 'customer') {
+                      if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
+                    } else {
+                      break; // stop at last page reply
+                    }
+                  }
 
-              // Call ai-reply edge function
-              const aiResponse = await fetch(
-                `${supabaseUrl}/functions/v1/ai-reply`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${supabaseKey}`,
-                  },
-                  body: JSON.stringify({
-                    conversationId,
-                    customerMessage: message.text || "",
-                    conversationHistory,
-                    pageName: page.page_name,
-                    businessDescription: page.ai_description || "",
-                  }),
-                }
-              );
-
-              if (aiResponse.ok) {
-                const aiData = await aiResponse.json();
-                const suggestedReply = aiData.suggestedReply;
-
-                if (suggestedReply) {
-                  console.log("AI reply generated:", suggestedReply.substring(0, 50));
+                  const combinedCustomerMessage = unrepliedCustomerMessages.join('\n');
                   
-                  const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
-                  
-                  if (sent) {
-                    await supabase
-                      .from("messages")
-                      .insert({
-                        conversation_id: conversationId,
-                        content: suggestedReply,
-                        sender_type: "page",
-                        message_type: "text",
-                        created_at: new Date().toISOString(),
-                      });
+                  // If all unreplied messages are emoji/nonsense after lead created, skip
+                  const allNonsense = hasLeadTag && unrepliedCustomerMessages.every(m => isEmojiOrNonsense(m));
+                  if (allNonsense) {
+                    console.log("All unreplied messages are emoji/nonsense after lead created, skipping");
+                  } else {
+                    const conversationHistory = latestMessages
+                      .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
+                      .join('\n');
 
-                    await supabase
-                      .from("conversations")
-                      .update({
-                        status: "replied",
-                        last_message_preview: suggestedReply.substring(0, 100),
-                        last_message_at: new Date().toISOString(),
-                      })
-                      .eq("id", conversationId);
-                      
-                    console.log("AI reply sent and saved");
+                    // Call ai-reply edge function
+                    const aiResponse = await fetch(
+                      `${supabaseUrl}/functions/v1/ai-reply`,
+                      {
+                        method: "POST",
+                        headers: {
+                          "Content-Type": "application/json",
+                          "Authorization": `Bearer ${supabaseKey}`,
+                        },
+                        body: JSON.stringify({
+                          conversationId,
+                          customerMessage: combinedCustomerMessage,
+                          conversationHistory,
+                          pageName: page.page_name,
+                          businessDescription: page.ai_description || "",
+                        }),
+                      }
+                    );
+
+                    if (aiResponse.ok) {
+                      const aiData = await aiResponse.json();
+                      const suggestedReply = aiData.suggestedReply;
+
+                      if (suggestedReply) {
+                        console.log("AI reply generated:", suggestedReply.substring(0, 50));
+                        
+                        const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
+                        
+                        if (sent) {
+                          await supabase
+                            .from("messages")
+                            .insert({
+                              conversation_id: conversationId,
+                              content: suggestedReply,
+                              sender_type: "page",
+                              message_type: "text",
+                              created_at: new Date().toISOString(),
+                            });
+
+                          await supabase
+                            .from("conversations")
+                            .update({
+                              status: "replied",
+                              last_message_preview: suggestedReply.substring(0, 100),
+                              last_message_at: new Date().toISOString(),
+                            })
+                            .eq("id", conversationId);
+                            
+                          console.log("AI reply sent and saved");
+                        }
+                      }
+                    } else {
+                      console.error("AI reply function error:", aiResponse.status, await aiResponse.text());
+                    }
                   }
                 }
-              } else {
-                console.error("AI reply function error:", aiResponse.status, await aiResponse.text());
+              } catch (aiError) {
+                console.error("AI reply error:", aiError);
               }
-            } catch (aiError) {
-              console.error("AI reply error:", aiError);
             }
           }
           
