@@ -6,29 +6,28 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Nepali phone number patterns
-const NEPALI_PHONE_PATTERNS = [
-  /\b(98\d{8})\b/,           // 98XXXXXXXX
-  /\b(97\d{8})\b/,           // 97XXXXXXXX  
-  /\b(96\d{8})\b/,           // 96XXXXXXXX
-  /\+977\s*(98\d{8})\b/,     // +977 98XXXXXXXX
-  /\+977\s*(97\d{8})\b/,     // +977 97XXXXXXXX
-  /\+977\s*(96\d{8})\b/,     // +977 96XXXXXXXX
-  /\+977(98\d{8})\b/,        // +97798XXXXXXXX
-  /\+977(97\d{8})\b/,        // +97797XXXXXXXX
-  /\+977(96\d{8})\b/,        // +97796XXXXXXXX
-];
-
-function extractNepaliPhone(text: string): string | null {
+// Extract any phone number with 9-13 digits from text
+function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
   
-  for (const pattern of NEPALI_PHONE_PATTERNS) {
-    const match = text.match(pattern);
-    if (match) {
-      // Return normalized format: 98XXXXXXXX
-      return match[1] || match[0].replace(/\+977\s*/, '');
+  // Remove common separators and try to find 9-13 digit sequences
+  // First try with country code prefix patterns
+  const withCountryCode = text.match(/\+?\d{1,4}[\s-]?\d{4,13}/g);
+  if (withCountryCode) {
+    for (const match of withCountryCode) {
+      const digits = match.replace(/[\s\-\+]/g, '');
+      if (digits.length >= 9 && digits.length <= 13) {
+        return digits;
+      }
     }
   }
+  
+  // Then try plain digit sequences
+  const plainDigits = text.match(/\b(\d{9,13})\b/g);
+  if (plainDigits && plainDigits.length > 0) {
+    return plainDigits[0];
+  }
+  
   return null;
 }
 
@@ -257,7 +256,7 @@ serve(async (req) => {
         // Find the connected page in our database
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -391,16 +390,16 @@ serve(async (req) => {
             })
             .eq("id", conversationId);
 
-          // Check for Nepali phone number and create lead
-          const nepaliPhone = extractNepaliPhone(message.text || "");
-          if (nepaliPhone) {
-            console.log("Nepali phone detected:", nepaliPhone);
+          // Check for phone number (9-13 digits) and create lead
+          const detectedPhone = extractPhoneNumber(message.text || "");
+          if (detectedPhone) {
+            console.log("Phone number detected:", detectedPhone);
             
             // Check if lead with this phone already exists
             const { data: existingLead } = await supabase
               .from("leads")
               .select("id")
-              .eq("phone", nepaliPhone)
+              .eq("phone", detectedPhone)
               .single();
 
             if (existingLead) {
@@ -422,15 +421,16 @@ serve(async (req) => {
                 .eq("id", conversationId)
                 .single();
 
-              // Create new lead with page name as source
+              // Create new lead with page name as source and product
               const { error: leadError } = await supabase
                 .from("leads")
                 .insert({
-                  phone: nepaliPhone,
+                  phone: detectedPhone,
                   full_name: conv?.participant_name,
                   conversation_id: conversationId,
                   page_id: page.id,
                   source: page.page_name,
+                  product: (page as any).product_name || null,
                   last_message: message.text?.substring(0, 200),
                   status: "new",
                 });
@@ -438,7 +438,7 @@ serve(async (req) => {
               if (leadError) {
                 console.error("Error creating lead:", leadError);
               } else {
-                console.log("Created new lead for phone:", nepaliPhone);
+                console.log("Created new lead for phone:", detectedPhone);
               }
             }
 

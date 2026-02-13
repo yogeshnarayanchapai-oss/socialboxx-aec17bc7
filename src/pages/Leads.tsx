@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ const statusConfig: Record<string, { label: string; type: "success" | "warning" 
 };
 
 export default function Leads() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -248,7 +250,7 @@ export default function Leads() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           {lead.conversation_id && (
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => navigate(`/inbox?conversation=${lead.conversation_id}`)}>
                               <MessageSquare className="mr-2 h-4 w-4" />
                               View Conversation
                             </DropdownMenuItem>
@@ -290,6 +292,11 @@ export default function Leads() {
                             via {lead.source || lead.connected_pages?.page_name}
                           </span>
                         )}
+                        {(lead as any).product && (
+                          <span className="text-xs text-primary truncate max-w-[100px]">
+                            📦 {(lead as any).product}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-xs text-muted-foreground">
                         {lead.followup_due_date && (
@@ -314,6 +321,7 @@ export default function Leads() {
                   <TableRow>
                     <TableHead>Name</TableHead>
                     <TableHead>Phone</TableHead>
+                    <TableHead>Product</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Follow-up</TableHead>
@@ -324,7 +332,7 @@ export default function Leads() {
                 <TableBody>
                   {leads.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No leads found
                       </TableCell>
                     </TableRow>
@@ -349,6 +357,9 @@ export default function Leads() {
                             <Phone className="h-3.5 w-3.5 text-muted-foreground" />
                             <span className="text-sm">{lead.phone || "—"}</span>
                           </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">{(lead as any).product || "—"}</span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{lead.source || lead.connected_pages?.page_name || "—"}</span>
@@ -395,7 +406,7 @@ export default function Leads() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               {lead.conversation_id && (
-                                <DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => navigate(`/inbox?conversation=${lead.conversation_id}`)}>
                                   <MessageSquare className="mr-2 h-4 w-4" />
                                   View Conversation
                                 </DropdownMenuItem>

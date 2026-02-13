@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Bot, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +27,6 @@ import { toast } from "sonner";
 import { useConnectedPages } from "@/hooks/usePages";
 import { FacebookConnectWizard } from "@/components/facebook/FacebookConnectWizard";
 import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
-import { PageAIDialog } from "@/components/pages/PageAIDialog";
 import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -37,7 +36,6 @@ export default function Pages() {
   
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
-  const [aiPage, setAiPage] = useState<typeof pages[0] | null>(null);
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState<string | null>(null);
 
@@ -114,12 +112,6 @@ export default function Pages() {
         page={automationPage}
       />
 
-      <PageAIDialog
-        open={!!aiPage}
-        onOpenChange={(open) => !open && setAiPage(null)}
-        page={aiPage}
-      />
-
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deletePageId} onOpenChange={(open) => !open && setDeletePageId(null)}>
         <AlertDialogContent>
@@ -176,11 +168,7 @@ export default function Pages() {
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => setAutomationPage(page)}>
                           <Settings2 className="mr-2 h-4 w-4" />
-                          Automation Settings
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setAiPage(page)}>
-                          <Bot className="mr-2 h-4 w-4" />
-                          AI
+                          Page Settings
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => handleReconnect(page.id)} disabled={reconnecting === page.id}>
