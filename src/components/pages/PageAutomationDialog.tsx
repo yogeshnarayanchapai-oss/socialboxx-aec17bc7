@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil } from "lucide-react";
+import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdatePageSettings, type AutoReplyKeyword } from "@/hooks/usePageSettings";
 import type { Json } from "@/integrations/supabase/types";
@@ -20,6 +20,11 @@ import { supabase } from "@/integrations/supabase/client";
 interface MediaAttachment {
   type: "image" | "video" | "link";
   url: string;
+}
+
+interface ReplyMessage {
+  text: string;
+  media?: MediaAttachment | null;
 }
 
 interface ExtendedAutoReplyKeyword extends AutoReplyKeyword {
@@ -36,7 +41,22 @@ interface PageAutomationDialogProps {
     auto_reply_first_message?: string;
     auto_reply_followup?: string;
     auto_reply_keywords?: Json;
+    auto_reply_messages?: Json;
+    auto_followup_messages?: Json;
   } | null;
+}
+
+const DEFAULT_FIRST_MSG = "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।";
+const DEFAULT_FOLLOWUP_MSG = "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।";
+
+function parseMessages(data: Json | undefined | null, fallbackText: string): ReplyMessage[] {
+  if (Array.isArray(data) && data.length > 0) {
+    return (data as any[]).map((m: any) => ({
+      text: m.text || "",
+      media: m.media || null,
+    }));
+  }
+  return [{ text: fallbackText, media: null }];
 }
 
 export function PageAutomationDialog({
@@ -47,10 +67,10 @@ export function PageAutomationDialog({
   const updateSettings = useUpdatePageSettings();
   
   const [automationEnabled, setAutomationEnabled] = useState(false);
-  const [firstMessage, setFirstMessage] = useState("");
-  const [firstMessageMedia, setFirstMessageMedia] = useState<MediaAttachment | null>(null);
-  const [followupMessage, setFollowupMessage] = useState("");
-  const [followupMedia, setFollowupMedia] = useState<MediaAttachment | null>(null);
+  const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
+  const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
+  const [replyIndex, setReplyIndex] = useState(0);
+  const [followupIndex, setFollowupIndex] = useState(0);
   const [keywords, setKeywords] = useState<ExtendedAutoReplyKeyword[]>([]);
   
   // New keyword form
@@ -67,59 +87,64 @@ export function PageAutomationDialog({
   const [editMediaUrl, setEditMediaUrl] = useState("");
   
   // Upload states
-  const [uploadingFirst, setUploadingFirst] = useState(false);
+  const [uploadingReply, setUploadingReply] = useState(false);
   const [uploadingFollowup, setUploadingFollowup] = useState(false);
   const [uploadingKeyword, setUploadingKeyword] = useState(false);
   
-  // File input refs
-  const firstMediaRef = useRef<HTMLInputElement>(null);
+  const replyMediaRef = useRef<HTMLInputElement>(null);
   const followupMediaRef = useRef<HTMLInputElement>(null);
   const keywordMediaRef = useRef<HTMLInputElement>(null);
   const editMediaRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (page) {
+    if (page && open) {
       setAutomationEnabled(page.automation_enabled || false);
+      setReplyIndex(0);
+      setFollowupIndex(0);
       
-      // Parse first message (could be JSON with media or plain text)
-      try {
-        const firstMsgData = page.auto_reply_first_message ? JSON.parse(page.auto_reply_first_message) : null;
-        if (firstMsgData && typeof firstMsgData === 'object' && firstMsgData.text) {
-          setFirstMessage(firstMsgData.text);
-          setFirstMessageMedia(firstMsgData.media || null);
-        } else {
-          setFirstMessage(page.auto_reply_first_message || "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।");
-          setFirstMessageMedia(null);
+      // Parse multi-step reply messages
+      const pageAny = page as any;
+      const replyMsgs = parseMessages(pageAny.auto_reply_messages, "");
+      if (replyMsgs.length === 0 || (replyMsgs.length === 1 && !replyMsgs[0].text)) {
+        // Fallback to old single field
+        try {
+          const old = page.auto_reply_first_message ? JSON.parse(page.auto_reply_first_message) : null;
+          if (old && typeof old === 'object' && old.text) {
+            setReplyMessages([{ text: old.text, media: old.media || null }]);
+          } else {
+            setReplyMessages([{ text: page.auto_reply_first_message || DEFAULT_FIRST_MSG, media: null }]);
+          }
+        } catch {
+          setReplyMessages([{ text: page.auto_reply_first_message || DEFAULT_FIRST_MSG, media: null }]);
         }
-      } catch {
-        setFirstMessage(page.auto_reply_first_message || "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।");
-        setFirstMessageMedia(null);
+      } else {
+        setReplyMessages(replyMsgs);
       }
       
-      // Parse followup message
-      try {
-        const followupData = page.auto_reply_followup ? JSON.parse(page.auto_reply_followup) : null;
-        if (followupData && typeof followupData === 'object' && followupData.text) {
-          setFollowupMessage(followupData.text);
-          setFollowupMedia(followupData.media || null);
-        } else {
-          setFollowupMessage(page.auto_reply_followup || "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।");
-          setFollowupMedia(null);
+      const followMsgs = parseMessages(pageAny.auto_followup_messages, "");
+      if (followMsgs.length === 0 || (followMsgs.length === 1 && !followMsgs[0].text)) {
+        try {
+          const old = page.auto_reply_followup ? JSON.parse(page.auto_reply_followup) : null;
+          if (old && typeof old === 'object' && old.text) {
+            setFollowupMessages([{ text: old.text, media: old.media || null }]);
+          } else {
+            setFollowupMessages([{ text: page.auto_reply_followup || DEFAULT_FOLLOWUP_MSG, media: null }]);
+          }
+        } catch {
+          setFollowupMessages([{ text: page.auto_reply_followup || DEFAULT_FOLLOWUP_MSG, media: null }]);
         }
-      } catch {
-        setFollowupMessage(page.auto_reply_followup || "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।");
-        setFollowupMedia(null);
+      } else {
+        setFollowupMessages(followMsgs);
       }
       
-      // Parse keywords from database
+      // Parse keywords
       const keywordsData = page.auto_reply_keywords;
       if (Array.isArray(keywordsData) && keywordsData.length > 0) {
-        const parsedKeywords = keywordsData.map((k: any) => ({
+        setKeywords(keywordsData.map((k: any) => ({
           keywords: k.keywords || [],
           reply: k.reply || "",
           media: k.media || null,
-        }));
-        setKeywords(parsedKeywords);
+        })));
       } else {
         setKeywords([]);
       }
@@ -131,221 +156,121 @@ export function PageAutomationDialog({
       const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `${page?.id}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('automation-media')
-        .upload(filePath, file);
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        toast.error("Image upload गर्न सकिएन");
-        return null;
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('automation-media')
-        .getPublicUrl(filePath);
-
+      const { error: uploadError } = await supabase.storage.from('automation-media').upload(filePath, file);
+      if (uploadError) { toast.error("Image upload गर्न सकिएन"); return null; }
+      const { data: { publicUrl } } = supabase.storage.from('automation-media').getPublicUrl(filePath);
       return publicUrl;
-    } catch (error) {
-      console.error('Upload error:', error);
-      toast.error("Image upload गर्न सकिएन");
-      return null;
-    }
+    } catch { toast.error("Image upload गर्न सकिएन"); return null; }
   };
 
-  const handleFirstMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    setUploadingFirst(true);
+  // Multi-step reply helpers
+  const updateReplyMsg = (index: number, update: Partial<ReplyMessage>) => {
+    setReplyMessages(prev => prev.map((m, i) => i === index ? { ...m, ...update } : m));
+  };
+  const updateFollowupMsg = (index: number, update: Partial<ReplyMessage>) => {
+    setFollowupMessages(prev => prev.map((m, i) => i === index ? { ...m, ...update } : m));
+  };
+  const addReplyStep = () => {
+    if (replyMessages.length >= 3) return;
+    setReplyMessages(prev => [...prev, { text: "", media: null }]);
+    setReplyIndex(replyMessages.length);
+  };
+  const addFollowupStep = () => {
+    if (followupMessages.length >= 3) return;
+    setFollowupMessages(prev => [...prev, { text: "", media: null }]);
+    setFollowupIndex(followupMessages.length);
+  };
+  const removeReplyStep = (idx: number) => {
+    if (replyMessages.length <= 1) return;
+    setReplyMessages(prev => prev.filter((_, i) => i !== idx));
+    setReplyIndex(prev => Math.min(prev, replyMessages.length - 2));
+  };
+  const removeFollowupStep = (idx: number) => {
+    if (followupMessages.length <= 1) return;
+    setFollowupMessages(prev => prev.filter((_, i) => i !== idx));
+    setFollowupIndex(prev => Math.min(prev, followupMessages.length - 2));
+  };
+
+  const handleReplyMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    setUploadingReply(true);
     const url = await uploadImage(file);
-    if (url) {
-      setFirstMessageMedia({ type: 'image', url });
-      toast.success("Image upload भयो!");
-    }
-    setUploadingFirst(false);
-    if (firstMediaRef.current) firstMediaRef.current.value = '';
+    if (url) updateReplyMsg(replyIndex, { media: { type: 'image', url } });
+    setUploadingReply(false);
+    if (replyMediaRef.current) replyMediaRef.current.value = '';
   };
-
   const handleFollowupMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+    const file = e.target.files?.[0]; if (!file) return;
     setUploadingFollowup(true);
     const url = await uploadImage(file);
-    if (url) {
-      setFollowupMedia({ type: 'image', url });
-      toast.success("Image upload भयो!");
-    }
+    if (url) updateFollowupMsg(followupIndex, { media: { type: 'image', url } });
     setUploadingFollowup(false);
     if (followupMediaRef.current) followupMediaRef.current.value = '';
   };
-
   const handleKeywordMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+    const file = e.target.files?.[0]; if (!file) return;
     setUploadingKeyword(true);
     const url = await uploadImage(file);
-    if (url) {
-      setNewMediaType('image');
-      setNewMediaUrl(url);
-      toast.success("Image upload भयो!");
-    }
+    if (url) { setNewMediaType('image'); setNewMediaUrl(url); }
     setUploadingKeyword(false);
     if (keywordMediaRef.current) keywordMediaRef.current.value = '';
   };
-
   const handleEditMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+    const file = e.target.files?.[0]; if (!file) return;
     setUploadingKeyword(true);
     const url = await uploadImage(file);
-    if (url) {
-      setEditMediaType('image');
-      setEditMediaUrl(url);
-      toast.success("Image upload भयो!");
-    }
+    if (url) { setEditMediaType('image'); setEditMediaUrl(url); }
     setUploadingKeyword(false);
     if (editMediaRef.current) editMediaRef.current.value = '';
   };
 
   const handleAddKeyword = () => {
-    if (!newKeyword.trim() || !newReply.trim()) {
-      toast.error("Keywords र Reply दुवै भर्नुहोस्");
-      return;
-    }
-
-    const keywordList = newKeyword.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
-    if (keywordList.length === 0) {
-      toast.error("कम्तीमा एउटा keyword राख्नुहोस्");
-      return;
-    }
-
-    const newRule: ExtendedAutoReplyKeyword = {
-      keywords: keywordList,
-      reply: newReply,
-    };
-    
-    if (newMediaType && newMediaUrl.trim()) {
-      newRule.media = {
-        type: newMediaType,
-        url: newMediaUrl.trim(),
-      };
-    }
-
+    if (!newKeyword.trim() || !newReply.trim()) { toast.error("Keywords र Reply दुवै भर्नुहोस्"); return; }
+    const keywordList = newKeyword.split(",").map(k => k.trim().toLowerCase()).filter(Boolean);
+    if (keywordList.length === 0) { toast.error("कम्तीमा एउटा keyword राख्नुहोस्"); return; }
+    const newRule: ExtendedAutoReplyKeyword = { keywords: keywordList, reply: newReply };
+    if (newMediaType && newMediaUrl.trim()) newRule.media = { type: newMediaType, url: newMediaUrl.trim() };
     setKeywords([...keywords, newRule]);
-    setNewKeyword("");
-    setNewReply("");
-    setNewMediaType(null);
-    setNewMediaUrl("");
-    toast.success("Keyword rule थपियो");
+    setNewKeyword(""); setNewReply(""); setNewMediaType(null); setNewMediaUrl("");
   };
 
-  const handleRemoveKeyword = (index: number) => {
-    setKeywords(keywords.filter((_, i) => i !== index));
-    toast.success("Keyword rule हटाइयो");
-  };
-
+  const handleRemoveKeyword = (index: number) => { setKeywords(keywords.filter((_, i) => i !== index)); };
   const startEditKeyword = (index: number) => {
     const rule = keywords[index];
-    setEditingIndex(index);
-    setEditKeyword(rule.keywords.join(", "));
-    setEditReply(rule.reply);
-    setEditMediaType(rule.media?.type || null);
-    setEditMediaUrl(rule.media?.url || "");
+    setEditingIndex(index); setEditKeyword(rule.keywords.join(", ")); setEditReply(rule.reply);
+    setEditMediaType(rule.media?.type || null); setEditMediaUrl(rule.media?.url || "");
   };
-
   const saveEditKeyword = () => {
     if (editingIndex === null) return;
-    
-    if (!editKeyword.trim() || !editReply.trim()) {
-      toast.error("Keywords र Reply दुवै भर्नुहोस्");
-      return;
-    }
-
-    const keywordList = editKeyword.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
-    
-    const updatedRule: ExtendedAutoReplyKeyword = {
-      keywords: keywordList,
-      reply: editReply,
-    };
-    
-    if (editMediaType && editMediaUrl.trim()) {
-      updatedRule.media = {
-        type: editMediaType,
-        url: editMediaUrl.trim(),
-      };
-    }
-
-    const updated = [...keywords];
-    updated[editingIndex] = updatedRule;
-    setKeywords(updated);
-    setEditingIndex(null);
-    setEditKeyword("");
-    setEditReply("");
-    setEditMediaType(null);
-    setEditMediaUrl("");
-    toast.success("Keyword rule update भयो");
+    if (!editKeyword.trim() || !editReply.trim()) { toast.error("Keywords र Reply दुवै भर्नुहोस्"); return; }
+    const keywordList = editKeyword.split(",").map(k => k.trim().toLowerCase()).filter(Boolean);
+    const updatedRule: ExtendedAutoReplyKeyword = { keywords: keywordList, reply: editReply };
+    if (editMediaType && editMediaUrl.trim()) updatedRule.media = { type: editMediaType, url: editMediaUrl.trim() };
+    const updated = [...keywords]; updated[editingIndex] = updatedRule; setKeywords(updated);
+    setEditingIndex(null); setEditKeyword(""); setEditReply(""); setEditMediaType(null); setEditMediaUrl("");
   };
-
-  const cancelEdit = () => {
-    setEditingIndex(null);
-    setEditKeyword("");
-    setEditReply("");
-    setEditMediaType(null);
-    setEditMediaUrl("");
-  };
+  const cancelEdit = () => { setEditingIndex(null); setEditKeyword(""); setEditReply(""); setEditMediaType(null); setEditMediaUrl(""); };
 
   const handleSave = async () => {
     if (!page) return;
-
     try {
-      // Prepare keywords data
-      const keywordsToSave = keywords.map(k => ({
-        keywords: k.keywords,
-        reply: k.reply,
-        media: k.media || null,
-      }));
-
-      // Build first message with media info
-      let firstMsgContent: string;
-      if (firstMessageMedia) {
-        firstMsgContent = JSON.stringify({
-          text: firstMessage,
-          media: firstMessageMedia,
-        });
-      } else {
-        firstMsgContent = firstMessage;
-      }
-
-      // Build followup message with media info
-      let followupMsgContent: string;
-      if (followupMedia) {
-        followupMsgContent = JSON.stringify({
-          text: followupMessage,
-          media: followupMedia,
-        });
-      } else {
-        followupMsgContent = followupMessage;
-      }
-
-      console.log("Saving settings:", {
-        automationEnabled,
-        keywordsToSave,
-        firstMsgContent,
-        followupMsgContent,
-      });
+      const keywordsToSave = keywords.map(k => ({ keywords: k.keywords, reply: k.reply, media: k.media || null }));
+      
+      // Save first message (backward compat) + new multi-step
+      const firstMsgCompat = replyMessages[0]?.text || DEFAULT_FIRST_MSG;
+      const followupCompat = followupMessages[0]?.text || DEFAULT_FOLLOWUP_MSG;
 
       await updateSettings.mutateAsync({
         pageId: page.id,
         settings: {
           automation_enabled: automationEnabled,
-          auto_reply_first_message: firstMsgContent,
-          auto_reply_followup: followupMsgContent,
+          auto_reply_first_message: firstMsgCompat,
+          auto_reply_followup: followupCompat,
           auto_reply_keywords: keywordsToSave,
+        },
+        extraData: {
+          auto_reply_messages: replyMessages,
+          auto_followup_messages: followupMessages,
         },
       });
       
@@ -357,262 +282,179 @@ export function PageAutomationDialog({
     }
   };
 
-  const MediaButtons = ({ 
-    selectedType, 
-    onSelectType,
-    onUploadClick,
-    isUploading,
-  }: { 
+  const MediaButtons = ({ selectedType, onUploadClick, isUploading, onSetMedia }: { 
     selectedType: "image" | "video" | "link" | null;
-    onSelectType: (type: "image" | "video" | "link" | null) => void;
     onUploadClick: () => void;
     isUploading: boolean;
+    onSetMedia: (media: MediaAttachment | null) => void;
   }) => (
     <div className="flex gap-2 flex-wrap">
-      <Button
-        type="button"
-        variant={selectedType === 'image' ? "default" : "outline"}
-        size="sm"
-        onClick={onUploadClick}
-        disabled={isUploading}
-        className="h-8"
-      >
-        {isUploading ? (
-          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-        ) : (
-          <Upload className="h-3 w-3 mr-1" />
-        )}
-        Image Upload
+      <Button type="button" variant={selectedType === 'image' ? "default" : "outline"} size="sm" onClick={onUploadClick} disabled={isUploading} className="h-8">
+        {isUploading ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
+        Image
       </Button>
-      <Button
-        type="button"
-        variant={selectedType === 'video' ? "default" : "outline"}
-        size="sm"
-        onClick={() => onSelectType(selectedType === 'video' ? null : 'video')}
-        className="h-8"
-      >
-        <Video className="h-3 w-3 mr-1" />
-        Video URL
+      <Button type="button" variant={selectedType === 'video' ? "default" : "outline"} size="sm" onClick={() => onSetMedia(selectedType === 'video' ? null : { type: 'video', url: '' })} className="h-8">
+        <Video className="h-3 w-3 mr-1" />Video
       </Button>
-      <Button
-        type="button"
-        variant={selectedType === 'link' ? "default" : "outline"}
-        size="sm"
-        onClick={() => onSelectType(selectedType === 'link' ? null : 'link')}
-        className="h-8"
-      >
-        <Link2 className="h-3 w-3 mr-1" />
-        Link
+      <Button type="button" variant={selectedType === 'link' ? "default" : "outline"} size="sm" onClick={() => onSetMedia(selectedType === 'link' ? null : { type: 'link', url: '' })} className="h-8">
+        <Link2 className="h-3 w-3 mr-1" />Link
       </Button>
     </div>
   );
+
+  // Step navigation component
+  const StepNav = ({ current, total, onPrev, onNext, onAdd, onRemove, label }: {
+    current: number; total: number; onPrev: () => void; onNext: () => void; onAdd: () => void; onRemove: (i: number) => void; label: string;
+  }) => (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">{label} {current + 1}/{total}</span>
+        <div className="flex gap-1">
+          {Array.from({ length: total }).map((_, i) => (
+            <div key={i} className={`h-1.5 w-4 rounded-full transition-colors ${i === current ? 'bg-primary' : 'bg-muted-foreground/30'}`} />
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onPrev} disabled={current === 0}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={onNext} disabled={current >= total - 1}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+        {total < 3 && (
+          <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={onAdd}>
+            <Plus className="h-3 w-3 mr-1" />Next
+          </Button>
+        )}
+        {total > 1 && (
+          <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onRemove(current)}>
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
+  const currentReply = replyMessages[replyIndex] || { text: "", media: null };
+  const currentFollowup = followupMessages[followupIndex] || { text: "", media: null };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Automation Settings</DialogTitle>
-          <DialogDescription>
-            {page?.page_name} को auto-reply configure गर्नुहोस्
-          </DialogDescription>
+          <DialogDescription>{page?.page_name} को auto-reply configure गर्नुहोस्</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
-          {/* Master Toggle - Only One */}
-          <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${
-            automationEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'
-          }`}>
+          {/* Master Toggle */}
+          <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${automationEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'}`}>
             <div>
               <Label className="text-base font-medium">Enable Automation</Label>
-              <p className="text-sm text-muted-foreground">
-                यस page को सबै auto-replies {automationEnabled ? 'सक्रिय छ' : 'बन्द छ'}
-              </p>
+              <p className="text-sm text-muted-foreground">यस page को auto-replies {automationEnabled ? 'सक्रिय छ' : 'बन्द छ'}</p>
             </div>
-            <Switch
-              checked={automationEnabled}
-              onCheckedChange={setAutomationEnabled}
-            />
+            <Switch checked={automationEnabled} onCheckedChange={setAutomationEnabled} />
           </div>
 
-          {/* First Message Reply */}
+          {/* First Message Auto-Reply (Multi-step) */}
           <div className="space-y-3 rounded-lg border p-4">
             <div>
-              <Label className="text-sm font-medium">First Message Auto-Reply</Label>
-              <p className="text-xs text-muted-foreground">
-                नयाँ customer ले पहिलो पटक message गर्दा automatic reply
-              </p>
+              <Label className="text-sm font-medium">Message Auto-Reply</Label>
+              <p className="text-xs text-muted-foreground">Customer ले message गर्दा क्रमशः reply (३ ओटा सम्म)</p>
             </div>
-            
+            <StepNav
+              current={replyIndex} total={replyMessages.length}
+              onPrev={() => setReplyIndex(i => Math.max(0, i - 1))}
+              onNext={() => setReplyIndex(i => Math.min(replyMessages.length - 1, i + 1))}
+              onAdd={addReplyStep} onRemove={removeReplyStep} label="Reply"
+            />
             <Textarea
-              value={firstMessage}
-              onChange={(e) => setFirstMessage(e.target.value)}
-              placeholder="First message auto-reply..."
+              value={currentReply.text}
+              onChange={(e) => updateReplyMsg(replyIndex, { text: e.target.value })}
+              placeholder={`${replyIndex + 1} नम्बर message auto-reply...`}
               rows={3}
             />
-            
-            {/* Media for first message */}
-            <input
-              ref={firstMediaRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFirstMediaUpload}
-            />
-            
-            {firstMessageMedia && (
+            <input ref={replyMediaRef} type="file" accept="image/*" className="hidden" onChange={handleReplyMediaUpload} />
+            {currentReply.media && (
               <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-                {firstMessageMedia.type === 'image' && (
-                  <img src={firstMessageMedia.url} alt="Media" className="h-12 w-12 object-cover rounded" />
-                )}
-                <span className="text-xs text-muted-foreground flex-1 truncate">
-                  {firstMessageMedia.type}: {firstMessageMedia.url.substring(0, 40)}...
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setFirstMessageMedia(null)}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
+                {currentReply.media.type === 'image' && <img src={currentReply.media.url} alt="" className="h-12 w-12 object-cover rounded" />}
+                <span className="text-xs text-muted-foreground flex-1 truncate">{currentReply.media.type}: {currentReply.media.url.substring(0, 40)}...</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => updateReplyMsg(replyIndex, { media: null })}><X className="h-3 w-3" /></Button>
               </div>
             )}
-            
             <MediaButtons
-              selectedType={firstMessageMedia?.type || null}
-              onSelectType={(type) => {
-                if (type === 'video' || type === 'link') {
-                  setFirstMessageMedia(type ? { type, url: '' } : null);
-                }
-              }}
-              onUploadClick={() => firstMediaRef.current?.click()}
-              isUploading={uploadingFirst}
+              selectedType={currentReply.media?.type || null}
+              onUploadClick={() => replyMediaRef.current?.click()}
+              isUploading={uploadingReply}
+              onSetMedia={(media) => updateReplyMsg(replyIndex, { media })}
             />
-            
-            {firstMessageMedia && (firstMessageMedia.type === 'video' || firstMessageMedia.type === 'link') && (
-              <Input
-                placeholder={`${firstMessageMedia.type === 'video' ? 'Facebook Video' : 'Link'} URL...`}
-                value={firstMessageMedia.url}
-                onChange={(e) => setFirstMessageMedia({ ...firstMessageMedia, url: e.target.value })}
-              />
+            {currentReply.media && (currentReply.media.type === 'video' || currentReply.media.type === 'link') && (
+              <Input placeholder={`${currentReply.media.type === 'video' ? 'Video' : 'Link'} URL...`} value={currentReply.media.url} onChange={(e) => updateReplyMsg(replyIndex, { media: { ...currentReply.media!, url: e.target.value } })} />
             )}
           </div>
 
-          {/* Follow-up Message Reply */}
+          {/* Follow-up Auto-Reply (Multi-step) */}
           <div className="space-y-3 rounded-lg border p-4">
             <div>
               <Label className="text-sm font-medium">Follow-up Auto-Reply</Label>
-              <p className="text-xs text-muted-foreground">
-                दोस्रो/पछिको messages मा automatic reply
-              </p>
+              <p className="text-xs text-muted-foreground">Follow-up messages क्रमशः (३ ओटा सम्म)</p>
             </div>
-            
+            <StepNav
+              current={followupIndex} total={followupMessages.length}
+              onPrev={() => setFollowupIndex(i => Math.max(0, i - 1))}
+              onNext={() => setFollowupIndex(i => Math.min(followupMessages.length - 1, i + 1))}
+              onAdd={addFollowupStep} onRemove={removeFollowupStep} label="Follow-up"
+            />
             <Textarea
-              value={followupMessage}
-              onChange={(e) => setFollowupMessage(e.target.value)}
-              placeholder="Follow-up auto-reply..."
-              rows={2}
+              value={currentFollowup.text}
+              onChange={(e) => updateFollowupMsg(followupIndex, { text: e.target.value })}
+              placeholder={`${followupIndex + 1} नम्बर follow-up message...`}
+              rows={3}
             />
-            
-            {/* Media for followup */}
-            <input
-              ref={followupMediaRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFollowupMediaUpload}
-            />
-            
-            {followupMedia && (
+            <input ref={followupMediaRef} type="file" accept="image/*" className="hidden" onChange={handleFollowupMediaUpload} />
+            {currentFollowup.media && (
               <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-                {followupMedia.type === 'image' && (
-                  <img src={followupMedia.url} alt="Media" className="h-12 w-12 object-cover rounded" />
-                )}
-                <span className="text-xs text-muted-foreground flex-1 truncate">
-                  {followupMedia.type}: {followupMedia.url.substring(0, 40)}...
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setFollowupMedia(null)}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
+                {currentFollowup.media.type === 'image' && <img src={currentFollowup.media.url} alt="" className="h-12 w-12 object-cover rounded" />}
+                <span className="text-xs text-muted-foreground flex-1 truncate">{currentFollowup.media.type}: {currentFollowup.media.url.substring(0, 40)}...</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => updateFollowupMsg(followupIndex, { media: null })}><X className="h-3 w-3" /></Button>
               </div>
             )}
-            
             <MediaButtons
-              selectedType={followupMedia?.type || null}
-              onSelectType={(type) => {
-                if (type === 'video' || type === 'link') {
-                  setFollowupMedia(type ? { type, url: '' } : null);
-                }
-              }}
+              selectedType={currentFollowup.media?.type || null}
               onUploadClick={() => followupMediaRef.current?.click()}
               isUploading={uploadingFollowup}
+              onSetMedia={(media) => updateFollowupMsg(followupIndex, { media })}
             />
-            
-            {followupMedia && (followupMedia.type === 'video' || followupMedia.type === 'link') && (
-              <Input
-                placeholder={`${followupMedia.type === 'video' ? 'Facebook Video' : 'Link'} URL...`}
-                value={followupMedia.url}
-                onChange={(e) => setFollowupMedia({ ...followupMedia, url: e.target.value })}
-              />
+            {currentFollowup.media && (currentFollowup.media.type === 'video' || currentFollowup.media.type === 'link') && (
+              <Input placeholder={`${currentFollowup.media.type === 'video' ? 'Video' : 'Link'} URL...`} value={currentFollowup.media.url} onChange={(e) => updateFollowupMsg(followupIndex, { media: { ...currentFollowup.media!, url: e.target.value } })} />
             )}
           </div>
 
           {/* Keyword-based Replies */}
           <div className="space-y-3 rounded-lg border p-4">
             <Label className="text-sm font-medium">Keyword Auto-Replies</Label>
-            <p className="text-xs text-muted-foreground">
-              Message मा यी keywords आउँदा corresponding reply पठाउने
-            </p>
+            <p className="text-xs text-muted-foreground">Message मा keywords आउँदा reply पठाउने</p>
 
-            {/* Existing Keywords */}
             {keywords.length > 0 && (
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {keywords.map((rule, index) => (
                   <div key={index}>
                     {editingIndex === index ? (
-                      // Edit mode
                       <div className="space-y-2 rounded-lg border-2 border-primary p-3">
-                        <Input
-                          value={editKeyword}
-                          onChange={(e) => setEditKeyword(e.target.value)}
-                          placeholder="Keywords (comma separated)"
-                        />
-                        <Textarea
-                          value={editReply}
-                          onChange={(e) => setEditReply(e.target.value)}
-                          placeholder="Reply message..."
-                          rows={2}
-                        />
-                        
-                        <input
-                          ref={editMediaRef}
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={handleEditMediaUpload}
-                        />
-                        
+                        <Input value={editKeyword} onChange={(e) => setEditKeyword(e.target.value)} placeholder="Keywords (comma separated)" />
+                        <Textarea value={editReply} onChange={(e) => setEditReply(e.target.value)} placeholder="Reply message..." rows={2} />
+                        <input ref={editMediaRef} type="file" accept="image/*" className="hidden" onChange={handleEditMediaUpload} />
                         {editMediaUrl && (
                           <div className="flex items-center gap-2 p-2 bg-muted rounded">
-                            {editMediaType === 'image' && (
-                              <img src={editMediaUrl} alt="Media" className="h-10 w-10 object-cover rounded" />
-                            )}
+                            {editMediaType === 'image' && <img src={editMediaUrl} alt="" className="h-10 w-10 object-cover rounded" />}
                             <span className="text-xs flex-1 truncate">{editMediaUrl.substring(0, 30)}...</span>
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditMediaType(null); setEditMediaUrl(""); }}>
-                              <X className="h-3 w-3" />
-                            </Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setEditMediaType(null); setEditMediaUrl(""); }}><X className="h-3 w-3" /></Button>
                           </div>
                         )}
-                        
                         <div className="flex gap-2 flex-wrap">
                           <Button size="sm" variant="outline" onClick={() => editMediaRef.current?.click()} disabled={uploadingKeyword}>
-                            {uploadingKeyword ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
-                            Image
+                            {uploadingKeyword ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}Image
                           </Button>
                           <Button size="sm" variant={editMediaType === 'video' ? "default" : "outline"} onClick={() => { setEditMediaType('video'); setEditMediaUrl(''); }}>
                             <Video className="h-3 w-3 mr-1" />Video
@@ -621,58 +463,29 @@ export function PageAutomationDialog({
                             <Link2 className="h-3 w-3 mr-1" />Link
                           </Button>
                         </div>
-                        
                         {editMediaType && editMediaType !== 'image' && (
-                          <Input
-                            value={editMediaUrl}
-                            onChange={(e) => setEditMediaUrl(e.target.value)}
-                            placeholder={`${editMediaType === 'video' ? 'Video' : 'Link'} URL...`}
-                          />
+                          <Input value={editMediaUrl} onChange={(e) => setEditMediaUrl(e.target.value)} placeholder={`${editMediaType === 'video' ? 'Video' : 'Link'} URL...`} />
                         )}
-                        
                         <div className="flex gap-2 pt-2">
                           <Button size="sm" onClick={saveEditKeyword}>Save</Button>
                           <Button size="sm" variant="outline" onClick={cancelEdit}>Cancel</Button>
                         </div>
                       </div>
                     ) : (
-                      // View mode
                       <div className="flex items-start gap-2 rounded-lg border p-3 bg-background">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium">
-                            {rule.keywords.join(", ")}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                            {rule.reply}
-                          </p>
+                          <p className="text-sm font-medium">{rule.keywords.join(", ")}</p>
+                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{rule.reply}</p>
                           {rule.media && (
                             <div className="flex items-center gap-2 mt-1">
-                              {rule.media.type === 'image' && (
-                                <img src={rule.media.url} alt="Media" className="h-8 w-8 object-cover rounded" />
-                              )}
-                              <span className="text-xs text-blue-500">
-                                📎 {rule.media.type}
-                              </span>
+                              {rule.media.type === 'image' && <img src={rule.media.url} alt="" className="h-8 w-8 object-cover rounded" />}
+                              <span className="text-xs text-blue-500">📎 {rule.media.type}</span>
                             </div>
                           )}
                         </div>
                         <div className="flex gap-1 flex-shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => startEditKeyword(index)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={() => handleRemoveKeyword(index)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEditKeyword(index)}><Pencil className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleRemoveKeyword(index)}><Trash2 className="h-4 w-4" /></Button>
                         </div>
                       </div>
                     )}
@@ -684,100 +497,41 @@ export function PageAutomationDialog({
             {/* Add New Keyword */}
             <div className="space-y-3 rounded-lg border border-dashed p-3 bg-muted/30">
               <p className="text-xs font-medium text-muted-foreground">नयाँ Keyword Rule थप्नुहोस्</p>
-              <Input
-                placeholder="Keywords (comma separated): price, cost, rate"
-                value={newKeyword}
-                onChange={(e) => setNewKeyword(e.target.value)}
-              />
-              <Textarea
-                placeholder="Auto-reply message..."
-                value={newReply}
-                onChange={(e) => setNewReply(e.target.value)}
-                rows={2}
-              />
-              
-              {/* Media for new keyword */}
-              <input
-                ref={keywordMediaRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleKeywordMediaUpload}
-              />
-              
+              <Input placeholder="Keywords (comma separated): price, cost, rate" value={newKeyword} onChange={(e) => setNewKeyword(e.target.value)} />
+              <Textarea placeholder="Auto-reply message..." value={newReply} onChange={(e) => setNewReply(e.target.value)} rows={2} />
+              <input ref={keywordMediaRef} type="file" accept="image/*" className="hidden" onChange={handleKeywordMediaUpload} />
               {newMediaUrl && (
                 <div className="flex items-center gap-2 p-2 bg-background rounded">
-                  {newMediaType === 'image' && (
-                    <img src={newMediaUrl} alt="Media" className="h-10 w-10 object-cover rounded" />
-                  )}
+                  {newMediaType === 'image' && <img src={newMediaUrl} alt="" className="h-10 w-10 object-cover rounded" />}
                   <span className="text-xs flex-1 truncate">{newMediaUrl.substring(0, 30)}...</span>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setNewMediaType(null); setNewMediaUrl(""); }}>
-                    <X className="h-3 w-3" />
-                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { setNewMediaType(null); setNewMediaUrl(""); }}><X className="h-3 w-3" /></Button>
                 </div>
               )}
-              
               <div className="flex gap-2 flex-wrap">
-                <Button 
-                  type="button" 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => keywordMediaRef.current?.click()}
-                  disabled={uploadingKeyword}
-                >
-                  {uploadingKeyword ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}
-                  Image Upload
+                <Button type="button" size="sm" variant="outline" onClick={() => keywordMediaRef.current?.click()} disabled={uploadingKeyword}>
+                  {uploadingKeyword ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}Image
                 </Button>
-                <Button
-                  type="button"
-                  variant={newMediaType === 'video' ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => { setNewMediaType(newMediaType === 'video' ? null : 'video'); setNewMediaUrl(''); }}
-                >
-                  <Video className="h-3 w-3 mr-1" />
-                  Video URL
+                <Button type="button" variant={newMediaType === 'video' ? "default" : "outline"} size="sm" onClick={() => { setNewMediaType(newMediaType === 'video' ? null : 'video'); setNewMediaUrl(''); }}>
+                  <Video className="h-3 w-3 mr-1" />Video
                 </Button>
-                <Button
-                  type="button"
-                  variant={newMediaType === 'link' ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => { setNewMediaType(newMediaType === 'link' ? null : 'link'); setNewMediaUrl(''); }}
-                >
-                  <Link2 className="h-3 w-3 mr-1" />
-                  Link
+                <Button type="button" variant={newMediaType === 'link' ? "default" : "outline"} size="sm" onClick={() => { setNewMediaType(newMediaType === 'link' ? null : 'link'); setNewMediaUrl(''); }}>
+                  <Link2 className="h-3 w-3 mr-1" />Link
                 </Button>
               </div>
-              
               {newMediaType && newMediaType !== 'image' && (
-                <Input
-                  placeholder={`${newMediaType === 'video' ? 'Facebook Video' : 'Link'} URL...`}
-                  value={newMediaUrl}
-                  onChange={(e) => setNewMediaUrl(e.target.value)}
-                />
+                <Input placeholder={`${newMediaType === 'video' ? 'Video' : 'Link'} URL...`} value={newMediaUrl} onChange={(e) => setNewMediaUrl(e.target.value)} />
               )}
-              
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAddKeyword}
-                className="w-full"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Keyword Rule थप्नुहोस्
+              <Button type="button" variant="outline" size="sm" onClick={handleAddKeyword} className="w-full">
+                <Plus className="mr-2 h-4 w-4" />Keyword Rule थप्नुहोस्
               </Button>
             </div>
           </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={updateSettings.isPending}>
-            {updateSettings.isPending && (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            )}
+            {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Settings
           </Button>
         </div>
