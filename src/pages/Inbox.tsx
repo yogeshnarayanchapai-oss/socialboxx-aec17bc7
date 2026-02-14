@@ -115,6 +115,7 @@ export default function Inbox() {
   const isMobile = useIsMobile();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: conversations = [], isLoading: loadingConversations } = useConversations({
     status: filter,
@@ -141,6 +142,13 @@ export default function Inbox() {
       setSelectedConversation(conversations[0]);
     }
   }, [conversations, selectedConversation, isMobile]);
+
+  // Auto-scroll to latest message (bottom) like Messenger
+  useEffect(() => {
+    if (messagesEndRef.current && messages.length > 0) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   const handleSend = async () => {
     if (!message.trim() || !selectedConversation) return;
@@ -474,29 +482,32 @@ export default function Inbox() {
                   ) : messages.length === 0 ? (
                     <div className="text-center text-muted-foreground py-8">No messages in this conversation</div>
                   ) : (
-                    messages.map((msg) => (
-                      <div key={msg.id} className={cn("flex", msg.sender_type === "page" ? "justify-end" : "justify-start")}>
-                        <div className={cn(
-                          "message-bubble max-w-[85%] sm:max-w-[70%]",
-                          msg.is_internal_note 
-                            ? "bg-warning/10 border border-warning/20 text-warning-foreground" 
-                            : msg.sender_type === "page" ? "message-outgoing" : "message-incoming"
-                        )}>
-                          {msg.is_internal_note && <p className="text-xs font-medium text-warning mb-1">📝 Note</p>}
-                          <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                          {msg.media_url && (
-                            msg.media_url.match(/\.(mp3|wav|ogg|m4a|aac)$/i) ? (
-                              <audio controls src={msg.media_url} className="mt-2 max-w-full" />
-                            ) : (
-                              <img src={msg.media_url} alt="Attachment" className="mt-2 max-w-full rounded" />
-                            )
-                          )}
-                          <p className={cn("mt-1 text-xs", msg.sender_type === "page" && !msg.is_internal_note ? "text-primary-foreground/70" : "text-muted-foreground")}>
-                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </p>
+                    <>
+                      {messages.map((msg) => (
+                        <div key={msg.id} className={cn("flex", msg.sender_type === "page" ? "justify-end" : "justify-start")}>
+                          <div className={cn(
+                            "message-bubble max-w-[85%] sm:max-w-[70%]",
+                            msg.is_internal_note 
+                              ? "bg-warning/10 border border-warning/20 text-warning-foreground" 
+                              : msg.sender_type === "page" ? "message-outgoing" : "message-incoming"
+                          )}>
+                            {msg.is_internal_note && <p className="text-xs font-medium text-warning mb-1">📝 Note</p>}
+                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                            {msg.media_url && (
+                              msg.media_url.match(/\.(mp3|wav|ogg|m4a|aac)$/i) ? (
+                                <audio controls src={msg.media_url} className="mt-2 max-w-full" />
+                              ) : (
+                                <img src={msg.media_url} alt="Attachment" className="mt-2 max-w-full rounded" />
+                              )
+                            )}
+                            <p className={cn("mt-1 text-xs", msg.sender_type === "page" && !msg.is_internal_note ? "text-primary-foreground/70" : "text-muted-foreground")}>
+                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))}
+                      <div ref={messagesEndRef} />
+                    </>
                   )}
                 </div>
 
