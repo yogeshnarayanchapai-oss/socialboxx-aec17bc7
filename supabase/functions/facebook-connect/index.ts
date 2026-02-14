@@ -31,6 +31,15 @@ serve(async (req) => {
 
     const { action, pageId, accessToken, pageName, pagePictureUrl, userAccessToken } = await req.json();
 
+    // Get user's organization_id
+    const { data: membership } = await supabase
+      .from("organization_members")
+      .select("organization_id")
+      .eq("user_id", user.id)
+      .single();
+
+    const orgId = membership?.organization_id;
+
     // Helper function to get Facebook app credentials from DB
     async function getFacebookCredentials() {
       const { data: settingsData } = await supabase
@@ -268,6 +277,7 @@ serve(async (req) => {
           connected_by: user.id,
           connection_status: "active",
           token_expiry: tokenExpiry.toISOString(),
+          organization_id: orgId,
         })
         .select()
         .single();

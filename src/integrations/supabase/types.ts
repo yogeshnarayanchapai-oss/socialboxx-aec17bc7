@@ -17,6 +17,7 @@ export type Database = {
       app_settings: {
         Row: {
           id: string
+          organization_id: string | null
           setting_key: string
           setting_value: Json
           updated_at: string
@@ -24,6 +25,7 @@ export type Database = {
         }
         Insert: {
           id?: string
+          organization_id?: string | null
           setting_key: string
           setting_value?: Json
           updated_at?: string
@@ -31,12 +33,21 @@ export type Database = {
         }
         Update: {
           id?: string
+          organization_id?: string | null
           setting_key?: string
           setting_value?: Json
           updated_at?: string
           updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "app_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       automation_rules: {
         Row: {
@@ -49,6 +60,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           name: string
+          organization_id: string | null
           page_id: string | null
           trigger_config: Json | null
           trigger_type: string
@@ -64,6 +76,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name: string
+          organization_id?: string | null
           page_id?: string | null
           trigger_config?: Json | null
           trigger_type: string
@@ -79,12 +92,20 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name?: string
+          organization_id?: string | null
           page_id?: string | null
           trigger_config?: Json | null
           trigger_type?: string
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "automation_rules_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "automation_rules_page_id_fkey"
             columns: ["page_id"]
@@ -113,6 +134,7 @@ export type Database = {
           connection_status: string
           created_at: string
           id: string
+          organization_id: string | null
           page_access_token: string
           page_id: string
           page_name: string
@@ -140,6 +162,7 @@ export type Database = {
           connection_status?: string
           created_at?: string
           id?: string
+          organization_id?: string | null
           page_access_token: string
           page_id: string
           page_name: string
@@ -167,6 +190,7 @@ export type Database = {
           connection_status?: string
           created_at?: string
           id?: string
+          organization_id?: string | null
           page_access_token?: string
           page_id?: string
           page_name?: string
@@ -176,7 +200,15 @@ export type Database = {
           token_expiry?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "connected_pages_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       conversations: {
         Row: {
@@ -191,6 +223,7 @@ export type Database = {
           id: string
           last_message_at: string | null
           last_message_preview: string | null
+          organization_id: string | null
           page_id: string
           participant_id: string | null
           participant_name: string | null
@@ -211,6 +244,7 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           last_message_preview?: string | null
+          organization_id?: string | null
           page_id: string
           participant_id?: string | null
           participant_name?: string | null
@@ -231,6 +265,7 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           last_message_preview?: string | null
+          organization_id?: string | null
           page_id?: string
           participant_id?: string | null
           participant_name?: string | null
@@ -240,6 +275,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "conversations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "conversations_page_id_fkey"
             columns: ["page_id"]
@@ -256,6 +298,7 @@ export type Database = {
           followup_type: string
           id: string
           message_text: string | null
+          organization_id: string | null
           page_id: string
           sent_at: string
           step_number: number
@@ -266,6 +309,7 @@ export type Database = {
           followup_type?: string
           id?: string
           message_text?: string | null
+          organization_id?: string | null
           page_id: string
           sent_at?: string
           step_number?: number
@@ -276,6 +320,7 @@ export type Database = {
           followup_type?: string
           id?: string
           message_text?: string | null
+          organization_id?: string | null
           page_id?: string
           sent_at?: string
           step_number?: number
@@ -286,6 +331,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "followup_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
           {
@@ -307,6 +359,7 @@ export type Database = {
           id: string
           last_message: string | null
           notes: string | null
+          organization_id: string | null
           page_id: string | null
           phone: string | null
           product: string | null
@@ -323,6 +376,7 @@ export type Database = {
           id?: string
           last_message?: string | null
           notes?: string | null
+          organization_id?: string | null
           page_id?: string | null
           phone?: string | null
           product?: string | null
@@ -339,6 +393,7 @@ export type Database = {
           id?: string
           last_message?: string | null
           notes?: string | null
+          organization_id?: string | null
           page_id?: string | null
           phone?: string | null
           product?: string | null
@@ -352,6 +407,13 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
           {
@@ -410,6 +472,104 @@ export type Database = {
           },
         ]
       }
+      organization_members: {
+        Row: {
+          created_at: string
+          id: string
+          invited_by: string | null
+          organization_id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invited_by?: string | null
+          organization_id: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invited_by?: string | null
+          organization_id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          approved_at: string | null
+          approved_by: string | null
+          created_at: string
+          id: string
+          max_pages: number
+          max_team_members: number
+          name: string
+          owner_id: string
+          plan: string
+          rejected_reason: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          id?: string
+          max_pages?: number
+          max_team_members?: number
+          name: string
+          owner_id: string
+          plan?: string
+          rejected_reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          approved_at?: string | null
+          approved_by?: string | null
+          created_at?: string
+          id?: string
+          max_pages?: number
+          max_team_members?: number
+          name?: string
+          owner_id?: string
+          plan?: string
+          rejected_reason?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      platform_admins: {
+        Row: {
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -446,6 +606,7 @@ export type Database = {
           id: string
           is_active: boolean | null
           name: string
+          organization_id: string | null
           placeholders: string[] | null
           updated_at: string
         }
@@ -457,6 +618,7 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name: string
+          organization_id?: string | null
           placeholders?: string[] | null
           updated_at?: string
         }
@@ -468,10 +630,19 @@ export type Database = {
           id?: string
           is_active?: boolean | null
           name?: string
+          organization_id?: string | null
           placeholders?: string[] | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "reply_templates_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -499,6 +670,12 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_org_role: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      get_user_org_id: { Args: { _user_id: string }; Returns: string }
+      get_user_org_status: { Args: { _user_id: string }; Returns: string }
       get_user_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
@@ -510,6 +687,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_platform_admin: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "manager" | "agent"

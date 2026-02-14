@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MessageSquare, Loader2 } from "lucide-react";
+import { MessageSquare, Loader2, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -15,13 +15,18 @@ const authSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
+const signupSchema = authSchema.extend({
+  companyName: z.string().min(2, "Company name must be at least 2 characters"),
+});
+
 export default function Auth() {
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-
+  const [companyName, setCompanyName] = useState("");
+  const [signupSuccess, setSignupSuccess] = useState(false);
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
@@ -76,7 +81,14 @@ export default function Auth() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateInput()) return;
+    try {
+      signupSchema.parse({ email, password, companyName });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        toast.error(error.errors[0].message);
+      }
+      return;
+    }
 
     setIsLoading(true);
     const redirectUrl = `${window.location.origin}/`;
@@ -88,6 +100,7 @@ export default function Auth() {
         emailRedirectTo: redirectUrl,
         data: {
           full_name: fullName,
+          company_name: companyName,
         },
       },
     });
@@ -99,7 +112,7 @@ export default function Auth() {
         toast.error(error.message);
       }
     } else {
-      toast.success("Account created! Please check your email to verify your account.");
+      setSignupSuccess(true);
     }
     setIsLoading(false);
   };
@@ -155,45 +168,68 @@ export default function Auth() {
             </TabsContent>
 
             <TabsContent value="signup">
-              <form onSubmit={handleSignUp} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-name">Full Name</Label>
-                  <Input
-                    id="signup-name"
-                    type="text"
-                    placeholder="John Doe"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                  />
+              {signupSuccess ? (
+                <div className="space-y-4 text-center py-4">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
+                    <CheckCircle className="h-6 w-6 text-green-500" />
+                  </div>
+                  <h3 className="font-semibold text-lg">Account Created!</h3>
+                  <p className="text-sm text-muted-foreground">
+                    कृपया आफ्नो email verify गर्नुहोस्। Admin ले approve गरेपछि तपाईं login गर्न सक्नुहुनेछ।
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Account
-                </Button>
-              </form>
+              ) : (
+                <form onSubmit={handleSignUp} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-company">Company / Organization Name</Label>
+                    <Input
+                      id="signup-company"
+                      type="text"
+                      placeholder="Your Company Name"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-name">Full Name</Label>
+                    <Input
+                      id="signup-name"
+                      type="text"
+                      placeholder="John Doe"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-email">Email</Label>
+                    <Input
+                      id="signup-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="signup-password">Password</Label>
+                    <Input
+                      id="signup-password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Create Account
+                  </Button>
+                </form>
+              )}
             </TabsContent>
           </Tabs>
         </CardContent>

@@ -12,6 +12,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   X,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -20,6 +21,8 @@ import { toast } from "sonner";
 import { useSidebarState } from "@/hooks/useSidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { useIsPlatformAdmin } from "@/hooks/useOrganization";
 
 const navigationItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -37,6 +40,12 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const { isOpen, toggle, close } = useSidebarState();
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+  const { data: isPlatformAdmin } = useIsPlatformAdmin(user?.id);
+
+  const allNavItems = isPlatformAdmin
+    ? [...navigationItems, { name: "Admin", href: "/admin", icon: Shield }]
+    : navigationItems;
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -70,7 +79,7 @@ export function AppSidebar() {
             <Button variant="ghost" size="icon" onClick={close}><X className="h-5 w-5" /></Button>
           </div>
           <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-            {navigationItems.map((item) => {
+            {allNavItems.map((item) => {
               const isActive = location.pathname.startsWith(item.href);
               return (
                 <NavLink key={item.name} to={item.href} onClick={close}
@@ -111,7 +120,7 @@ export function AppSidebar() {
         </Button>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        {navigationItems.map((item) => {
+        {allNavItems.map((item) => {
           const isActive = location.pathname.startsWith(item.href);
           return (
             <NavLink key={item.name} to={item.href}
