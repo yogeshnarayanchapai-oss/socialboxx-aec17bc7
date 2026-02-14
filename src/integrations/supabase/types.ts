@@ -96,10 +96,12 @@ export type Database = {
       }
       connected_pages: {
         Row: {
+          ai_comment_hint: string | null
           ai_comment_reply_enabled: boolean | null
           ai_description: string | null
           ai_enabled: boolean | null
           ai_followup_settings: Json | null
+          ai_instructions: string | null
           auto_followup_messages: Json | null
           auto_reply_first_message: string | null
           auto_reply_followup: string | null
@@ -121,10 +123,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_comment_hint?: string | null
           ai_comment_reply_enabled?: boolean | null
           ai_description?: string | null
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
+          ai_instructions?: string | null
           auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
@@ -146,10 +150,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_comment_hint?: string | null
           ai_comment_reply_enabled?: boolean | null
           ai_description?: string | null
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
+          ai_instructions?: string | null
           auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null

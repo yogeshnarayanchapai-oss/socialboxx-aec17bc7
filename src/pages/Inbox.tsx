@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Search,
   Send,
@@ -14,6 +14,8 @@ import {
   RefreshCw,
   ArrowLeft,
   Trash2,
+  Link2,
+  FileAudio,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -38,6 +40,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { 
   useConversations, 
@@ -56,6 +64,7 @@ import { useCreateLead } from "@/hooks/useLeads";
 import { useReplyTemplates } from "@/hooks/useAutomation";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { supabase } from "@/integrations/supabase/client";
 
 const filterOptions = [
   { value: "all", label: "All" },
@@ -65,6 +74,34 @@ const filterOptions = [
   { value: "follow-up", label: "Follow-up" },
 ];
 
+type ConversationTag = "new" | "follow-up" | "lead";
+
+function getConversationTag(conv: Conversation): ConversationTag {
+  if (conv.tags?.includes("lead-created")) return "lead";
+  if (conv.auto_followup_step !== null || conv.ai_followup_step !== null) return "follow-up";
+  if (conv.status === "unreplied") return "new";
+  return "new";
+}
+
+function getTagBadge(tag: ConversationTag) {
+  switch (tag) {
+    case "lead":
+      return { label: "LEAD", className: "bg-green-600 hover:bg-green-600 text-white" };
+    case "follow-up":
+      return { label: "FOLLOW-UP", className: "bg-orange-500 hover:bg-orange-500 text-white" };
+    case "new":
+      return { label: "NEW", className: "bg-blue-500 hover:bg-blue-500 text-white" };
+  }
+}
+
+function getConversationBg(tag: ConversationTag) {
+  switch (tag) {
+    case "lead": return "bg-green-500/5 hover:bg-green-500/10";
+    case "follow-up": return "bg-orange-500/5 hover:bg-orange-500/10";
+    case "new": return "hover:bg-muted/50";
+  }
+}
+
 export default function Inbox() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [message, setMessage] = useState("");
@@ -72,7 +109,12 @@ export default function Inbox() {
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const isMobile = useIsMobile();
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   const { data: conversations = [], isLoading: loadingConversations } = useConversations({
     status: filter,
@@ -113,6 +155,69 @@ export default function Inbox() {
       toast.success("Message sent!");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to send message");
+    }
+  };
+
+  const handleSendMedia = async (mediaUrl: string) => {
+    if (!selectedConversation) return;
+    try {
+      await sendMessage.mutateAsync({
+        conversationId: selectedConversation.id,
+        pageId: selectedConversation.page_id,
+        recipientId: selectedConversation.participant_id || "",
+        message: "",
+        mediaUrl,
+      });
+      toast.success("Media sent!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send media");
+    }
+  };
+
+  const handleSendLink = () => {
+    if (!linkUrl.trim()) return;
+    setMessage((prev) => prev ? `${prev}\n${linkUrl}` : linkUrl);
+    setLinkUrl("");
+    setLinkDialogOpen(false);
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedConversation) return;
+    setUploadingMedia(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `inbox/${selectedConversation.id}/${fileName}`;
+      const { error: uploadError } = await supabase.storage.from('automation-media').upload(filePath, file);
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from('automation-media').getPublicUrl(filePath);
+      await handleSendMedia(publicUrl);
+    } catch {
+      toast.error("Photo upload गर्न सकिएन");
+    } finally {
+      setUploadingMedia(false);
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedConversation) return;
+    setUploadingMedia(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `inbox/${selectedConversation.id}/${fileName}`;
+      const { error: uploadError } = await supabase.storage.from('automation-media').upload(filePath, file);
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage.from('automation-media').getPublicUrl(filePath);
+      await handleSendMedia(publicUrl);
+    } catch {
+      toast.error("Audio upload गर्न सकिएन");
+    } finally {
+      setUploadingMedia(false);
+      if (audioInputRef.current) audioInputRef.current.value = '';
     }
   };
 
@@ -209,10 +314,6 @@ export default function Inbox() {
 
   const handleBack = () => setSelectedConversation(null);
 
-  const isLeadConversation = (conv: Conversation) => {
-    return conv.tags?.includes("lead-created");
-  };
-
   const showConversationList = !isMobile || !selectedConversation;
   const showConversationView = !isMobile || selectedConversation;
 
@@ -252,7 +353,8 @@ export default function Inbox() {
                 </div>
               ) : (
                 conversations.map((conv) => {
-                  const isLead = isLeadConversation(conv);
+                  const tag = getConversationTag(conv);
+                  const tagInfo = getTagBadge(tag);
                   return (
                     <div
                       key={conv.id}
@@ -260,7 +362,7 @@ export default function Inbox() {
                       className={cn(
                         "conversation-item relative",
                         selectedConversation?.id === conv.id && "conversation-item-active",
-                        isLead ? "bg-green-500/5 hover:bg-green-500/10" : "hover:bg-muted/50"
+                        getConversationBg(tag)
                       )}
                     >
                       <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">
@@ -270,11 +372,9 @@ export default function Inbox() {
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <p className="truncate font-medium text-sm">{conv.participant_name || "Unknown"}</p>
-                            {isLead && (
-                              <Badge variant="default" className="text-[10px] px-1.5 py-0 h-4 bg-green-600 hover:bg-green-600 flex-shrink-0">
-                                LEAD
-                              </Badge>
-                            )}
+                            <Badge variant="default" className={cn("text-[10px] px-1.5 py-0 h-4 flex-shrink-0", tagInfo.className)}>
+                              {tagInfo.label}
+                            </Badge>
                           </div>
                           <span className="flex-shrink-0 text-xs text-muted-foreground">
                             {conv.last_message_at ? formatTime(conv.last_message_at) : ""}
@@ -328,9 +428,15 @@ export default function Inbox() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold truncate">{selectedConversation.participant_name || "Unknown"}</h3>
-                        {isLeadConversation(selectedConversation) && (
-                          <Badge variant="default" className="text-[10px] px-1.5 py-0 h-4 bg-green-600 hover:bg-green-600">LEAD</Badge>
-                        )}
+                        {(() => {
+                          const tag = getConversationTag(selectedConversation);
+                          const tagInfo = getTagBadge(tag);
+                          return (
+                            <Badge variant="default" className={cn("text-[10px] px-1.5 py-0 h-4", tagInfo.className)}>
+                              {tagInfo.label}
+                            </Badge>
+                          );
+                        })()}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">
                         via {selectedConversation.connected_pages?.page_name || "Unknown Page"}
@@ -378,7 +484,13 @@ export default function Inbox() {
                         )}>
                           {msg.is_internal_note && <p className="text-xs font-medium text-warning mb-1">📝 Note</p>}
                           <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                          {msg.media_url && <img src={msg.media_url} alt="Attachment" className="mt-2 max-w-full rounded" />}
+                          {msg.media_url && (
+                            msg.media_url.match(/\.(mp3|wav|ogg|m4a|aac)$/i) ? (
+                              <audio controls src={msg.media_url} className="mt-2 max-w-full" />
+                            ) : (
+                              <img src={msg.media_url} alt="Attachment" className="mt-2 max-w-full rounded" />
+                            )
+                          )}
                           <p className={cn("mt-1 text-xs", msg.sender_type === "page" && !msg.is_internal_note ? "text-primary-foreground/70" : "text-muted-foreground")}>
                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </p>
@@ -400,12 +512,27 @@ export default function Inbox() {
                     />
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1 overflow-x-auto">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0"><Paperclip className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0"><Image className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" onClick={handleAddNote} className="h-8 w-8 flex-shrink-0"><StickyNote className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" onClick={handleGetAISuggestion} disabled={aiSuggestion.isPending} className="h-8 w-8 flex-shrink-0">
+                        {/* Link button */}
+                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLinkDialogOpen(true)} title="Send link">
+                          <Link2 className="h-4 w-4" />
+                        </Button>
+                        {/* Photo button */}
+                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => photoInputRef.current?.click()} disabled={uploadingMedia} title="Send photo">
+                          {uploadingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
+                        </Button>
+                        {/* Audio button */}
+                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => audioInputRef.current?.click()} disabled={uploadingMedia} title="Send audio">
+                          <FileAudio className="h-4 w-4" />
+                        </Button>
+                        {/* Note button */}
+                        <Button variant="ghost" size="icon" onClick={handleAddNote} className="h-8 w-8 flex-shrink-0" title="Add note">
+                          <StickyNote className="h-4 w-4" />
+                        </Button>
+                        {/* AI button */}
+                        <Button variant="ghost" size="icon" onClick={handleGetAISuggestion} disabled={aiSuggestion.isPending} className="h-8 w-8 flex-shrink-0" title="AI suggestion">
                           {aiSuggestion.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         </Button>
+                        {/* Templates dropdown */}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm" className="h-8 text-xs flex-shrink-0">
@@ -430,6 +557,9 @@ export default function Inbox() {
                       </Button>
                     </div>
                   </div>
+                  {/* Hidden file inputs */}
+                  <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
+                  <input ref={audioInputRef} type="file" accept="audio/*" className="hidden" onChange={handleAudioUpload} />
                 </div>
               </>
             ) : (
@@ -438,6 +568,26 @@ export default function Inbox() {
           </div>
         )}
       </div>
+
+      {/* Link Dialog */}
+      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Link</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="https://..."
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSendLink(); }}
+            />
+            <Button onClick={handleSendLink} disabled={!linkUrl.trim()} className="w-full">
+              Add to Message
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

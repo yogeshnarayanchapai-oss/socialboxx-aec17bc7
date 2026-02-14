@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare, Bot } from "lucide-react";
+import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare, Bot, FileAudio } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdatePageSettings, type AutoReplyKeyword } from "@/hooks/usePageSettings";
 import type { Json } from "@/integrations/supabase/types";
@@ -20,7 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 interface MediaAttachment {
-  type: "image" | "video" | "link";
+  type: "image" | "video" | "link" | "audio";
   url: string;
 }
 
@@ -58,6 +58,8 @@ interface PageAutomationDialogProps {
     auto_followup_messages?: Json;
     ai_enabled?: boolean;
     ai_description?: string;
+    ai_instructions?: string;
+    ai_comment_hint?: string;
     comment_auto_reply?: string;
     product_name?: string;
     product_description?: string;
@@ -91,6 +93,8 @@ export function PageAutomationDialog({
   const [automationEnabled, setAutomationEnabled] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiDescription, setAiDescription] = useState("");
+  const [aiInstructions, setAiInstructions] = useState("");
+  const [aiCommentHint, setAiCommentHint] = useState("");
   const [savingAI, setSavingAI] = useState(false);
   const [productName, setProductName] = useState("");
   const [productDescription, setProductDescription] = useState("");
@@ -107,13 +111,13 @@ export function PageAutomationDialog({
   
   const [newKeyword, setNewKeyword] = useState("");
   const [newReply, setNewReply] = useState("");
-  const [newMediaType, setNewMediaType] = useState<"image" | "video" | "link" | null>(null);
+  const [newMediaType, setNewMediaType] = useState<"image" | "video" | "link" | "audio" | null>(null);
   const [newMediaUrl, setNewMediaUrl] = useState("");
   
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editKeyword, setEditKeyword] = useState("");
   const [editReply, setEditReply] = useState("");
-  const [editMediaType, setEditMediaType] = useState<"image" | "video" | "link" | null>(null);
+  const [editMediaType, setEditMediaType] = useState<"image" | "video" | "link" | "audio" | null>(null);
   const [editMediaUrl, setEditMediaUrl] = useState("");
   
   const [uploadingReply, setUploadingReply] = useState(false);
@@ -178,6 +182,8 @@ export function PageAutomationDialog({
       
       setAiEnabled((page as any).ai_enabled || false);
       setAiDescription((page as any).ai_description || "");
+      setAiInstructions((page as any).ai_instructions || "");
+      setAiCommentHint((page as any).ai_comment_hint || "");
       setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
       
       // AI Follow-up: load saved steps or start with 1 default
@@ -385,6 +391,8 @@ export function PageAutomationDialog({
       const updateData: Record<string, any> = {
         ai_enabled: aiEnabled,
         ai_description: aiDescription,
+        ai_instructions: aiInstructions,
+        ai_comment_hint: aiCommentHint,
         ai_comment_reply_enabled: aiCommentReplyEnabled,
         ai_followup_settings: {
           enabled: aiFollowupEnabled,
@@ -424,7 +432,7 @@ export function PageAutomationDialog({
   };
 
   const MediaButtons = ({ selectedType, onUploadClick, isUploading, onSetMedia }: { 
-    selectedType: "image" | "video" | "link" | null;
+    selectedType: "image" | "video" | "link" | "audio" | null;
     onUploadClick: () => void;
     isUploading: boolean;
     onSetMedia: (media: MediaAttachment | null) => void;
@@ -436,6 +444,9 @@ export function PageAutomationDialog({
       </Button>
       <Button type="button" variant={selectedType === 'video' ? "default" : "outline"} size="sm" onClick={() => onSetMedia(selectedType === 'video' ? null : { type: 'video', url: '' })} className="h-8">
         <Video className="h-3 w-3 mr-1" />Video
+      </Button>
+      <Button type="button" variant={selectedType === 'audio' ? "default" : "outline"} size="sm" onClick={() => onSetMedia(selectedType === 'audio' ? null : { type: 'audio', url: '' })} className="h-8">
+        <FileAudio className="h-3 w-3 mr-1" />Audio
       </Button>
       <Button type="button" variant={selectedType === 'link' ? "default" : "outline"} size="sm" onClick={() => onSetMedia(selectedType === 'link' ? null : { type: 'link', url: '' })} className="h-8">
         <Link2 className="h-3 w-3 mr-1" />Link
@@ -537,8 +548,8 @@ export function PageAutomationDialog({
               isUploading={uploadingReply}
               onSetMedia={(media) => updateReplyMsg(replyIndex, { media })}
             />
-            {currentReply.media && (currentReply.media.type === 'video' || currentReply.media.type === 'link') && (
-              <Input placeholder={`${currentReply.media.type === 'video' ? 'Video' : 'Link'} URL...`} value={currentReply.media.url} onChange={(e) => updateReplyMsg(replyIndex, { media: { ...currentReply.media!, url: e.target.value } })} />
+            {currentReply.media && (currentReply.media.type === 'video' || currentReply.media.type === 'link' || currentReply.media.type === 'audio') && (
+              <Input placeholder={`${currentReply.media.type === 'video' ? 'Video' : currentReply.media.type === 'audio' ? 'Audio' : 'Link'} URL...`} value={currentReply.media.url} onChange={(e) => updateReplyMsg(replyIndex, { media: { ...currentReply.media!, url: e.target.value } })} />
             )}
           </div>
 
@@ -574,8 +585,8 @@ export function PageAutomationDialog({
               isUploading={uploadingFollowup}
               onSetMedia={(media) => updateFollowupMsg(followupIndex, { media })}
             />
-            {currentFollowup.media && (currentFollowup.media.type === 'video' || currentFollowup.media.type === 'link') && (
-              <Input placeholder={`${currentFollowup.media.type === 'video' ? 'Video' : 'Link'} URL...`} value={currentFollowup.media.url} onChange={(e) => updateFollowupMsg(followupIndex, { media: { ...currentFollowup.media!, url: e.target.value } })} />
+            {currentFollowup.media && (currentFollowup.media.type === 'video' || currentFollowup.media.type === 'link' || currentFollowup.media.type === 'audio') && (
+              <Input placeholder={`${currentFollowup.media.type === 'video' ? 'Video' : currentFollowup.media.type === 'audio' ? 'Audio' : 'Link'} URL...`} value={currentFollowup.media.url} onChange={(e) => updateFollowupMsg(followupIndex, { media: { ...currentFollowup.media!, url: e.target.value } })} />
             )}
           </div>
 
@@ -624,12 +635,15 @@ export function PageAutomationDialog({
                           <Button size="sm" variant={editMediaType === 'video' ? "default" : "outline"} onClick={() => { setEditMediaType('video'); setEditMediaUrl(''); }}>
                             <Video className="h-3 w-3 mr-1" />Video
                           </Button>
+                          <Button size="sm" variant={editMediaType === 'audio' ? "default" : "outline"} onClick={() => { setEditMediaType('audio'); setEditMediaUrl(''); }}>
+                            <FileAudio className="h-3 w-3 mr-1" />Audio
+                          </Button>
                           <Button size="sm" variant={editMediaType === 'link' ? "default" : "outline"} onClick={() => { setEditMediaType('link'); setEditMediaUrl(''); }}>
                             <Link2 className="h-3 w-3 mr-1" />Link
                           </Button>
                         </div>
                         {editMediaType && editMediaType !== 'image' && (
-                          <Input value={editMediaUrl} onChange={(e) => setEditMediaUrl(e.target.value)} placeholder={`${editMediaType === 'video' ? 'Video' : 'Link'} URL...`} />
+                          <Input value={editMediaUrl} onChange={(e) => setEditMediaUrl(e.target.value)} placeholder={`${editMediaType === 'video' ? 'Video' : editMediaType === 'audio' ? 'Audio' : 'Link'} URL...`} />
                         )}
                         <div className="flex gap-2 pt-2">
                           <Button size="sm" onClick={saveEditKeyword}>Save</Button>
@@ -679,12 +693,15 @@ export function PageAutomationDialog({
                 <Button type="button" variant={newMediaType === 'video' ? "default" : "outline"} size="sm" onClick={() => { setNewMediaType(newMediaType === 'video' ? null : 'video'); setNewMediaUrl(''); }}>
                   <Video className="h-3 w-3 mr-1" />Video
                 </Button>
+                <Button type="button" variant={newMediaType === 'audio' ? "default" : "outline"} size="sm" onClick={() => { setNewMediaType(newMediaType === 'audio' ? null : 'audio'); setNewMediaUrl(''); }}>
+                  <FileAudio className="h-3 w-3 mr-1" />Audio
+                </Button>
                 <Button type="button" variant={newMediaType === 'link' ? "default" : "outline"} size="sm" onClick={() => { setNewMediaType(newMediaType === 'link' ? null : 'link'); setNewMediaUrl(''); }}>
                   <Link2 className="h-3 w-3 mr-1" />Link
                 </Button>
               </div>
               {newMediaType && newMediaType !== 'image' && (
-                <Input placeholder={`${newMediaType === 'video' ? 'Video' : 'Link'} URL...`} value={newMediaUrl} onChange={(e) => setNewMediaUrl(e.target.value)} />
+                <Input placeholder={`${newMediaType === 'video' ? 'Video' : newMediaType === 'audio' ? 'Audio' : 'Link'} URL...`} value={newMediaUrl} onChange={(e) => setNewMediaUrl(e.target.value)} />
               )}
               <Button type="button" variant="outline" size="sm" onClick={handleAddKeyword} className="w-full">
                 <Plus className="mr-2 h-4 w-4" />Keyword Rule थप्नुहोस्
@@ -721,6 +738,23 @@ export function PageAutomationDialog({
                 <Switch checked={aiCommentReplyEnabled} onCheckedChange={setAiCommentReplyEnabled} />
               </div>
 
+              {/* AI Comment Hint */}
+              {aiCommentReplyEnabled && (
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div>
+                    <Label className="text-sm font-medium">Comment Reply Hint</Label>
+                    <p className="text-xs text-muted-foreground">AI comment reply कस्तो हुनुपर्छ भन्ने hint</p>
+                  </div>
+                  <Textarea
+                    value={aiCommentHint}
+                    onChange={(e) => setAiCommentHint(e.target.value)}
+                    placeholder="eg: Comment मा inbox मा message गर्न भन्नुहोस्, price नभन्नुहोस्, exact format: 'धन्यवाद! कृपया inbox मा message गर्नुहोस्'"
+                    rows={3}
+                    className="resize-y min-h-[60px]"
+                  />
+                </div>
+              )}
+
               <div className="space-y-3 rounded-lg border p-4">
                 <div>
                   <Label className="text-sm font-medium">Business Description</Label>
@@ -730,9 +764,26 @@ export function PageAutomationDialog({
                   value={aiDescription}
                   onChange={(e) => setAiDescription(e.target.value)}
                   placeholder={`Example:\n- हामी car accessories बेच्छौं\n- Location: काठमाडौं\n- Products: seat cover (Rs 2000-5000)\n- Delivery: काठमाडौं भित्र free\n- Payment: Cash on delivery, eSewa\n- Contact: 98XXXXXXXX`}
-                  rows={8}
+                  rows={6}
+                  className="resize-y min-h-[80px]"
                 />
                 <p className="text-xs text-muted-foreground">जति detail दिनुहुन्छ, AI ले त्यति राम्रो reply गर्छ</p>
+              </div>
+
+              {/* AI Instructions */}
+              <div className="space-y-3 rounded-lg border p-4">
+                <div>
+                  <Label className="text-sm font-medium">Instructions for AI</Label>
+                  <p className="text-xs text-muted-foreground">AI लाई कसरी reply गर्ने भन्ने instructions दिनुहोस्</p>
+                </div>
+                <Textarea
+                  value={aiInstructions}
+                  onChange={(e) => setAiInstructions(e.target.value)}
+                  placeholder={`Example:\n- Human mode मा reply गर्नुहोस्\n- 😊🙏 emoji प्रयोग गर्नुहोस्\n- Nepali/Roman Nepali मा reply गर्नुहोस्\n- Sales person जस्तो बोल्नुहोस्\n- AI को नाम "Maya" राख्नुहोस्\n- Price सोध्दा direct नभन्नुहोस्, inbox मा भन्नुहोस्`}
+                  rows={6}
+                  className="resize-y min-h-[80px]"
+                />
+                <p className="text-xs text-muted-foreground">AI ले यी instructions follow गरेर reply गर्छ</p>
               </div>
 
               {/* AI Follow-up Schedule */}

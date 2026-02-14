@@ -15,7 +15,7 @@ function convertNepaliDigits(text: string): string {
   return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
 }
 
-// Improved phone number extraction
+// Improved phone number extraction - stores as-is
 function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
   
@@ -26,23 +26,61 @@ function extractPhoneNumber(text: string): string | null {
   const cleaned = converted.replace(/[\s\-\(\)\.]/g, '');
   
   // Try patterns in order of specificity
-  // Pattern 1: +977XXXXXXXXXX or 977XXXXXXXXXX
+  // Pattern 1: +977XXXXXXXXXX or 977XXXXXXXXXX  
   const withCountryCode = cleaned.match(/\+?977(\d{10})/);
   if (withCountryCode) {
-    return withCountryCode[1]; // Return 10-digit number
+    return converted.trim(); // Return original text as-is
   }
   
-  // Pattern 2: Any sequence of 10+ digits, extract Nepal mobile (9[678]\d{8})
-  const allDigitSequences = cleaned.match(/\d{10,}/g);
+  // Pattern 2: Any sequence of 9+ digits
+  const allDigitSequences = cleaned.match(/\d{9,}/g);
   if (allDigitSequences) {
     for (const seq of allDigitSequences) {
-      // Try to find a 10-digit Nepal mobile at the end
-      const nepalMobile = seq.match(/(9[678]\d{8})$/);
+      const nepalMobile = seq.match(/(9[678]\d{8})/);
+      if (nepalMobile) return converted.trim();
+      if (seq.length >= 9 && seq.startsWith('9')) return converted.trim();
+    }
+  }
+  
+  // Pattern 3: Number with text mixed (e.g., "9848005532 surkhet")
+  const digitGroups = converted.match(/\d+/g);
+  if (digitGroups) {
+    const joined = digitGroups.join('');
+    if (joined.length >= 9) {
+      let digits = joined;
+      if (digits.startsWith('977') && digits.length >= 12) {
+        digits = digits.substring(3);
+      }
+      const nepalMobile = digits.match(/(9[678]\d{8})/);
+      if (nepalMobile) return converted.trim();
+      if (digits.length >= 9 && digits.startsWith('9')) return converted.trim();
+    }
+    for (const group of digitGroups) {
+      if (group.length >= 9 && group.length <= 13) {
+        let d = group;
+        if (d.startsWith('977') && d.length >= 12) d = d.substring(3);
+        if (d.length >= 9 && d.length <= 10) return converted.trim();
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Extract normalized phone for dedup
+function extractNormalizedPhone(text: string): string | null {
+  if (!text) return null;
+  const converted = convertNepaliDigits(text);
+  const cleaned = converted.replace(/[\s\-\(\)\.]/g, '');
+  
+  const withCountryCode = cleaned.match(/\+?977(\d{10})/);
+  if (withCountryCode) return withCountryCode[1];
+  
+  const allDigitSequences = cleaned.match(/\d{9,}/g);
+  if (allDigitSequences) {
+    for (const seq of allDigitSequences) {
+      const nepalMobile = seq.match(/(9[678]\d{8})/);
       if (nepalMobile) return nepalMobile[1];
-      // Try to find it anywhere in the sequence
-      const nepalAnywhere = seq.match(/(9[678]\d{8})/);
-      if (nepalAnywhere) return nepalAnywhere[1];
-      // Fallback: last 10 digits starting with 9
       if (seq.length >= 10) {
         const last10 = seq.slice(-10);
         if (last10.startsWith('9')) return last10;
@@ -50,39 +88,17 @@ function extractPhoneNumber(text: string): string | null {
     }
   }
   
-  // Pattern 3: Number with text mixed (e.g., "9848005532 surkhet")
-  // Extract digit sequences from original converted text
   const digitGroups = converted.match(/\d+/g);
   if (digitGroups) {
     const joined = digitGroups.join('');
-    if (joined.length >= 10) {
-      // Remove leading 977 or +977
+    if (joined.length >= 9) {
       let digits = joined;
-      if (digits.startsWith('977') && digits.length >= 13) {
-        digits = digits.substring(3);
-      }
+      if (digits.startsWith('977') && digits.length >= 12) digits = digits.substring(3);
       const nepalMobile = digits.match(/(9[678]\d{8})/);
       if (nepalMobile) return nepalMobile[1];
-      if (digits.length >= 10 && digits.startsWith('9')) return digits.substring(0, 10);
-    }
-    // Also check individual groups
-    for (const group of digitGroups) {
-      if (group.length >= 10 && group.length <= 13) {
-        let d = group;
-        if (d.startsWith('977') && d.length >= 13) d = d.substring(3);
-        if (d.length === 10 && d.startsWith('9')) return d;
-      }
-    }
-    // Check 9-digit sequences too (some may omit leading digit)
-    for (const group of digitGroups) {
-      if (group.length >= 9 && group.length <= 13) {
-        let d = group;
-        if (d.startsWith('977') && d.length >= 12) d = d.substring(3);
-        if (d.length >= 9 && d.length <= 10) return d;
-      }
+      if (digits.length >= 9 && digits.startsWith('9')) return digits.substring(0, 10);
     }
   }
-  
   return null;
 }
 
@@ -247,13 +263,15 @@ async function handleCommentReply(
               content: `You are a comment reply assistant for "${page.page_name}".
 ${page.ai_description ? `Business info: ${page.ai_description}` : ''}
 ${page.product_name ? `Product: ${page.product_name}` : ''}
+${(page as any).ai_comment_hint ? `\nComment Reply Hint: ${(page as any).ai_comment_hint}` : ''}
+${(page as any).ai_instructions ? `\nInstructions: ${(page as any).ai_instructions}` : ''}
 
 RULES:
 - Match the customer's language (Nepali, Roman Nepali, or English)
 - Keep it very short (1-2 sentences)
 - Be friendly, professional
-- Encourage them to message the page inbox for detailed info
-- Don't share pricing details in comments
+- Follow the hint/instructions if provided
+- Don't share pricing details in comments unless instructed
 - Sound natural and human-like`
             },
             {
@@ -348,7 +366,7 @@ serve(async (req) => {
 
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -467,15 +485,17 @@ serve(async (req) => {
             status: "unreplied",
           }).eq("id", conversationId);
 
-          // Check for phone number with improved extraction
-          const detectedPhone = extractPhoneNumber(message.text || "");
-          if (detectedPhone) {
-            console.log("Phone number detected:", detectedPhone);
+          // Check for phone number - store as-is
+          const rawPhone = extractPhoneNumber(message.text || "");
+          const normalizedPhone = extractNormalizedPhone(message.text || "");
+          if (rawPhone && normalizedPhone) {
+            console.log("Phone detected - raw:", rawPhone, "normalized:", normalizedPhone);
             
+            // Use normalized phone for dedup
             const { data: existingLead } = await supabase
               .from("leads")
               .select("id")
-              .eq("phone", detectedPhone)
+              .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
               .single();
 
             if (existingLead) {
@@ -492,7 +512,7 @@ serve(async (req) => {
                 .single();
 
               await supabase.from("leads").insert({
-                phone: detectedPhone,
+                phone: rawPhone, // Store as customer sent it
                 full_name: conv?.participant_name,
                 conversation_id: conversationId,
                 page_id: page.id,
@@ -580,6 +600,7 @@ serve(async (req) => {
                           conversationHistory,
                           pageName: page.page_name,
                           businessDescription: page.ai_description || "",
+                          aiInstructions: (page as any).ai_instructions || "",
                         }),
                       }
                     );

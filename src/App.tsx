@@ -14,6 +14,7 @@ import Automation from "./pages/Automation";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import ComingSoon from "./pages/ComingSoon";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,9 @@ const App = () => (
               <Route path="/automation" element={<Automation />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/platform/whatsapp" element={<ComingSoon platform="WhatsApp" />} />
+              <Route path="/platform/instagram" element={<ComingSoon platform="Instagram" />} />
+              <Route path="/platform/tiktok" element={<ComingSoon platform="TikTok" />} />
             </Route>
           </Route>
           
