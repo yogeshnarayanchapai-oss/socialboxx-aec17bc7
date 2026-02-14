@@ -55,7 +55,9 @@ serve(async (req) => {
     const action = url.searchParams.get("action") || "";
 
     // ===== ACTION: START OAUTH FLOW =====
-    // Returns the Facebook OAuth URL for the frontend to redirect to
+    // Prepares OAuth state and returns a redirect URL to our own edge function
+    // The frontend navigates to this URL, which then 302-redirects to Facebook
+    // This prevents mobile OS deep-linking from intercepting the facebook.com URL
     if (action === "start" || req.method === "GET" && url.pathname.includes("/start")) {
       const authHeader = req.headers.get("Authorization");
       if (!authHeader) {
@@ -94,7 +96,7 @@ serve(async (req) => {
         timestamp: Date.now(),
       };
 
-      // Encode state as base64 (in production, encrypt this)
+      // Encode state as base64
       const stateParam = btoa(JSON.stringify(state));
 
       // Store state in database for validation later
@@ -105,7 +107,32 @@ serve(async (req) => {
         updated_by: user.id,
       }, { onConflict: "setting_key" });
 
-      // Construct OAuth callback URL (our edge function)
+      console.log("Generated OAuth state for user:", user.id);
+
+      // Return a URL to our own edge function's redirect action
+      // This avoids client-side navigation to facebook.com which triggers app deep-linking on mobile
+      const serverRedirectUrl = `${supabaseUrl}/functions/v1/facebook-auth?action=redirect&state=${encodeURIComponent(stateParam)}`;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          authUrl: serverRedirectUrl,
+          state: stateParam,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // ===== ACTION: SERVER-SIDE REDIRECT TO FACEBOOK =====
+    // Browser navigates here, then gets 302-redirected to Facebook
+    // This keeps the flow in the browser and prevents FB app interception
+    if (action === "redirect") {
+      const stateParam = url.searchParams.get("state");
+      if (!stateParam) {
+        return new Response("Missing state parameter", { status: 400 });
+      }
+
+      // Construct OAuth callback URL
       const oauthRedirectUri = `${supabaseUrl}/functions/v1/facebook-auth?action=callback`;
 
       // Build Facebook OAuth URL
@@ -117,16 +144,12 @@ serve(async (req) => {
       fbAuthUrl.searchParams.set("response_type", "code");
       fbAuthUrl.searchParams.set("display", "page");
 
-      console.log("Generated Facebook OAuth URL for user:", user.id);
+      console.log("Server-side redirecting to Facebook OAuth");
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          authUrl: fbAuthUrl.toString(),
-          state: stateParam,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(null, {
+        status: 302,
+        headers: { Location: fbAuthUrl.toString() },
+      });
     }
 
     // ===== ACTION: OAUTH CALLBACK =====
