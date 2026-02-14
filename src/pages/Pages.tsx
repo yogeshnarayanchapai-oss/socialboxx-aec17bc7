@@ -234,30 +234,30 @@ export default function Pages() {
   );
 
   return (
-    <div className="flex min-h-screen">
-      {/* Left Platform Sidebar */}
-      <div className="w-56 flex-shrink-0 border-r border-border bg-card/50">
-        <div className="p-4">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Platforms</h2>
-          <div className="flex flex-col gap-1">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      {/* Platform Sidebar - horizontal on mobile, vertical on desktop */}
+      <div className="flex-shrink-0 border-b border-border bg-card/50 md:w-44 md:border-b-0 md:border-r">
+        <div className="p-2 md:p-3">
+          <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:text-xs">Platforms</h2>
+          <div className="flex gap-1 overflow-x-auto md:flex-col">
             {platformItems.map((item) => (
               <button
                 key={item.name}
                 onClick={() => setSelectedPlatform(item.name)}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left ${
+                className={`flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium transition-colors text-left whitespace-nowrap md:text-sm md:px-3 md:py-2 ${
                   selectedPlatform === item.name
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground"
                 }`}
               >
                 {item.icon ? (
-                  <item.icon className="h-4 w-4 flex-shrink-0" />
+                  <item.icon className="h-3.5 w-3.5 flex-shrink-0 md:h-4 md:w-4" />
                 ) : (
-                  <span className="text-sm flex-shrink-0">{item.emoji}</span>
+                  <span className="text-xs flex-shrink-0 md:text-sm">{item.emoji}</span>
                 )}
                 <span className="flex-1">{item.name}</span>
                 {!item.active && (
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground md:px-2 md:text-[10px]">
                     Soon
                   </span>
                 )}
