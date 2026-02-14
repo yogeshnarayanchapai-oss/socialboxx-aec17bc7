@@ -52,12 +52,21 @@ export function useAllOrganizations() {
   return useQuery({
     queryKey: ["all-organizations"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: orgs, error } = await supabase
         .from("organizations")
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data;
+
+      // Fetch owner emails from profiles
+      const ownerIds = orgs?.map((o) => o.owner_id) ?? [];
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, email")
+        .in("user_id", ownerIds);
+
+      const emailMap = new Map(profiles?.map((p) => [p.user_id, p.email]) ?? []);
+      return (orgs ?? []).map((o) => ({ ...o, owner_email: emailMap.get(o.owner_id) ?? null }));
     },
   });
 }
