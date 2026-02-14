@@ -38,7 +38,7 @@ serve(async (req) => {
       }
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls } = await req.json();
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -82,6 +82,8 @@ Guidelines:
 - Never make up prices, delivery times, or product details
 - Sound warm and casual, not robotic or formal
 - If the customer sent multiple messages, address ALL of them in ONE combined reply
+- If the customer sent an image/photo, analyze it carefully and respond about what you see in it. Describe the product or content shown.
+- If there's an image but no text, describe what you see and ask how you can help regarding that product/item.
 
 ${templates && templates.length > 0 ? `
 Reply templates for reference:
@@ -91,6 +93,31 @@ ${templates.map(t => `- ${t.name}: ${t.content.substring(0, 80)}`).join('\n')}
 Conversation so far:
 ${conversationHistory || 'First message from customer.'}`;
 
+    // Build user message content - support multimodal (text + images)
+    const userContent: Array<{type: string; text?: string; image_url?: {url: string}}> = [];
+    
+    if (customerMessage) {
+      userContent.push({ type: "text", text: customerMessage });
+    }
+    
+    // Add image URLs if present
+    if (imageUrls && Array.isArray(imageUrls) && imageUrls.length > 0) {
+      for (const imgUrl of imageUrls) {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: imgUrl }
+        });
+      }
+      if (!customerMessage) {
+        userContent.push({ type: "text", text: "(Customer sent this image)" });
+      }
+    }
+
+    // Fallback if no content at all
+    if (userContent.length === 0) {
+      userContent.push({ type: "text", text: "(Empty message)" });
+    }
+
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -98,10 +125,10 @@ ${conversationHistory || 'First message from customer.'}`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
-          { role: "user", content: customerMessage },
+          { role: "user", content: userContent },
         ],
         max_tokens: 500,
         temperature: 0.7,
