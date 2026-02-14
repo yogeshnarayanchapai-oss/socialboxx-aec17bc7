@@ -20,6 +20,7 @@ import { useSettings, useUpdateSettings, type AppSettings } from "@/hooks/useSet
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacebookSettings, useUpdateFacebookSettings } from "@/hooks/useAppSettings";
+import { useIsPlatformAdmin } from "@/hooks/useOrganization";
 
 // Facebook Integration Settings Component
 function FacebookIntegrationTab() {
@@ -215,6 +216,7 @@ export default function Settings() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const { user } = useAuth();
+  const { data: isPlatformAdmin } = useIsPlatformAdmin(user?.id);
   
   const [localSettings, setLocalSettings] = useState<AppSettings>({});
   const [workingDays, setWorkingDays] = useState<string[]>([]);
@@ -267,7 +269,7 @@ export default function Settings() {
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList className="flex-wrap">
             <TabsTrigger value="general">General</TabsTrigger>
-            <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>
+            {isPlatformAdmin && <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>}
             <TabsTrigger value="business-hours">Business Hours</TabsTrigger>
             <TabsTrigger value="human-mode">Human Mode</TabsTrigger>
             <TabsTrigger value="team">Team Members</TabsTrigger>
@@ -359,8 +361,8 @@ export default function Settings() {
             </Card>
           </TabsContent>
 
-          {/* Facebook Integration Settings */}
-          <FacebookIntegrationTab />
+          {/* Facebook Integration Settings - Platform Admin Only */}
+          {isPlatformAdmin && <FacebookIntegrationTab />}
 
           <TabsContent value="business-hours" className="space-y-6">
             <Card>
