@@ -407,16 +407,17 @@ serve(async (req) => {
           
           const { data: existingConv } = await supabase
             .from("conversations")
-            .select("id, status, tags")
+            .select("id, status, tags, participant_name")
             .eq("page_id", page.id)
             .eq("participant_id", senderId)
             .is("deleted_at", null)
             .single();
 
-          if (!existingConv) {
+           if (!existingConv) {
             isFirstMessage = true;
             
             let senderName = "Unknown";
+            let senderPicUrl: string | null = null;
             try {
               const userResponse = await fetch(
                 `https://graph.facebook.com/v19.0/${senderId}?fields=name,profile_pic&access_token=${page.page_access_token}`
@@ -424,6 +425,11 @@ serve(async (req) => {
               if (userResponse.ok) {
                 const userData = await userResponse.json();
                 senderName = userData.name || "Unknown";
+                senderPicUrl = userData.profile_pic || null;
+                console.log("Fetched sender info:", senderName, senderPicUrl ? "has pic" : "no pic");
+              } else {
+                const errData = await userResponse.json();
+                console.error("Failed to fetch sender info, status:", userResponse.status, JSON.stringify(errData));
               }
             } catch (e) {
               console.error("Failed to fetch sender info:", e);
@@ -436,6 +442,7 @@ serve(async (req) => {
                 page_id: page.id,
                 participant_id: senderId,
                 participant_name: senderName,
+                participant_picture_url: senderPicUrl,
                 status: "unreplied",
                 last_message_at: new Date(timestamp).toISOString(),
                 last_message_preview: message.text?.substring(0, 100),
@@ -465,6 +472,27 @@ serve(async (req) => {
           } else {
             conversationId = existingConv.id;
             conversationTags = existingConv.tags || [];
+            
+            // If participant_name is Unknown, try to re-fetch from Facebook
+            if (!existingConv.participant_name || existingConv.participant_name === "Unknown") {
+              try {
+                const userResponse = await fetch(
+                  `https://graph.facebook.com/v19.0/${senderId}?fields=name,profile_pic&access_token=${page.page_access_token}`
+                );
+                if (userResponse.ok) {
+                  const userData = await userResponse.json();
+                  if (userData.name && userData.name !== "Unknown") {
+                    console.log("Updating Unknown participant to:", userData.name);
+                    await supabase.from("conversations").update({
+                      participant_name: userData.name,
+                      participant_picture_url: userData.profile_pic || null,
+                    }).eq("id", conversationId);
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to re-fetch sender info:", e);
+              }
+            }
           }
 
           // Store the message
