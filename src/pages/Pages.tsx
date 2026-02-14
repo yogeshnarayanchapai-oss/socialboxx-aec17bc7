@@ -41,18 +41,17 @@ export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
   const disconnectPage = useDisconnectPage();
   
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  // Check URL params synchronously to avoid race condition with child hook cleaning them
+  const hasOAuthCallback = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("fb_session") || params.has("fb_error");
+  };
+
+  const [isWizardOpen, setIsWizardOpen] = useState(hasOAuthCallback);
   const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState<string | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState("Messenger");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("fb_session") || params.has("fb_error")) {
-      setIsWizardOpen(true);
-    }
-  }, []);
 
   const handleDelete = async () => {
     if (!deletePageId) return;
