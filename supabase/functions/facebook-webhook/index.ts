@@ -366,7 +366,7 @@ serve(async (req) => {
 
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -440,6 +440,7 @@ serve(async (req) => {
                 status: "unreplied",
                 last_message_at: new Date(timestamp).toISOString(),
                 last_message_preview: message.text?.substring(0, 100),
+                organization_id: page.organization_id,
               })
               .select("id, tags")
               .single();
@@ -512,7 +513,7 @@ serve(async (req) => {
                 .single();
 
               await supabase.from("leads").insert({
-                phone: rawPhone, // Store as customer sent it
+                phone: rawPhone,
                 full_name: conv?.participant_name,
                 conversation_id: conversationId,
                 page_id: page.id,
@@ -520,6 +521,7 @@ serve(async (req) => {
                 product: (page as any).product_name || null,
                 last_message: message.text?.substring(0, 200),
                 status: "new",
+                organization_id: page.organization_id,
               });
             }
 

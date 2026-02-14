@@ -13,6 +13,7 @@ import Leads from "./pages/Leads";
 import Automation from "./pages/Automation";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
+import AdminPanel from "./pages/AdminPanel";
 import NotFound from "./pages/NotFound";
 
 
@@ -37,6 +38,7 @@ const App = () => (
               <Route path="/automation" element={<Automation />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/admin" element={<AdminPanel />} />
             </Route>
           </Route>
           
