@@ -108,6 +108,9 @@ export default function AdminPanel() {
                     </div>
                     <div>
                       <h3 className="font-semibold">{org.name}</h3>
+                      {org.owner_email && (
+                        <p className="text-xs text-muted-foreground">{org.owner_email}</p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Created: {new Date(org.created_at).toLocaleDateString()}
                       </p>
