@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,11 +34,19 @@ import { supabase } from "@/integrations/supabase/client";
 export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
   const disconnectPage = useDisconnectPage();
+  const navigate = useNavigate();
   
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState<string | null>(null);
+
+  const platformItems = [
+    { name: "Messenger", emoji: "💬", icon: MessageSquare, active: true, href: "/inbox" },
+    { name: "WhatsApp", emoji: "💬", icon: null, active: false, href: "/platform/whatsapp" },
+    { name: "Instagram", emoji: "📸", icon: null, active: false, href: "/platform/instagram" },
+    { name: "TikTok", emoji: "🎵", icon: null, active: false, href: "/platform/tiktok" },
+  ];
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -131,6 +140,26 @@ export default function Pages() {
       </AlertDialog>
 
       <div className="p-4 md:p-6">
+        {/* Platform Links */}
+        <div className="mb-6 flex flex-wrap gap-3">
+          {platformItems.map((item) => (
+            <button
+              key={item.name}
+              onClick={() => navigate(item.href)}
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
+            >
+              {item.icon ? (
+                <item.icon className="h-4 w-4 text-primary" />
+              ) : (
+                <span className="text-sm">{item.emoji}</span>
+              )}
+              {item.name}
+              {!item.active && (
+                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Soon</span>
+              )}
+            </button>
+          ))}
+        </div>
         {pages.length === 0 ? (
           <EmptyState
             icon={Facebook}

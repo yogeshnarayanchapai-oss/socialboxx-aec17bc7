@@ -31,12 +31,6 @@ const navigationItems = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
-const platformItems = [
-  { name: "Messenger", href: "/inbox", icon: MessageSquare, active: true },
-  { name: "WhatsApp", href: "/platform/whatsapp", icon: null, emoji: "💬", active: false },
-  { name: "Instagram", href: "/platform/instagram", icon: null, emoji: "📸", active: false },
-  { name: "TikTok", href: "/platform/tiktok", icon: null, emoji: "🎵", active: false },
-];
 
 export function AppSidebar() {
   const location = useLocation();
@@ -54,41 +48,6 @@ export function AppSidebar() {
     }
   };
 
-  const PlatformSection = () => (
-    <div className="mt-4 pt-4 border-t border-sidebar-border">
-      {isOpen && <p className="px-3 mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Platforms</p>}
-      {platformItems.map((item) => {
-        const isActive = location.pathname === item.href || (item.href === "/inbox" && location.pathname === "/inbox");
-        return (
-          <NavLink
-            key={item.name}
-            to={item.href}
-            onClick={isMobile ? close : undefined}
-            title={!isOpen ? item.name : undefined}
-            className={cn(
-              "nav-item relative",
-              isActive ? "nav-item-active" : "nav-item-inactive",
-              !isOpen && !isMobile && "justify-center px-0"
-            )}
-          >
-            {item.icon ? (
-              <item.icon className="h-5 w-5 flex-shrink-0" />
-            ) : (
-              <span className="text-base flex-shrink-0 w-5 text-center">{item.emoji}</span>
-            )}
-            {(isOpen || isMobile) && (
-              <>
-                {item.name}
-                {!item.active && (
-                  <span className="ml-auto text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">Soon</span>
-                )}
-              </>
-            )}
-          </NavLink>
-        );
-      })}
-    </div>
-  );
 
   // Mobile overlay
   if (isMobile) {
@@ -121,7 +80,6 @@ export function AppSidebar() {
                 </NavLink>
               );
             })}
-            <PlatformSection />
           </nav>
           <div className="border-t border-sidebar-border p-4">
             <button onClick={handleLogout}
@@ -164,7 +122,7 @@ export function AppSidebar() {
             </NavLink>
           );
         })}
-        <PlatformSection />
+        
       </nav>
       <div className="border-t border-sidebar-border p-4">
         <button onClick={handleLogout}
