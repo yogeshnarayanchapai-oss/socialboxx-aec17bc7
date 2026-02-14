@@ -17,6 +17,7 @@ const REQUIRED_SCOPES = [
   "pages_manage_metadata",
   "pages_manage_posts",
   "pages_messaging",
+  "business_management",
 ].join(",");
 
 interface OAuthState {
