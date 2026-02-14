@@ -15,7 +15,7 @@ function convertNepaliDigits(text: string): string {
   return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
 }
 
-// Improved phone number extraction - stores as-is
+// Improved phone number extraction - returns only the phone number, not surrounding text
 function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
   
@@ -25,24 +25,23 @@ function extractPhoneNumber(text: string): string | null {
   // Remove common separators but keep + for country code
   const cleaned = converted.replace(/[\s\-\(\)\.]/g, '');
   
-  // Try patterns in order of specificity
   // Pattern 1: +977XXXXXXXXXX or 977XXXXXXXXXX  
   const withCountryCode = cleaned.match(/\+?977(\d{10})/);
   if (withCountryCode) {
-    return converted.trim(); // Return original text as-is
+    return withCountryCode[0]; // Return matched number only
   }
   
-  // Pattern 2: Any sequence of 9+ digits
+  // Pattern 2: Any sequence of 9+ digits that looks like a Nepal mobile
   const allDigitSequences = cleaned.match(/\d{9,}/g);
   if (allDigitSequences) {
     for (const seq of allDigitSequences) {
       const nepalMobile = seq.match(/(9[678]\d{8})/);
-      if (nepalMobile) return converted.trim();
-      if (seq.length >= 9 && seq.startsWith('9')) return converted.trim();
+      if (nepalMobile) return nepalMobile[1];
+      if (seq.length >= 9 && seq.length <= 13 && seq.startsWith('9')) return seq;
     }
   }
   
-  // Pattern 3: Number with text mixed (e.g., "9848005532 surkhet")
+  // Pattern 3: Number with text mixed - extract digit groups and join
   const digitGroups = converted.match(/\d+/g);
   if (digitGroups) {
     const joined = digitGroups.join('');
@@ -52,14 +51,14 @@ function extractPhoneNumber(text: string): string | null {
         digits = digits.substring(3);
       }
       const nepalMobile = digits.match(/(9[678]\d{8})/);
-      if (nepalMobile) return converted.trim();
-      if (digits.length >= 9 && digits.startsWith('9')) return converted.trim();
+      if (nepalMobile) return nepalMobile[1];
+      if (digits.length >= 9 && digits.length <= 13 && digits.startsWith('9')) return digits;
     }
     for (const group of digitGroups) {
       if (group.length >= 9 && group.length <= 13) {
         let d = group;
         if (d.startsWith('977') && d.length >= 12) d = d.substring(3);
-        if (d.length >= 9 && d.length <= 10) return converted.trim();
+        if (d.length >= 9 && d.length <= 10) return d;
       }
     }
   }
