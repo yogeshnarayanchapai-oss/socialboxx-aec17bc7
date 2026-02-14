@@ -237,22 +237,33 @@ serve(async (req) => {
       const meData = await meResponse.json();
       const fbUserId = meData.id;
 
-      // Fetch user's pages
+      // Fetch ALL user's pages with pagination (FB defaults to 25)
       console.log("Fetching user pages...");
-      const pagesUrl = `${FB_GRAPH_URL}/me/accounts?fields=id,name,access_token,picture.type(square),tasks&access_token=${longLivedToken}`;
-      const pagesResponse = await fetch(pagesUrl);
-      const pagesData = await pagesResponse.json();
+      let allPages: any[] = [];
+      let nextUrl: string | null = `${FB_GRAPH_URL}/me/accounts?fields=id,name,access_token,picture.type(square),tasks&limit=100&access_token=${longLivedToken}`;
 
-      if (pagesData.error) {
-        console.error("Failed to fetch pages:", pagesData.error);
-        return new Response(null, {
-          status: 302,
-          headers: { Location: `${state.redirectUri}?fb_error=${encodeURIComponent(pagesData.error.message || "fetch_pages_failed")}` },
-        });
+      while (nextUrl) {
+        const pagesResponse = await fetch(nextUrl);
+        const pagesData = await pagesResponse.json();
+
+        if (pagesData.error) {
+          console.error("Failed to fetch pages:", pagesData.error);
+          return new Response(null, {
+            status: 302,
+            headers: { Location: `${state.redirectUri}?fb_error=${encodeURIComponent(pagesData.error.message || "fetch_pages_failed")}` },
+          });
+        }
+
+        if (pagesData.data) {
+          allPages = allPages.concat(pagesData.data);
+        }
+
+        // Check for next page of results
+        nextUrl = pagesData.paging?.next || null;
       }
 
-      const pages = pagesData.data || [];
-      console.log(`Found ${pages.length} pages for user`);
+      const pages = allPages;
+      console.log(`Found ${pages.length} pages for user (fetched with pagination)`);
 
       // Store token temporarily for page connection
       const tokenExpiry = new Date(Date.now() + expiresIn * 1000);
