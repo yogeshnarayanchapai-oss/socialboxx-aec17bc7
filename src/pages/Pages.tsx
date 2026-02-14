@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,22 +30,22 @@ import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
 import { supabase } from "@/integrations/supabase/client";
 
+const platformItems = [
+  { name: "Messenger", emoji: "💬", icon: MessageSquare, active: true },
+  { name: "WhatsApp", emoji: "💬", icon: null, active: false },
+  { name: "Instagram", emoji: "📸", icon: null, active: false },
+  { name: "TikTok", emoji: "🎵", icon: null, active: false },
+];
+
 export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
   const disconnectPage = useDisconnectPage();
-  const navigate = useNavigate();
   
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [automationPage, setAutomationPage] = useState<typeof pages[0] | null>(null);
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState<string | null>(null);
-
-  const platformItems = [
-    { name: "Messenger", emoji: "💬", icon: MessageSquare, active: true, href: "/inbox" },
-    { name: "WhatsApp", emoji: "💬", icon: null, active: false, href: "/platform/whatsapp" },
-    { name: "Instagram", emoji: "📸", icon: null, active: false, href: "/platform/instagram" },
-    { name: "TikTok", emoji: "🎵", icon: null, active: false, href: "/platform/tiktok" },
-  ];
+  const [selectedPlatform, setSelectedPlatform] = useState("Messenger");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -88,16 +87,8 @@ export default function Pages() {
     return "error";
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen">
+  const renderMessengerContent = () => (
+    <>
       <PageHeader
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
@@ -121,7 +112,6 @@ export default function Pages() {
         page={automationPage}
       />
 
-      {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deletePageId} onOpenChange={(open) => !open && setDeletePageId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -140,27 +130,11 @@ export default function Pages() {
       </AlertDialog>
 
       <div className="p-4 md:p-6">
-        {/* Platform Links */}
-        <div className="mb-6 flex flex-wrap gap-3">
-          {platformItems.map((item) => (
-            <button
-              key={item.name}
-              onClick={() => navigate(item.href)}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
-            >
-              {item.icon ? (
-                <item.icon className="h-4 w-4 text-primary" />
-              ) : (
-                <span className="text-sm">{item.emoji}</span>
-              )}
-              {item.name}
-              {!item.active && (
-                <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Soon</span>
-              )}
-            </button>
-          ))}
-        </div>
-        {pages.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          </div>
+        ) : pages.length === 0 ? (
           <EmptyState
             icon={Facebook}
             title="No pages connected"
@@ -242,6 +216,60 @@ export default function Pages() {
             ))}
           </div>
         )}
+      </div>
+    </>
+  );
+
+  const renderComingSoon = () => (
+    <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+      <Construction className="h-16 w-16 text-muted-foreground" />
+      <h1 className="text-2xl font-bold">{selectedPlatform}</h1>
+      <p className="text-muted-foreground max-w-md">
+        यो platform को integration छिट्टै आउँदैछ। अहिलेको लागि Messenger मा काम गर्नुहोस्।
+      </p>
+      <span className="inline-flex items-center rounded-full bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
+        Coming Soon
+      </span>
+    </div>
+  );
+
+  return (
+    <div className="flex min-h-screen">
+      {/* Left Platform Sidebar */}
+      <div className="w-56 flex-shrink-0 border-r border-border bg-card/50">
+        <div className="p-4">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Platforms</h2>
+          <div className="flex flex-col gap-1">
+            {platformItems.map((item) => (
+              <button
+                key={item.name}
+                onClick={() => setSelectedPlatform(item.name)}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors text-left ${
+                  selectedPlatform === item.name
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                {item.icon ? (
+                  <item.icon className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <span className="text-sm flex-shrink-0">{item.emoji}</span>
+                )}
+                <span className="flex-1">{item.name}</span>
+                {!item.active && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                    Soon
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Right Content */}
+      <div className="flex-1 min-w-0">
+        {selectedPlatform === "Messenger" ? renderMessengerContent() : renderComingSoon()}
       </div>
     </div>
   );
