@@ -6,26 +6,81 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Extract any phone number with 9-13 digits from text
+// Nepali digit conversion
+function convertNepaliDigits(text: string): string {
+  const nepaliDigits: Record<string, string> = {
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  };
+  return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
+}
+
+// Improved phone number extraction
 function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
   
-  // Remove common separators and try to find 9-13 digit sequences
-  // First try with country code prefix patterns
-  const withCountryCode = text.match(/\+?\d{1,4}[\s-]?\d{4,13}/g);
+  // Convert Nepali digits first
+  const converted = convertNepaliDigits(text);
+  
+  // Remove common separators but keep + for country code
+  const cleaned = converted.replace(/[\s\-\(\)\.]/g, '');
+  
+  // Try patterns in order of specificity
+  // Pattern 1: +977XXXXXXXXXX or 977XXXXXXXXXX
+  const withCountryCode = cleaned.match(/\+?977(\d{10})/);
   if (withCountryCode) {
-    for (const match of withCountryCode) {
-      const digits = match.replace(/[\s\-\+]/g, '');
-      if (digits.length >= 9 && digits.length <= 13) {
-        return digits;
+    return withCountryCode[1]; // Return 10-digit number
+  }
+  
+  // Pattern 2: Any sequence of 10+ digits, extract Nepal mobile (9[678]\d{8})
+  const allDigitSequences = cleaned.match(/\d{10,}/g);
+  if (allDigitSequences) {
+    for (const seq of allDigitSequences) {
+      // Try to find a 10-digit Nepal mobile at the end
+      const nepalMobile = seq.match(/(9[678]\d{8})$/);
+      if (nepalMobile) return nepalMobile[1];
+      // Try to find it anywhere in the sequence
+      const nepalAnywhere = seq.match(/(9[678]\d{8})/);
+      if (nepalAnywhere) return nepalAnywhere[1];
+      // Fallback: last 10 digits starting with 9
+      if (seq.length >= 10) {
+        const last10 = seq.slice(-10);
+        if (last10.startsWith('9')) return last10;
       }
     }
   }
   
-  // Then try plain digit sequences
-  const plainDigits = text.match(/\b(\d{9,13})\b/g);
-  if (plainDigits && plainDigits.length > 0) {
-    return plainDigits[0];
+  // Pattern 3: Number with text mixed (e.g., "9848005532 surkhet")
+  // Extract digit sequences from original converted text
+  const digitGroups = converted.match(/\d+/g);
+  if (digitGroups) {
+    const joined = digitGroups.join('');
+    if (joined.length >= 10) {
+      // Remove leading 977 or +977
+      let digits = joined;
+      if (digits.startsWith('977') && digits.length >= 13) {
+        digits = digits.substring(3);
+      }
+      const nepalMobile = digits.match(/(9[678]\d{8})/);
+      if (nepalMobile) return nepalMobile[1];
+      if (digits.length >= 10 && digits.startsWith('9')) return digits.substring(0, 10);
+    }
+    // Also check individual groups
+    for (const group of digitGroups) {
+      if (group.length >= 10 && group.length <= 13) {
+        let d = group;
+        if (d.startsWith('977') && d.length >= 13) d = d.substring(3);
+        if (d.length === 10 && d.startsWith('9')) return d;
+      }
+    }
+    // Check 9-digit sequences too (some may omit leading digit)
+    for (const group of digitGroups) {
+      if (group.length >= 9 && group.length <= 13) {
+        let d = group;
+        if (d.startsWith('977') && d.length >= 12) d = d.substring(3);
+        if (d.length >= 9 && d.length <= 10) return d;
+      }
+    }
   }
   
   return null;
@@ -48,38 +103,28 @@ function checkKeywordMatch(text: string, keywords: KeywordRule[]): KeywordMatch 
   
   const lowerText = text.toLowerCase();
   for (const rule of keywords) {
-    // Skip disabled rules
     if (rule.enabled === false) continue;
-    
     for (const keyword of rule.keywords) {
       if (lowerText.includes(keyword.toLowerCase())) {
-        return {
-          reply: rule.reply,
-          media: rule.media
-        };
+        return { reply: rule.reply, media: rule.media };
       }
     }
   }
   return null;
 }
 
-// Check if a message is just emoji, sticker reaction, or nonsense (single word like "ok", "hmm", thumbs up)
 function isEmojiOrNonsense(text: string): boolean {
   if (!text) return true;
   const trimmed = text.trim();
   if (trimmed.length === 0) return true;
   
-  // Remove all emoji characters and see if anything meaningful remains
   const withoutEmoji = trimmed.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu, '').trim();
   
-  // Pure emoji message
   if (withoutEmoji.length === 0) return true;
   
-  // Very short nonsense responses (1-2 chars or common filler words)
   const nonsensePatterns = /^(ok|k|hmm+|hm+|oh|ah|ha+|haha+|lol|yes|no|ya|ho|👍|okay|oho|aha|thik|thx|ty|bye|👋|🙏|❤️|♥️|😊|😂|🤣|😍|huss|hus)$/i;
   if (nonsensePatterns.test(trimmed)) return true;
   
-  // Messages shorter than 3 characters (excluding spaces)
   if (withoutEmoji.length <= 2) return true;
   
   return false;
@@ -96,15 +141,10 @@ interface MessagePayload {
 }
 
 function parseMessageContent(content: string): MessagePayload {
-  // Try to parse as JSON (new format with media)
   try {
     const parsed = JSON.parse(content);
-    if (parsed.text !== undefined) {
-      return parsed;
-    }
-  } catch {
-    // Not JSON, treat as plain text
-  }
+    if (parsed.text !== undefined) return parsed;
+  } catch {}
   return { text: content };
 }
 
@@ -115,94 +155,47 @@ async function sendAutoReply(
   media?: MediaAttachment | null
 ): Promise<boolean> {
   try {
-    // Parse message content to check for embedded media
     const parsed = parseMessageContent(messageContent);
     const textMessage = parsed.text || messageContent;
     const mediaToSend = media || parsed.media;
 
-    // Send text message first
     if (textMessage) {
-      const textResponse = await fetch(
-        `https://graph.facebook.com/v19.0/me/messages`,
-        {
+      const textResponse = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          message: { text: textMessage },
+          access_token: pageAccessToken,
+        }),
+      });
+      if (!textResponse.ok) {
+        console.error("Auto-reply text failed:", await textResponse.json());
+        return false;
+      }
+    }
+
+    if (mediaToSend?.url) {
+      let mediaPayload: any;
+      if (mediaToSend.type === "image") {
+        mediaPayload = { attachment: { type: "image", payload: { url: mediaToSend.url, is_reusable: true } } };
+      } else if (mediaToSend.type === "video") {
+        mediaPayload = { attachment: { type: "video", payload: { url: mediaToSend.url, is_reusable: true } } };
+      } else if (mediaToSend.type === "link") {
+        mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🔗 Link:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Open Link" }] } } };
+      }
+      if (mediaPayload) {
+        await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             recipient: { id: recipientId },
-            message: { text: textMessage },
+            message: mediaPayload,
             access_token: pageAccessToken,
           }),
-        }
-      );
-      
-      if (!textResponse.ok) {
-        const err = await textResponse.json();
-        console.error("Auto-reply text failed:", err);
-        return false;
-      }
-      console.log("Auto-reply text sent successfully to", recipientId);
-    }
-
-    // Send media if present
-    if (mediaToSend && mediaToSend.url) {
-      let mediaPayload: any;
-      
-      if (mediaToSend.type === "image") {
-        mediaPayload = {
-          attachment: {
-            type: "image",
-            payload: { url: mediaToSend.url, is_reusable: true }
-          }
-        };
-      } else if (mediaToSend.type === "video") {
-        mediaPayload = {
-          attachment: {
-            type: "video",
-            payload: { url: mediaToSend.url, is_reusable: true }
-          }
-        };
-      } else if (mediaToSend.type === "link") {
-        // For links, send as a button template
-        mediaPayload = {
-          attachment: {
-            type: "template",
-            payload: {
-              template_type: "button",
-              text: "🔗 Link:",
-              buttons: [{
-                type: "web_url",
-                url: mediaToSend.url,
-                title: "Open Link"
-              }]
-            }
-          }
-        };
-      }
-
-      if (mediaPayload) {
-        const mediaResponse = await fetch(
-          `https://graph.facebook.com/v19.0/me/messages`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              recipient: { id: recipientId },
-              message: mediaPayload,
-              access_token: pageAccessToken,
-            }),
-          }
-        );
-        
-        if (!mediaResponse.ok) {
-          const err = await mediaResponse.json();
-          console.error("Auto-reply media failed:", err);
-          // Don't fail completely if media fails, text was sent
-        } else {
-          console.log("Auto-reply media sent successfully to", recipientId);
-        }
+        });
       }
     }
-    
     return true;
   } catch (error) {
     console.error("Auto-reply error:", error);
@@ -210,36 +203,137 @@ async function sendAutoReply(
   }
 }
 
+// AI Comment Reply helper
+async function handleCommentReply(
+  supabase: any,
+  page: any,
+  commentId: string,
+  commentText: string,
+  postId: string,
+  LOVABLE_API_KEY: string | undefined
+): Promise<void> {
+  if (!page.ai_comment_reply_enabled || !page.ai_enabled) return;
+  
+  console.log("AI comment reply enabled, generating reply for comment:", commentId);
+
+  // Check if already replied
+  const { data: existingLog } = await supabase
+    .from("followup_logs")
+    .select("id")
+    .eq("followup_type", "ai_comment")
+    .eq("message_text", commentId) // Store comment_id in message_text for tracking
+    .single();
+
+  if (existingLog) {
+    console.log("Already replied to comment:", commentId);
+    return;
+  }
+
+  let replyText = "धन्यवाद! कृपया हाम्रो inbox मा message गर्नुहोस् विस्तृत जानकारीको लागि।";
+
+  if (LOVABLE_API_KEY) {
+    try {
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-lite",
+          messages: [
+            {
+              role: "system",
+              content: `You are a comment reply assistant for "${page.page_name}".
+${page.ai_description ? `Business info: ${page.ai_description}` : ''}
+${page.product_name ? `Product: ${page.product_name}` : ''}
+
+RULES:
+- Match the customer's language (Nepali, Roman Nepali, or English)
+- Keep it very short (1-2 sentences)
+- Be friendly, professional
+- Encourage them to message the page inbox for detailed info
+- Don't share pricing details in comments
+- Sound natural and human-like`
+            },
+            {
+              role: "user",
+              content: `Customer commented: "${commentText}"\n\nGenerate a short, friendly reply comment:`
+            },
+          ],
+          max_tokens: 150,
+          temperature: 0.8,
+        }),
+      });
+
+      if (aiResponse.ok) {
+        const aiData = await aiResponse.json();
+        replyText = aiData.choices?.[0]?.message?.content?.trim() || replyText;
+      }
+    } catch (e) {
+      console.error("AI comment reply generation error:", e);
+    }
+  }
+
+  // Post reply to Facebook comment
+  try {
+    const fbResponse = await fetch(
+      `https://graph.facebook.com/v19.0/${commentId}/comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: replyText,
+          access_token: page.page_access_token,
+        }),
+      }
+    );
+
+    if (fbResponse.ok) {
+      console.log("AI comment reply posted successfully");
+      
+      // Log the reply
+      await supabase.from("followup_logs").insert({
+        conversation_id: null, // no conversation for comments
+        page_id: page.id,
+        followup_type: "ai_comment",
+        step_number: 1,
+        message_text: commentId, // store comment_id for dedup
+      });
+    } else {
+      const err = await fbResponse.json();
+      console.error("Failed to post comment reply:", err);
+    }
+  } catch (e) {
+    console.error("Comment reply error:", e);
+  }
+}
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Handle webhook verification (GET request from Facebook)
   if (req.method === "GET") {
     const url = new URL(req.url);
     const mode = url.searchParams.get("hub.mode");
     const token = url.searchParams.get("hub.verify_token");
     const challenge = url.searchParams.get("hub.challenge");
-
-    // Use env variable for verify token
     const verifyToken = Deno.env.get("FACEBOOK_WEBHOOK_VERIFY_TOKEN") || "socialbox_verify_token";
 
     if (mode === "subscribe" && token === verifyToken) {
       console.log("Webhook verified successfully");
       return new Response(challenge, { status: 200 });
     } else {
-      console.log("Webhook verification failed - token mismatch, expected:", verifyToken, "got:", token);
       return new Response("Forbidden", { status: 403 });
     }
   }
 
-  // Handle incoming webhook events (POST request)
   if (req.method === "POST") {
     try {
       const body = await req.json();
@@ -249,14 +343,12 @@ serve(async (req) => {
         return new Response("Not a page event", { status: 200 });
       }
 
-      // Process each entry
       for (const entry of body.entry || []) {
         const pageId = entry.id;
 
-        // Find the connected page in our database
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -266,7 +358,20 @@ serve(async (req) => {
           continue;
         }
 
-        console.log("Processing messages for page:", page.page_id, "automation_enabled:", page.automation_enabled);
+        // Handle feed/comment events (for AI comment auto-reply)
+        for (const change of entry.changes || []) {
+          if (change.field === "feed" && change.value?.item === "comment" && change.value?.verb === "add") {
+            const commentId = change.value.comment_id;
+            const commentText = change.value.message || "";
+            const postId = change.value.post_id || "";
+            const senderId = change.value.from?.id;
+
+            // Don't reply to own comments
+            if (senderId === pageId) continue;
+
+            await handleCommentReply(supabase, page, commentId, commentText, postId, LOVABLE_API_KEY);
+          }
+        }
 
         // Process messaging events
         for (const messaging of entry.messaging || []) {
@@ -275,14 +380,10 @@ serve(async (req) => {
           const timestamp = messaging.timestamp;
           const message = messaging.message;
 
-          if (!message || senderId === pageId) {
-            // Skip if no message or if message is from the page itself
-            continue;
-          }
+          if (!message || senderId === pageId) continue;
 
           console.log("Processing message from:", senderId, "content:", message.text?.substring(0, 50));
 
-          // Find or create conversation
           let conversationId: string;
           let conversationTags: string[] = [];
           let isFirstMessage = false;
@@ -292,12 +393,12 @@ serve(async (req) => {
             .select("id, status, tags")
             .eq("page_id", page.id)
             .eq("participant_id", senderId)
+            .is("deleted_at", null)
             .single();
 
           if (!existingConv) {
             isFirstMessage = true;
             
-            // Fetch sender info from Facebook
             let senderName = "Unknown";
             try {
               const userResponse = await fetch(
@@ -311,7 +412,6 @@ serve(async (req) => {
               console.error("Failed to fetch sender info:", e);
             }
 
-            // Create new conversation
             const { data: newConv, error: convError } = await supabase
               .from("conversations")
               .insert({
@@ -327,9 +427,7 @@ serve(async (req) => {
               .single();
 
             if (convError || !newConv) {
-              // If duplicate key error, find existing conversation by external_conversation_id
               if (convError?.code === "23505") {
-                console.log("Conversation already exists, finding by external_conversation_id");
                 const { data: existingByExtId } = await supabase
                   .from("conversations")
                   .select("id, tags")
@@ -339,21 +437,9 @@ serve(async (req) => {
                 if (existingByExtId) {
                   conversationId = existingByExtId.id;
                   conversationTags = existingByExtId.tags || [];
-                  
-                  // Update participant_id if missing
-                  await supabase
-                    .from("conversations")
-                    .update({ participant_id: senderId })
-                    .eq("id", conversationId)
-                    .is("participant_id", null);
-                } else {
-                  console.error("Could not find conversation even by external_id");
-                  continue;
-                }
-              } else {
-                console.error("Error creating conversation:", convError);
-                continue;
-              }
+                  await supabase.from("conversations").update({ participant_id: senderId }).eq("id", conversationId).is("participant_id", null);
+                } else continue;
+              } else continue;
             } else {
               conversationId = newConv.id;
               conversationTags = newConv.tags || [];
@@ -364,38 +450,28 @@ serve(async (req) => {
           }
 
           // Store the message
-          const { error: msgError } = await supabase
-            .from("messages")
-            .insert({
-              external_message_id: message.mid,
-              conversation_id: conversationId,
-              content: message.text,
-              sender_type: "customer",
-              message_type: message.attachments ? "media" : "text",
-              media_url: message.attachments?.[0]?.payload?.url,
-              created_at: new Date(timestamp).toISOString(),
-            });
-
-          if (msgError) {
-            console.error("Error storing message:", msgError);
-          }
+          await supabase.from("messages").insert({
+            external_message_id: message.mid,
+            conversation_id: conversationId,
+            content: message.text,
+            sender_type: "customer",
+            message_type: message.attachments ? "media" : "text",
+            media_url: message.attachments?.[0]?.payload?.url,
+            created_at: new Date(timestamp).toISOString(),
+          });
 
           // Update conversation
-          await supabase
-            .from("conversations")
-            .update({
-              last_message_at: new Date(timestamp).toISOString(),
-              last_message_preview: message.text?.substring(0, 100),
-              status: "unreplied",
-            })
-            .eq("id", conversationId);
+          await supabase.from("conversations").update({
+            last_message_at: new Date(timestamp).toISOString(),
+            last_message_preview: message.text?.substring(0, 100),
+            status: "unreplied",
+          }).eq("id", conversationId);
 
-          // Check for phone number (9-13 digits) and create lead
+          // Check for phone number with improved extraction
           const detectedPhone = extractPhoneNumber(message.text || "");
           if (detectedPhone) {
             console.log("Phone number detected:", detectedPhone);
             
-            // Check if lead with this phone already exists
             const { data: existingLead } = await supabase
               .from("leads")
               .select("id")
@@ -403,65 +479,45 @@ serve(async (req) => {
               .single();
 
             if (existingLead) {
-              // Update existing lead
-              await supabase
-                .from("leads")
-                .update({
-                  conversation_id: conversationId,
-                  last_message: message.text?.substring(0, 200),
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", existingLead.id);
-              console.log("Updated existing lead:", existingLead.id);
+              await supabase.from("leads").update({
+                conversation_id: conversationId,
+                last_message: message.text?.substring(0, 200),
+                updated_at: new Date().toISOString(),
+              }).eq("id", existingLead.id);
             } else {
-              // Fetch participant name
               const { data: conv } = await supabase
                 .from("conversations")
                 .select("participant_name")
                 .eq("id", conversationId)
                 .single();
 
-              // Create new lead with page name as source and product
-              const { error: leadError } = await supabase
-                .from("leads")
-                .insert({
-                  phone: detectedPhone,
-                  full_name: conv?.participant_name,
-                  conversation_id: conversationId,
-                  page_id: page.id,
-                  source: page.page_name,
-                  product: (page as any).product_name || null,
-                  last_message: message.text?.substring(0, 200),
-                  status: "new",
-                });
-
-              if (leadError) {
-                console.error("Error creating lead:", leadError);
-              } else {
-                console.log("Created new lead for phone:", detectedPhone);
-              }
+              await supabase.from("leads").insert({
+                phone: detectedPhone,
+                full_name: conv?.participant_name,
+                conversation_id: conversationId,
+                page_id: page.id,
+                source: page.page_name,
+                product: (page as any).product_name || null,
+                last_message: message.text?.substring(0, 200),
+                status: "new",
+              });
             }
 
-            // Add lead-created tag to conversation
             if (!conversationTags.includes("lead-created")) {
-              await supabase
-                .from("conversations")
-                .update({
-                  tags: [...conversationTags, "lead-created"],
-                })
-                .eq("id", conversationId);
+              await supabase.from("conversations").update({
+                tags: [...conversationTags, "lead-created"],
+              }).eq("id", conversationId);
               conversationTags = [...conversationTags, "lead-created"];
             }
           }
 
-          // AI reply logic (only if AI is enabled and automation is NOT enabled)
+          // AI reply logic
           if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
             
-            // Customer replied - reset follow-up timer (they're engaged)
+            // Customer replied - reset follow-up timer
             const followupSettings = (page as any).ai_followup_settings;
             if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
-              // Reset to step 0 with fresh delay from first step
               const firstStep = followupSettings.steps[0];
               await supabase.from("conversations").update({
                 ai_followup_step: 0,
@@ -469,19 +525,16 @@ serve(async (req) => {
               }).eq("id", conversationId);
             }
             
-            // Check if message is just emoji or nonsense after lead is already created
             const isNonsenseOrEmoji = isEmojiOrNonsense(message.text || "");
             const hasLeadTag = conversationTags.includes("lead-created");
             
             if (hasLeadTag && isNonsenseOrEmoji) {
-              console.log("Skipping AI reply - lead already created and message is emoji/nonsense:", message.text);
+              console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
-              // Wait 7 seconds to batch multiple incoming messages
               console.log("Waiting 7 seconds to batch messages...");
               await new Promise(resolve => setTimeout(resolve, 7000));
               
               try {
-                // Get recent conversation history for context
                 const { data: recentMessages } = await supabase
                   .from("messages")
                   .select("content, sender_type, created_at")
@@ -489,8 +542,6 @@ serve(async (req) => {
                   .order("created_at", { ascending: false })
                   .limit(15);
 
-                // Check if there's already a page reply after the latest customer messages
-                // (another webhook instance may have already replied)
                 const latestMessages = (recentMessages || []).reverse();
                 const lastPageReplyIndex = latestMessages.map(m => m.sender_type).lastIndexOf('page');
                 const lastCustomerIndex = latestMessages.map(m => m.sender_type).lastIndexOf('customer');
@@ -498,20 +549,16 @@ serve(async (req) => {
                 if (lastPageReplyIndex > lastCustomerIndex) {
                   console.log("Already replied to latest messages, skipping");
                 } else {
-                  // Collect all unreplied customer messages
                   const unrepliedCustomerMessages: string[] = [];
                   for (let i = latestMessages.length - 1; i >= 0; i--) {
                     if (latestMessages[i].sender_type === 'customer') {
                       if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
-                    } else {
-                      break; // stop at last page reply
-                    }
+                    } else break;
                   }
 
                   const combinedCustomerMessage = unrepliedCustomerMessages.join('\n');
-                  
-                  // If all unreplied messages are emoji/nonsense after lead created, skip
                   const allNonsense = hasLeadTag && unrepliedCustomerMessages.every(m => isEmojiOrNonsense(m));
+                  
                   if (allNonsense) {
                     console.log("All unreplied messages are emoji/nonsense after lead created, skipping");
                   } else {
@@ -519,7 +566,6 @@ serve(async (req) => {
                       .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
                       .join('\n');
 
-                    // Call ai-reply edge function
                     const aiResponse = await fetch(
                       `${supabaseUrl}/functions/v1/ai-reply`,
                       {
@@ -543,59 +589,48 @@ serve(async (req) => {
                       const suggestedReply = aiData.suggestedReply;
 
                       if (suggestedReply) {
-                        console.log("AI reply generated:", suggestedReply.substring(0, 50));
-                        
                         const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
                         
                         if (sent) {
-                          await supabase
-                            .from("messages")
-                            .insert({
-                              conversation_id: conversationId,
-                              content: suggestedReply,
-                              sender_type: "page",
-                              message_type: "text",
-                              created_at: new Date().toISOString(),
-                            });
+                          await supabase.from("messages").insert({
+                            conversation_id: conversationId,
+                            content: suggestedReply,
+                            sender_type: "page",
+                            message_type: "text",
+                            created_at: new Date().toISOString(),
+                          });
 
-                          await supabase
-                            .from("conversations")
-                            .update({
-                              status: "replied",
-                              last_message_preview: suggestedReply.substring(0, 100),
-                              last_message_at: new Date().toISOString(),
-                            })
-                            .eq("id", conversationId);
+                          await supabase.from("conversations").update({
+                            status: "replied",
+                            last_message_preview: suggestedReply.substring(0, 100),
+                            last_message_at: new Date().toISOString(),
+                          }).eq("id", conversationId);
                             
-                        console.log("AI reply sent and saved");
-                        
-                        // Start AI follow-up tracking if no lead yet
-                        if (!hasLeadTag) {
-                          const followupSettings = (page as any).ai_followup_settings;
-                          if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
-                            const firstStep = followupSettings.steps[0];
-                            const nextAt = new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString();
-                            await supabase.from("conversations").update({
-                              ai_followup_step: 0,
-                              ai_followup_next_at: nextAt,
-                            }).eq("id", conversationId);
-                            console.log("AI follow-up tracking started, first follow-up at:", nextAt);
+                          // Start AI follow-up tracking if no lead yet
+                          if (!hasLeadTag) {
+                            const followupSettings = (page as any).ai_followup_settings;
+                            if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
+                              const firstStep = followupSettings.steps[0];
+                              await supabase.from("conversations").update({
+                                ai_followup_step: 0,
+                                ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
+                              }).eq("id", conversationId);
+                            }
                           }
                         }
                       }
+                    } else {
+                      console.error("AI reply function error:", aiResponse.status);
                     }
-                  } else {
-                    console.error("AI reply function error:", aiResponse.status, await aiResponse.text());
                   }
                 }
+              } catch (aiError) {
+                console.error("AI reply error:", aiError);
               }
-            } catch (aiError) {
-              console.error("AI reply error:", aiError);
             }
           }
-        }
           
-          // Auto-reply logic (only if automation is enabled for this page)
+          // Automation auto-reply logic
           else if (page.automation_enabled) {
             console.log("Automation enabled, checking auto-reply rules");
             
@@ -603,7 +638,6 @@ serve(async (req) => {
             let autoReplyMedia: MediaAttachment | undefined = undefined;
             let autoReplyType: string | null = null;
 
-            // Check keyword-based replies first
             const keywordMatch = checkKeywordMatch(
               message.text || "",
               (page.auto_reply_keywords as KeywordRule[]) || []
@@ -614,11 +648,9 @@ serve(async (req) => {
               autoReplyMedia = keywordMatch.media;
               autoReplyType = "keyword";
             } else if (isFirstMessage && page.auto_reply_first_message) {
-              // First message auto-reply
               autoReplyMessage = page.auto_reply_first_message;
               autoReplyType = "first_message";
             } else if (!isFirstMessage && page.auto_reply_followup) {
-              // Follow-up auto-reply (enabled now)
               autoReplyMessage = page.auto_reply_followup;
               autoReplyType = "followup";
             }
@@ -626,32 +658,45 @@ serve(async (req) => {
             if (autoReplyMessage) {
               const parsed = parseMessageContent(autoReplyMessage);
               const logText = parsed.text || autoReplyMessage;
-              console.log(`Sending ${autoReplyType} auto-reply:`, logText.substring(0, 50));
               
               const sent = await sendAutoReply(page.page_access_token, senderId, autoReplyMessage, autoReplyMedia);
               
               if (sent) {
-                await supabase
-                  .from("messages")
-                  .insert({
-                    conversation_id: conversationId,
-                    content: parsed.text || autoReplyMessage,
-                    sender_type: "page",
-                    message_type: autoReplyMedia ? "media" : "text",
-                    media_url: autoReplyMedia?.url || parsed.media?.url,
-                    created_at: new Date().toISOString(),
-                  });
+                await supabase.from("messages").insert({
+                  conversation_id: conversationId,
+                  content: parsed.text || autoReplyMessage,
+                  sender_type: "page",
+                  message_type: autoReplyMedia ? "media" : "text",
+                  media_url: autoReplyMedia?.url || parsed.media?.url,
+                  created_at: new Date().toISOString(),
+                });
 
-                await supabase
+                await supabase.from("conversations").update({
+                  status: "replied",
+                  last_message_preview: (parsed.text || autoReplyMessage).substring(0, 100),
+                  last_message_at: new Date().toISOString(),
+                }).eq("id", conversationId);
+              }
+            }
+
+            // Start automation follow-up tracking if no lead yet and follow-up messages configured
+            if (!conversationTags.includes("lead-created")) {
+              const followupMsgs = Array.isArray(page.auto_followup_messages) ? page.auto_followup_messages : [];
+              if (followupMsgs.length > 0) {
+                // Only start if not already tracking
+                const { data: convCheck } = await supabase
                   .from("conversations")
-                  .update({
-                    status: "replied",
-                    last_message_preview: (parsed.text || autoReplyMessage).substring(0, 100),
-                    last_message_at: new Date().toISOString(),
-                  })
-                  .eq("id", conversationId);
-                  
-                console.log("Auto-reply saved to database");
+                  .select("auto_followup_step")
+                  .eq("id", conversationId)
+                  .single();
+                
+                if (convCheck && convCheck.auto_followup_step === null) {
+                  await supabase.from("conversations").update({
+                    auto_followup_step: 0,
+                    auto_followup_next_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // first follow-up after 24h
+                  }).eq("id", conversationId);
+                  console.log("Automation follow-up tracking started for conv:", conversationId);
+                }
               }
             }
           }

@@ -62,6 +62,7 @@ interface PageAutomationDialogProps {
     product_name?: string;
     product_description?: string;
     ai_followup_settings?: Json;
+    ai_comment_reply_enabled?: boolean;
   } | null;
 }
 
@@ -88,23 +89,14 @@ export function PageAutomationDialog({
   
   const [activeTab, setActiveTab] = useState("automation");
   const [automationEnabled, setAutomationEnabled] = useState(false);
-  // AI states
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiDescription, setAiDescription] = useState("");
   const [savingAI, setSavingAI] = useState(false);
-  // Product states
   const [productName, setProductName] = useState("");
   const [productDescription, setProductDescription] = useState("");
-  // AI Follow-up states
-  const defaultFollowupSteps: AiFollowupStep[] = [
-    { delay_hours: 6, message_hint: "Product को video/photo सहित जानकारी दिनुहोस्", media: null },
-    { delay_hours: 24, message_hint: "Special offer/discount बारेमा बताउनुहोस्", media: null },
-    { delay_hours: 72, message_hint: "के विचार गर्नुभयो? Reminder पठाउनुहोस्", media: null },
-    { delay_hours: 120, message_hint: "Limited stock/time offer बारेमा बताउनुहोस्", media: null },
-    { delay_hours: 168, message_hint: "Final follow-up - अन्तिम पटक सम्झाउनुहोस्", media: null },
-  ];
   const [aiFollowupEnabled, setAiFollowupEnabled] = useState(false);
-  const [aiFollowupSteps, setAiFollowupSteps] = useState<AiFollowupStep[]>(defaultFollowupSteps);
+  const [aiFollowupSteps, setAiFollowupSteps] = useState<AiFollowupStep[]>([]);
+  const [aiCommentReplyEnabled, setAiCommentReplyEnabled] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
   const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
@@ -113,20 +105,17 @@ export function PageAutomationDialog({
   const [keywords, setKeywords] = useState<ExtendedAutoReplyKeyword[]>([]);
   const [commentAutoReply, setCommentAutoReply] = useState("");
   
-  // New keyword form
   const [newKeyword, setNewKeyword] = useState("");
   const [newReply, setNewReply] = useState("");
   const [newMediaType, setNewMediaType] = useState<"image" | "video" | "link" | null>(null);
   const [newMediaUrl, setNewMediaUrl] = useState("");
   
-  // Edit keyword state
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editKeyword, setEditKeyword] = useState("");
   const [editReply, setEditReply] = useState("");
   const [editMediaType, setEditMediaType] = useState<"image" | "video" | "link" | null>(null);
   const [editMediaUrl, setEditMediaUrl] = useState("");
   
-  // Upload states
   const [uploadingReply, setUploadingReply] = useState(false);
   const [uploadingFollowup, setUploadingFollowup] = useState(false);
   const [uploadingKeyword, setUploadingKeyword] = useState(false);
@@ -187,29 +176,29 @@ export function PageAutomationDialog({
         setKeywords([]);
       }
       
-      // AI states
       setAiEnabled((page as any).ai_enabled || false);
       setAiDescription((page as any).ai_description || "");
-      // AI Follow-up states
+      setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
+      
+      // AI Follow-up: load saved steps or start with 1 default
       const followupSettings = (page as any).ai_followup_settings as AiFollowupSettings | null;
       if (followupSettings) {
         setAiFollowupEnabled(followupSettings.enabled || false);
         if (followupSettings.steps && followupSettings.steps.length > 0) {
           setAiFollowupSteps(followupSettings.steps);
         } else {
-          setAiFollowupSteps(defaultFollowupSteps);
+          setAiFollowupSteps([{ delay_hours: 6, message_hint: "Product को video/photo सहित जानकारी दिनुहोस्", media: null }]);
         }
       } else {
         setAiFollowupEnabled(false);
-        setAiFollowupSteps(defaultFollowupSteps);
+        setAiFollowupSteps([{ delay_hours: 6, message_hint: "Product को video/photo सहित जानकारी दिनुहोस्", media: null }]);
       }
-      // Product states
+      
       setProductName((page as any).product_name || "");
       setProductDescription((page as any).product_description || "");
     }
   }, [page, open]);
 
-  // Mutual exclusivity: if automation is turned on, check if AI is on
   const handleToggleAutomation = (checked: boolean) => {
     if (checked && aiEnabled) {
       toast.error("Automation र AI एकसाथ enable गर्न मिल्दैन।");
@@ -325,6 +314,35 @@ export function PageAutomationDialog({
   };
   const cancelEdit = () => { setEditingIndex(null); setEditKeyword(""); setEditReply(""); setEditMediaType(null); setEditMediaUrl(""); };
 
+  // AI Follow-up step management
+  const addAiFollowupStep = () => {
+    if (aiFollowupSteps.length >= 5) return;
+    const defaultDelays = [24, 72, 120, 168];
+    const defaultHints = [
+      "Special offer/discount बारेमा बताउनुहोस्",
+      "के विचार गर्नुभयो? Reminder पठाउनुहोस्",
+      "Limited stock/time offer बारेमा बताउनुहोस्",
+      "Final follow-up - अन्तिम पटक सम्झाउनुहोस्",
+    ];
+    const idx = aiFollowupSteps.length - 1;
+    setAiFollowupSteps(prev => [...prev, {
+      delay_hours: defaultDelays[idx] || 168,
+      message_hint: defaultHints[idx] || "Follow-up message",
+      media: null,
+    }]);
+  };
+
+  const removeAiFollowupStep = (idx: number) => {
+    if (idx === 0) {
+      // Can't remove first step, just clear it
+      const updated = [...aiFollowupSteps];
+      updated[0] = { delay_hours: 6, message_hint: "", media: null };
+      setAiFollowupSteps(updated);
+      return;
+    }
+    setAiFollowupSteps(prev => prev.filter((_, i) => i !== idx));
+  };
+
   const handleSave = async () => {
     if (!page) return;
     try {
@@ -347,7 +365,6 @@ export function PageAutomationDialog({
         },
       });
       
-      // If automation enabled, disable AI
       if (automationEnabled && aiEnabled) {
         setAiEnabled(false);
         await supabase.from("connected_pages").update({ ai_enabled: false } as any).eq("id", page.id);
@@ -368,6 +385,7 @@ export function PageAutomationDialog({
       const updateData: Record<string, any> = {
         ai_enabled: aiEnabled,
         ai_description: aiDescription,
+        ai_comment_reply_enabled: aiCommentReplyEnabled,
         ai_followup_settings: {
           enabled: aiFollowupEnabled,
           steps: aiFollowupSteps,
@@ -425,7 +443,6 @@ export function PageAutomationDialog({
     </div>
   );
 
-  // Cleaned up StepNav - icon-only, no text labels
   const StepNav = ({ current, total, onPrev, onNext, onAdd, onRemove, label }: {
     current: number; total: number; onPrev: () => void; onNext: () => void; onAdd: () => void; onRemove: (i: number) => void; label: string;
   }) => (
@@ -695,6 +712,15 @@ export function PageAutomationDialog({
                 <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
               </div>
 
+              {/* AI Comment Reply Toggle */}
+              <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${aiCommentReplyEnabled ? 'border-blue-500/50 bg-blue-500/5' : 'border-dashed'}`}>
+                <div>
+                  <Label className="text-sm font-medium">AI Comment Reply</Label>
+                  <p className="text-xs text-muted-foreground">Post मा नयाँ comment आउँदा AI ले auto-reply गर्छ</p>
+                </div>
+                <Switch checked={aiCommentReplyEnabled} onCheckedChange={setAiCommentReplyEnabled} />
+              </div>
+
               <div className="space-y-3 rounded-lg border p-4">
                 <div>
                   <Label className="text-sm font-medium">Business Description</Label>
@@ -721,7 +747,7 @@ export function PageAutomationDialog({
 
                 {aiFollowupEnabled && (
                   <div className="space-y-3">
-                    <p className="text-xs text-muted-foreground">५ ओटा follow-up steps configure गर्नुहोस्। AI ले यी hints अनुसार message generate गर्छ।</p>
+                    <p className="text-xs text-muted-foreground">Follow-up steps configure गर्नुहोस् (५ ओटा सम्म)। AI ले यी hints अनुसार message generate गर्छ।</p>
                     {aiFollowupSteps.map((step, idx) => (
                       <div key={idx} className="rounded-lg border p-3 space-y-2 bg-muted/20">
                         <div className="flex items-center justify-between">
@@ -739,6 +765,15 @@ export function PageAutomationDialog({
                                 setAiFollowupSteps(updated);
                               }}
                             />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive"
+                              onClick={() => removeAiFollowupStep(idx)}
+                              title={idx === 0 ? "Clear step" : "Remove step"}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
                           </div>
                         </div>
                         <Input
@@ -751,7 +786,6 @@ export function PageAutomationDialog({
                           placeholder="AI लाई के बारेमा message गर्ने hint दिनुहोस्..."
                           className="text-xs"
                         />
-                        {/* Media for follow-up step */}
                         <div className="flex gap-2 items-center">
                           <Input
                             value={step.media?.url || ""}
@@ -778,6 +812,17 @@ export function PageAutomationDialog({
                         </p>
                       </div>
                     ))}
+                    {aiFollowupSteps.length < 5 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={addAiFollowupStep}
+                        className="w-full"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />Follow-up Step थप्नुहोस्
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>

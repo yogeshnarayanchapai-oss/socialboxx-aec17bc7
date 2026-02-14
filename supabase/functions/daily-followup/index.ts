@@ -58,7 +58,8 @@ serve(async (req) => {
         .select("id, participant_id, participant_name, ai_followup_step, tags, last_message_at")
         .eq("page_id", page.id)
         .not("ai_followup_step", "is", null)
-        .lte("ai_followup_next_at", now.toISOString());
+        .lte("ai_followup_next_at", now.toISOString())
+        .is("deleted_at", null);
 
       if (convError) {
         console.error("Error fetching conversations:", convError);
@@ -72,7 +73,6 @@ serve(async (req) => {
         // Skip if lead already created (they gave phone number)
         if (tags.includes("lead-created")) {
           console.log(`Skipping conv ${conv.id} - lead already created`);
-          // Clear follow-up tracking
           await supabase.from("conversations").update({
             ai_followup_step: null,
             ai_followup_next_at: null,
@@ -90,6 +90,28 @@ serve(async (req) => {
           continue;
         }
 
+        // Check duplicate
+        const { data: existingLog } = await supabase
+          .from("followup_logs")
+          .select("id")
+          .eq("conversation_id", conv.id)
+          .eq("followup_type", "ai")
+          .eq("step_number", currentStep + 1)
+          .single();
+
+        if (existingLog) {
+          console.log(`AI follow-up step ${currentStep + 1} already sent for conv ${conv.id}`);
+          const nextStep = currentStep + 1;
+          const nextStepConfig = followupSettings.steps[nextStep];
+          await supabase.from("conversations").update({
+            ai_followup_step: nextStep,
+            ai_followup_next_at: nextStepConfig
+              ? new Date(Date.now() + nextStepConfig.delay_hours * 60 * 60 * 1000).toISOString()
+              : null,
+          }).eq("id", conv.id);
+          continue;
+        }
+
         const step = followupSettings.steps[currentStep];
         console.log(`Sending follow-up #${currentStep + 1} for conv ${conv.id}: ${step.message_hint}`);
 
@@ -98,7 +120,6 @@ serve(async (req) => {
           let followupMessage = step.message_hint;
 
           if (LOVABLE_API_KEY) {
-            // Get recent conversation history
             const { data: recentMsgs } = await supabase
               .from("messages")
               .select("content, sender_type")
@@ -178,6 +199,15 @@ Guidelines:
               sender_type: "page",
               message_type: "text",
               created_at: new Date().toISOString(),
+            });
+
+            // Log the follow-up
+            await supabase.from("followup_logs").insert({
+              conversation_id: conv.id,
+              page_id: page.id,
+              followup_type: "ai",
+              step_number: currentStep + 1,
+              message_text: followupMessage,
             });
 
             // Send media if present

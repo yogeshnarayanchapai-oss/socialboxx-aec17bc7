@@ -19,13 +19,18 @@ export function useConversations(filters?: {
       let query = supabase
         .from("conversations")
         .select("*, connected_pages(page_name)")
+        .is("deleted_at", null)
         .order("last_message_at", { ascending: false });
 
       if (filters?.pageId) {
         query = query.eq("page_id", filters.pageId);
       }
       if (filters?.status && filters.status !== "all") {
-        query = query.eq("status", filters.status);
+        if (filters.status === "lead") {
+          query = query.contains("tags", ["lead-created"]);
+        } else {
+          query = query.eq("status", filters.status);
+        }
       }
       if (filters?.search) {
         query = query.ilike("participant_name", `%${filters.search}%`);
@@ -43,13 +48,11 @@ export function useConversationMessages(conversationId: string | null) {
     queryKey: ["messages", conversationId],
     queryFn: async () => {
       if (!conversationId) return [];
-
       const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true });
-
       if (error) throw error;
       return data as Message[];
     },
@@ -59,43 +62,20 @@ export function useConversationMessages(conversationId: string | null) {
 
 export function useSendMessage() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async ({
-      conversationId,
-      pageId,
-      recipientId,
-      message,
-      mediaUrl,
-    }: {
-      conversationId: string;
-      pageId: string;
-      recipientId: string;
-      message: string;
-      mediaUrl?: string;
+    mutationFn: async ({ conversationId, pageId, recipientId, message, mediaUrl }: {
+      conversationId: string; pageId: string; recipientId: string; message: string; mediaUrl?: string;
     }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
-
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/facebook-messages`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            action: "send_message",
-            pageId,
-            conversationId,
-            recipientId,
-            message,
-            mediaUrl,
-          }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ action: "send_message", pageId, conversationId, recipientId, message, mediaUrl }),
         }
       );
-
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Failed to send message");
       return result;
@@ -109,117 +89,64 @@ export function useSendMessage() {
 
 export function useFetchConversations() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (pageId: string) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
-
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/facebook-messages`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            action: "fetch_conversations",
-            pageId,
-          }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ action: "fetch_conversations", pageId }),
         }
       );
-
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Failed to fetch conversations");
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["conversations"] }); },
   });
 }
 
 export function useRealtimeConversations() {
   const queryClient = useQueryClient();
-
   useEffect(() => {
     const channel = supabase
       .channel("conversations-changes")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "conversations" },
-        (payload) => {
-          console.log("New conversation:", payload);
-          queryClient.invalidateQueries({ queryKey: ["conversations"] });
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "conversations" },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ["conversations"] });
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages" },
-        (payload) => {
-          console.log("New message received via realtime:", payload);
-          queryClient.invalidateQueries({ queryKey: ["messages"] });
-          queryClient.invalidateQueries({ queryKey: ["conversations"] });
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages" },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ["messages"] });
-        }
-      )
-      .subscribe((status) => {
-        console.log("Realtime subscription status:", status);
-      });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "conversations" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["messages"] });
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, () => {
+        queryClient.invalidateQueries({ queryKey: ["messages"] });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [queryClient]);
 }
 
 export function useAISuggestion() {
   return useMutation({
-    mutationFn: async ({
-      conversationId,
-      customerMessage,
-      conversationHistory,
-      pageName,
-    }: {
-      conversationId: string;
-      customerMessage: string;
-      conversationHistory?: string;
-      pageName?: string;
+    mutationFn: async ({ conversationId, customerMessage, conversationHistory, pageName }: {
+      conversationId: string; customerMessage: string; conversationHistory?: string; pageName?: string;
     }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
-
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-reply`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            conversationId,
-            customerMessage,
-            conversationHistory,
-            pageName,
-          }),
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ conversationId, customerMessage, conversationHistory, pageName }),
         }
       );
-
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Failed to get AI suggestion");
       return result;
@@ -229,30 +156,14 @@ export function useAISuggestion() {
 
 export function useAddInternalNote() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async ({
-      conversationId,
-      content,
-    }: {
-      conversationId: string;
-      content: string;
-    }) => {
+    mutationFn: async ({ conversationId, content }: { conversationId: string; content: string }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
-
       const { data, error } = await supabase
         .from("messages")
-        .insert({
-          conversation_id: conversationId,
-          content,
-          sender_type: "page",
-          is_internal_note: true,
-          sent_by: user.id,
-        })
-        .select()
-        .single();
-
+        .insert({ conversation_id: conversationId, content, sender_type: "page", is_internal_note: true, sent_by: user.id })
+        .select().single();
       if (error) throw error;
       return data;
     },
@@ -264,20 +175,23 @@ export function useAddInternalNote() {
 
 export function useUpdateConversation() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: async ({
-      conversationId,
-      updates,
-    }: {
-      conversationId: string;
-      updates: Partial<Tables<"conversations">>;
-    }) => {
+    mutationFn: async ({ conversationId, updates }: { conversationId: string; updates: Partial<Tables<"conversations">> }) => {
+      const { error } = await supabase.from("conversations").update(updates).eq("id", conversationId);
+      if (error) throw error;
+    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["conversations"] }); },
+  });
+}
+
+export function useDeleteConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
       const { error } = await supabase
         .from("conversations")
-        .update(updates)
+        .update({ deleted_at: new Date().toISOString() } as any)
         .eq("id", conversationId);
-
       if (error) throw error;
     },
     onSuccess: () => {

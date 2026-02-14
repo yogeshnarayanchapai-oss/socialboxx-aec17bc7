@@ -96,6 +96,7 @@ export type Database = {
       }
       connected_pages: {
         Row: {
+          ai_comment_reply_enabled: boolean | null
           ai_description: string | null
           ai_enabled: boolean | null
           ai_followup_settings: Json | null
@@ -120,6 +121,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_comment_reply_enabled?: boolean | null
           ai_description?: string | null
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
@@ -144,6 +146,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_comment_reply_enabled?: boolean | null
           ai_description?: string | null
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
@@ -174,7 +177,10 @@ export type Database = {
           ai_followup_next_at: string | null
           ai_followup_step: number | null
           assigned_to: string | null
+          auto_followup_next_at: string | null
+          auto_followup_step: number | null
           created_at: string
+          deleted_at: string | null
           external_conversation_id: string
           id: string
           last_message_at: string | null
@@ -191,7 +197,10 @@ export type Database = {
           ai_followup_next_at?: string | null
           ai_followup_step?: number | null
           assigned_to?: string | null
+          auto_followup_next_at?: string | null
+          auto_followup_step?: number | null
           created_at?: string
+          deleted_at?: string | null
           external_conversation_id: string
           id?: string
           last_message_at?: string | null
@@ -208,7 +217,10 @@ export type Database = {
           ai_followup_next_at?: string | null
           ai_followup_step?: number | null
           assigned_to?: string | null
+          auto_followup_next_at?: string | null
+          auto_followup_step?: number | null
           created_at?: string
+          deleted_at?: string | null
           external_conversation_id?: string
           id?: string
           last_message_at?: string | null
@@ -224,6 +236,54 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "conversations_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "connected_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      followup_logs: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          followup_type: string
+          id: string
+          message_text: string | null
+          page_id: string
+          sent_at: string
+          step_number: number
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          followup_type?: string
+          id?: string
+          message_text?: string | null
+          page_id: string
+          sent_at?: string
+          step_number?: number
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          followup_type?: string
+          id?: string
+          message_text?: string | null
+          page_id?: string
+          sent_at?: string
+          step_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "followup_logs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "followup_logs_page_id_fkey"
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "connected_pages"

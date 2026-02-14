@@ -9,21 +9,29 @@ export function useDashboardStats() {
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      // Get conversations stats
       const { data: conversations } = await supabase
         .from("conversations")
-        .select("id, status, last_message_at, created_at");
+        .select("id, status, last_message_at, created_at")
+        .is("deleted_at", null);
 
-      // Get messages stats (last 7 days)
       const { data: messages } = await supabase
         .from("messages")
         .select("id, sender_type, created_at")
         .gte("created_at", sevenDaysAgo.toISOString());
 
-      // Get leads stats
       const { data: leads } = await supabase
         .from("leads")
         .select("id, status, followup_due_date");
+
+      // Today's follow-up counts
+      const { data: todayFollowups } = await supabase
+        .from("followup_logs")
+        .select("id, followup_type")
+        .gte("sent_at", today.toISOString());
+
+      const todayFollowupTotal = todayFollowups?.length || 0;
+      const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
+      const todayFollowupAutomation = todayFollowups?.filter(f => f.followup_type === "automation").length || 0;
 
       const totalMessages7d = messages?.length || 0;
       const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
@@ -33,7 +41,6 @@ export function useDashboardStats() {
         return new Date(l.followup_due_date) <= now && l.status !== "closed";
       }).length || 0;
 
-      // Calculate reply rate
       const incomingMessages = messages?.filter(m => m.sender_type === "customer").length || 0;
       const outgoingMessages = messages?.filter(m => m.sender_type === "page").length || 0;
       const replyRate = incomingMessages > 0 ? Math.round((outgoingMessages / incomingMessages) * 100) : 0;
@@ -44,7 +51,10 @@ export function useDashboardStats() {
         leadsPending,
         followUpsDue,
         replyRate: `${Math.min(replyRate, 100)}%`,
-        avgResponseTime: "4.2m", // Would need message timestamp analysis
+        avgResponseTime: "4.2m",
+        todayFollowupTotal,
+        todayFollowupAI,
+        todayFollowupAutomation,
       };
     },
   });
@@ -57,9 +67,9 @@ export function useRecentConversations(limit = 5) {
       const { data, error } = await supabase
         .from("conversations")
         .select("*, connected_pages(page_name)")
+        .is("deleted_at", null)
         .order("last_message_at", { ascending: false })
         .limit(limit);
-
       if (error) throw error;
       return data;
     },
@@ -111,13 +121,11 @@ export function useReportsData(period: "7d" | "30d" = "7d") {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
 
-      // Get messages grouped by date
       const { data: messages } = await supabase
         .from("messages")
         .select("created_at, sender_type")
         .gte("created_at", startDate.toISOString());
 
-      // Group by date
       const messagesByDate = new Map<string, { messages: number; replies: number }>();
       
       messages?.forEach(msg => {
@@ -136,10 +144,7 @@ export function useReportsData(period: "7d" | "30d" = "7d") {
         ...data,
       }));
 
-      // Get lead funnel data
-      const { data: leads } = await supabase
-        .from("leads")
-        .select("status");
+      const { data: leads } = await supabase.from("leads").select("status");
 
       const { count: totalMessages } = await supabase
         .from("messages")
