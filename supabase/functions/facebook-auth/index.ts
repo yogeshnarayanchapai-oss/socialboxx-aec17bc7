@@ -115,6 +115,7 @@ serve(async (req) => {
       fbAuthUrl.searchParams.set("state", stateParam);
       fbAuthUrl.searchParams.set("scope", REQUIRED_SCOPES);
       fbAuthUrl.searchParams.set("response_type", "code");
+      fbAuthUrl.searchParams.set("display", "page");
 
       console.log("Generated Facebook OAuth URL for user:", user.id);
 
