@@ -38,7 +38,7 @@ serve(async (req) => {
       }
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions } = await req.json();
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -60,6 +60,7 @@ serve(async (req) => {
 Your tone should be ${aiTone}.
 
 ${businessDescription ? `About this business:\n${businessDescription}\n` : ''}
+${aiInstructions ? `\nSPECIAL INSTRUCTIONS (follow these strictly):\n${aiInstructions}\n` : ''}
 
 CRITICAL LANGUAGE RULE - You MUST follow this:
 - If the customer writes in Nepali (देवनागरी script like "नमस्ते", "कति हो"), reply in Nepali देवनागरी script.
