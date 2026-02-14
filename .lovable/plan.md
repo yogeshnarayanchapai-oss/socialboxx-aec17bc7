@@ -1,88 +1,182 @@
 
-# Plan: Facebook Integration Fixes + Automation Persistence
 
-## ✅ COMPLETED - All 4 Phases Implemented
+# SaaS Multi-Tenant Conversion Plan
 
----
+## Overview
+System lai single-tenant bata multi-tenant SaaS model ma convert garnu parcha. Customer signup garda pending status ma bascha, platform admin le approve garepaxi matra system use garna milcha. Each customer le aafno organization banaucha, team add garcha, ra aafna pages ko matra data hercha.
 
-## Summary
-तीनवटा मुख्य समस्याहरूको समाधान:
-1. ✅ Token expiry - Long-lived token exchange + auto-refresh
-2. ✅ Facebook App ID - Database-based runtime configuration
-3. ✅ Automation settings - Proper save र persist
-
----
-
-## Implementation Details
-
-### Phase 1: Automation Settings Persistence ✅
-- `PageAutomationDialog.tsx` already properly initializes state from page data
-- Keywords and media save correctly as JSONB
-- Query invalidation triggers refresh on save
-
-### Phase 2: Facebook Integration Settings UI ✅
-- Added new "Facebook Integration" tab in Settings page
-- Fields: App ID, App Secret (masked), Webhook Verify Token
-- Test Connection button validates App ID
-- Settings stored in `app_settings` table
-- Webhook URL displayed for easy copy
-
-### Phase 3: Long-Lived Token Exchange ✅
-- Updated `facebook-connect` edge function with `exchangeLongLivedToken` action
-- Stores `token_expiry` (60 days) in database on page connection
-- Reads App credentials from `app_settings` table at runtime
-
-### Phase 4: Token Health Check ✅
-- Created `facebook-token-health` edge function
-- Checks all pages for expiring tokens (< 7 days)
-- Attempts automatic refresh if credentials available
-- Marks pages as `token_expired` if refresh fails
+## Current Problems
+- Ahile sabai user le sabai data dekhincha (no data isolation)
+- Signup garda sidhai admin role dincha sabailai
+- Organization/company concept chhaina
+- Team management org-level ma chhaina
 
 ---
 
-## Files Created/Modified
+## Phase 1: Database Schema Changes
 
-| File | Status |
-|------|--------|
-| `src/hooks/useAppSettings.ts` | ✅ NEW - Fetch/update Facebook settings |
-| `src/pages/Settings.tsx` | ✅ Updated - Added Facebook Integration tab |
-| `src/hooks/useFacebookPages.ts` | ✅ Updated - Runtime App ID from DB |
-| `supabase/functions/facebook-connect/index.ts` | ✅ Updated - Token exchange logic |
-| `supabase/functions/facebook-token-health/index.ts` | ✅ NEW - Token health checker |
-| `supabase/config.toml` | ✅ Updated - Added new function |
+### 1.1 New `organizations` Table
+- `id` (uuid, primary key)
+- `name` (text) - Company/Organization name
+- `owner_id` (uuid, references auth.users)
+- `status` (text: 'pending', 'approved', 'rejected') - default 'pending'
+- `approved_by` (uuid, nullable)
+- `approved_at` (timestamp, nullable)
+- `created_at`, `updated_at`
+
+### 1.2 New `organization_members` Table
+- `id` (uuid, primary key)
+- `organization_id` (uuid, FK to organizations)
+- `user_id` (uuid, FK to auth.users)
+- `role` (app_role: admin/manager/agent)
+- `invited_by` (uuid, nullable)
+- `created_at`
+- Unique constraint on (organization_id, user_id)
+
+### 1.3 Add `organization_id` Column to Existing Tables
+These tables get a new `organization_id` column (uuid, nullable initially, then required):
+- `connected_pages`
+- `conversations`
+- `leads`
+- `messages` (through conversation relation)
+- `followup_logs`
+- `automation_rules`
+- `app_settings`
+- `reply_templates`
+
+### 1.4 New Database Functions
+```text
+get_user_org_id(user_id) -> returns organization_id
+  - Security definer function
+  - Used in all RLS policies
+
+is_platform_admin(user_id) -> boolean
+  - Checks if user is the platform super admin
+  - Used for approve/reject functionality
+```
+
+### 1.5 Update `handle_new_user` Trigger
+- Create organization with status 'pending'
+- Add user to organization_members as 'admin' (org admin)
+- Create profile
+- Do NOT add to old user_roles table (migrate to org_members)
+
+### 1.6 RLS Policy Updates (All Tables)
+Every table's RLS policy changes to:
+- SELECT: user can only see rows where `organization_id = get_user_org_id(auth.uid())`
+- INSERT/UPDATE/DELETE: same org check + role check
+- Platform admin can see organizations table for approval
 
 ---
 
-## How to Use
+## Phase 2: Auth Flow Changes
 
-### Setting up Facebook Integration
-1. Go to Settings → Facebook Integration
-2. Enter your Facebook App ID and App Secret
-3. Click "Test" to verify App ID
-4. Save settings
+### 2.1 Signup Flow Update (`Auth.tsx`)
+- Add "Company Name" field to signup form
+- After signup, show message: "Account created! Admin le approve garepaxi login garna milcha"
 
-### Connecting Pages
-1. Go to Pages → Connect New Page
-2. Click "Login with Facebook"
-3. Select pages to connect
-4. Tokens are automatically stored with 60-day expiry
+### 2.2 Pending Approval Screen
+- New component: `PendingApproval.tsx`
+- Shows when user logs in but org status is 'pending'
+- Message: "Tapainko account review ma cha. Approve vayepaxi email aaucha"
+- Sign out button
 
-### Token Health
-- System automatically tracks token expiry
-- Pages expiring within 7 days will attempt auto-refresh
-- Expired tokens show warning and require reconnection
+### 2.3 Rejected Screen
+- Shows if org status is 'rejected'
+- Message with contact info
+
+### 2.4 ProtectedRoute Update
+- After auth check, also check org status
+- pending -> show PendingApproval
+- rejected -> show Rejected
+- approved -> allow access
 
 ---
 
-## Acceptance Criteria Met
+## Phase 3: Platform Admin Panel
 
-| Feature | Status |
-|---------|--------|
-| Token Exchange | ✅ New connection stores `token_expiry` |
-| Token Refresh | ✅ Health check function auto-refreshes |
-| Token Expired UI | ✅ Shows warning and disables automation |
-| FB Settings | ✅ Admin can save App ID in Settings |
-| FB Login | ✅ Works with DB-stored App ID |
-| Automation Save | ✅ Keywords persist after dialog close |
-| Automation Load | ✅ Saved settings display on reopen |
-| Automation Toggle | ✅ ON/OFF works and persists |
+### 3.1 New Admin Route `/admin`
+- Only visible to platform super admin
+- Shows list of all organizations with status
+- Approve / Reject buttons
+- View organization details (owner email, signup date)
+
+### 3.2 Admin Sidebar Item
+- Show "Admin" nav item only for platform admin
+- Shield icon
+
+---
+
+## Phase 4: Team Management
+
+### 4.1 Update Settings > Team Tab
+- Show current org members
+- Invite new member (by email)
+- Set role (admin/manager/agent)
+- Remove member
+- Only org admin can manage team
+
+### 4.2 Team Invite Flow
+- Org admin enters email + role
+- System creates auth user invitation or just adds to org_members
+- New user signs up -> gets added to existing org instead of creating new one
+- Alternative: simple approach - admin creates account, shares credentials initially
+
+---
+
+## Phase 5: Data Isolation (Query Updates)
+
+### 5.1 Hook Updates
+All data hooks need org-scoped queries (RLS handles this automatically once org_id is set):
+- `useConnectedPages` - already filtered by RLS
+- `useConversations` - filtered by RLS
+- `useLeads` - filtered by RLS
+- `useDashboard` - filtered by RLS
+
+### 5.2 Edge Functions Update
+- `facebook-connect`: Set organization_id when connecting page
+- `facebook-webhook`: Look up org from page_id
+- `ai-reply`: No change needed (uses conversation context)
+- `facebook-messages`: No change needed (uses page context)
+
+---
+
+## Phase 6: Future Subscription Ready
+
+### 6.1 Organization Table Fields (pre-built)
+- `plan` (text: 'free', 'starter', 'pro') - default 'free'
+- `max_pages` (integer) - default 3
+- `max_team_members` (integer) - default 5
+- These limits checked in frontend but enforced in RLS/edge functions later
+- Stripe integration added later when needed
+
+---
+
+## Implementation Order
+
+```text
+Step 1: Database migrations (organizations, org_members, add org_id columns)
+Step 2: Database functions (get_user_org_id, is_platform_admin)
+Step 3: Update handle_new_user trigger
+Step 4: Update all RLS policies
+Step 5: Update Auth.tsx (company name field, pending flow)
+Step 6: Create PendingApproval component
+Step 7: Update ProtectedRoute
+Step 8: Create Admin panel (approve/reject)
+Step 9: Update Team management in Settings
+Step 10: Update edge functions (set org_id)
+Step 11: Add admin nav item
+Step 12: Migrate existing data (set org_id for current records)
+```
+
+---
+
+## Technical Notes
+
+- Platform super admin identification: store as a config or check specific user_id
+- `get_user_org_id` function is critical - all RLS depends on it
+- Existing data migration: current user's records get assigned to their new org
+- `organization_members` replaces `user_roles` for per-org role management
+- `user_roles` table kept for backward compatibility but platform-level admin check
+- Email notification on approval can be added later via edge function
+
