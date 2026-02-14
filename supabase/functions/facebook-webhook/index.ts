@@ -586,7 +586,7 @@ serve(async (req) => {
               try {
                 const { data: recentMessages } = await supabase
                   .from("messages")
-                  .select("content, sender_type, created_at")
+                  .select("content, sender_type, created_at, media_url, message_type")
                   .eq("conversation_id", conversationId)
                   .order("created_at", { ascending: false })
                   .limit(15);
@@ -599,20 +599,22 @@ serve(async (req) => {
                   console.log("Already replied to latest messages, skipping");
                 } else {
                   const unrepliedCustomerMessages: string[] = [];
+                  const unrepliedImageUrls: string[] = [];
                   for (let i = latestMessages.length - 1; i >= 0; i--) {
                     if (latestMessages[i].sender_type === 'customer') {
                       if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
+                      if (latestMessages[i].media_url) unrepliedImageUrls.push(latestMessages[i].media_url!);
                     } else break;
                   }
 
                   const combinedCustomerMessage = unrepliedCustomerMessages.join('\n');
                   const allNonsense = hasLeadTag && unrepliedCustomerMessages.every(m => isEmojiOrNonsense(m));
                   
-                  if (allNonsense) {
+                  if (allNonsense && unrepliedImageUrls.length === 0) {
                     console.log("All unreplied messages are emoji/nonsense after lead created, skipping");
                   } else {
                     const conversationHistory = latestMessages
-                      .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
+                      .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content || (m.media_url ? '[sent an image]' : '')}`)
                       .join('\n');
 
                     const aiResponse = await fetch(
@@ -630,6 +632,7 @@ serve(async (req) => {
                           pageName: page.page_name,
                           businessDescription: page.ai_description || "",
                           aiInstructions: (page as any).ai_instructions || "",
+                          imageUrls: unrepliedImageUrls.length > 0 ? unrepliedImageUrls : undefined,
                         }),
                       }
                     );
