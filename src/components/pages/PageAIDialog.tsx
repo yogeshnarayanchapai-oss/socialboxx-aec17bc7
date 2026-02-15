@@ -99,16 +99,32 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
 
         <div className="space-y-6 py-4">
           {/* AI Toggle */}
-          <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${
+          <div className={`rounded-lg border-2 p-4 transition-colors ${
             aiEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'
           }`}>
-            <div>
-              <Label className="text-base font-medium">Enable AI</Label>
-              <p className="text-sm text-muted-foreground">
-                AI ले यस page को business बुझेर reply गर्छ
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base font-medium">Enable AI</Label>
+                <p className="text-sm text-muted-foreground">
+                  AI ले यस page को business बुझेर reply गर्छ
+                </p>
+              </div>
+              <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
             </div>
-            <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
+            {aiEnabled && (
+              <div className="mt-3 pt-3 border-t flex items-center gap-3">
+                <Label className="text-sm whitespace-nowrap">Hold Time:</Label>
+                <Input
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={debounceSeconds}
+                  onChange={(e) => setDebounceSeconds(Math.max(5, Math.min(120, parseInt(e.target.value) || 30)))}
+                  className="w-20 h-8"
+                />
+                <span className="text-xs text-muted-foreground">sec (message combine गर्न)</span>
+              </div>
+            )}
           </div>
 
           {/* Business Description */}
@@ -130,26 +146,6 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
             </p>
           </div>
 
-          {/* Debounce Seconds */}
-          <div className="space-y-3 rounded-lg border p-4">
-            <div>
-              <Label className="text-sm font-medium">Reply Hold Time (seconds)</Label>
-              <p className="text-xs text-muted-foreground">
-                Message आएपछि कति second hold गर्ने — यो समय भित्र आएका सबै message combine गरेर एउटै reply दिन्छ। Default: 30 seconds
-              </p>
-            </div>
-            <Input
-              type="number"
-              min={5}
-              max={120}
-              value={debounceSeconds}
-              onChange={(e) => setDebounceSeconds(Math.max(5, Math.min(120, parseInt(e.target.value) || 30)))}
-              className="w-32"
-            />
-            <p className="text-xs text-muted-foreground">
-              ५ देखि १२० second सम्म राख्न सकिन्छ
-            </p>
-          </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2 border-t">
