@@ -420,11 +420,12 @@ serve(async (req) => {
             let senderPicUrl: string | null = null;
             try {
               const userResponse = await fetch(
-                `https://graph.facebook.com/v19.0/${senderId}?fields=name,profile_pic&access_token=${page.page_access_token}`
+                `https://graph.facebook.com/v19.0/${senderId}?fields=first_name,last_name,profile_pic&access_token=${page.page_access_token}`
               );
               if (userResponse.ok) {
                 const userData = await userResponse.json();
-                senderName = userData.name || "Unknown";
+                const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(" ");
+                senderName = fullName || "Unknown";
                 senderPicUrl = userData.profile_pic || null;
                 console.log("Fetched sender info:", senderName, senderPicUrl ? "has pic" : "no pic");
               } else {
@@ -477,14 +478,15 @@ serve(async (req) => {
             if (!existingConv.participant_name || existingConv.participant_name === "Unknown") {
               try {
                 const userResponse = await fetch(
-                  `https://graph.facebook.com/v19.0/${senderId}?fields=name,profile_pic&access_token=${page.page_access_token}`
+                  `https://graph.facebook.com/v19.0/${senderId}?fields=first_name,last_name,profile_pic&access_token=${page.page_access_token}`
                 );
                 if (userResponse.ok) {
                   const userData = await userResponse.json();
-                  if (userData.name && userData.name !== "Unknown") {
-                    console.log("Updating Unknown participant to:", userData.name);
+                  const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(" ");
+                  if (fullName && fullName !== "Unknown") {
+                    console.log("Updating Unknown participant to:", fullName);
                     await supabase.from("conversations").update({
-                      participant_name: userData.name,
+                      participant_name: fullName,
                       participant_picture_url: userData.profile_pic || null,
                     }).eq("id", conversationId);
                   }
