@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { FileText, ChevronDown, ChevronUp } from "lucide-react";
 import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package, Download, CalendarIcon, Filter } from "lucide-react";
 import { format, startOfDay, endOfDay, subDays } from "date-fns";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -66,6 +67,7 @@ export default function Leads() {
   const [pageFilter, setPageFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
+  const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
   const getDateRange = () => {
@@ -351,7 +353,7 @@ export default function Leads() {
               </div>
             ) : (
               leads.map((lead) => (
-                <Card key={lead.id}>
+                <Card key={lead.id} className="cursor-pointer" onClick={() => setExpandedLead(expandedLead === lead.id ? null : lead.id)}>
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
@@ -366,38 +368,48 @@ export default function Leads() {
                           </div>
                         </div>
                       </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {lead.conversation_id && (
-                            <DropdownMenuItem onClick={() => navigate(`/inbox?conversation=${lead.conversation_id}`)}>
-                              <MessageSquare className="mr-2 h-4 w-4" />
-                              View Conversation
+                      <div className="flex items-center gap-1">
+                        {expandedLead === lead.id ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {lead.conversation_id && (
+                              <DropdownMenuItem onClick={() => navigate(`/inbox?conversation=${lead.conversation_id}`)}>
+                                <MessageSquare className="mr-2 h-4 w-4" />
+                                View Conversation
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={() => handleScheduleFollowUp(lead)}>
+                              <Calendar className="mr-2 h-4 w-4" />
+                              Schedule Follow-up
                             </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => handleScheduleFollowUp(lead)}>
-                            <Calendar className="mr-2 h-4 w-4" />
-                            Schedule Follow-up
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(lead.id)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete Lead
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(lead.id)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete Lead
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
+                    {/* Remark preview */}
+                    {lead.remark && lead.remark !== "No Inquiry" && (
+                      <p className="mt-2 text-xs text-muted-foreground line-clamp-1">
+                        <FileText className="inline h-3 w-3 mr-1" />
+                        {lead.remark}
+                      </p>
+                    )}
                     <div className="mt-3 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-auto p-0">
+                            <Button variant="ghost" size="sm" className="h-auto p-0" onClick={(e) => e.stopPropagation()}>
                               <StatusBadge status={statusConfig[lead.status]?.type || "info"}>
                                 {statusConfig[lead.status]?.label || lead.status}
                               </StatusBadge>
@@ -416,22 +428,36 @@ export default function Leads() {
                             via {lead.source || lead.connected_pages?.page_name}
                           </span>
                         )}
-                        {lead.product && (
-                          <span className="text-xs text-primary truncate max-w-[100px]">
-                            📦 {lead.product}
-                          </span>
-                        )}
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                        {lead.followup_due_date && (
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {new Date(lead.followup_due_date).toLocaleDateString()}
+                      <span className="text-xs text-muted-foreground">{new Date(lead.created_at).toLocaleDateString()}</span>
+                    </div>
+                    {/* Expanded details */}
+                    {expandedLead === lead.id && (
+                      <div className="mt-3 pt-3 border-t border-border space-y-2 text-sm">
+                        {lead.product && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Product</span>
+                            <span className="font-medium">{lead.product}</span>
                           </div>
                         )}
-                        <span>{new Date(lead.created_at).toLocaleDateString()}</span>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Remark</span>
+                          <span className="font-medium text-right max-w-[60%]">{lead.remark || "No Inquiry"}</span>
+                        </div>
+                        {lead.followup_due_date && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Follow-up</span>
+                            <span className="font-medium">{new Date(lead.followup_due_date).toLocaleDateString()}</span>
+                          </div>
+                        )}
+                        {lead.last_message && (
+                          <div>
+                            <span className="text-muted-foreground block mb-1">Last Message</span>
+                            <p className="text-xs bg-muted/50 rounded p-2">{lead.last_message}</p>
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
               ))
