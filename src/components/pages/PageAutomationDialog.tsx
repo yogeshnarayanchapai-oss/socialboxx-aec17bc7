@@ -101,6 +101,7 @@ export function PageAutomationDialog({
   const [aiFollowupEnabled, setAiFollowupEnabled] = useState(false);
   const [aiFollowupSteps, setAiFollowupSteps] = useState<AiFollowupStep[]>([]);
   const [aiCommentReplyEnabled, setAiCommentReplyEnabled] = useState(false);
+  const [debounceSeconds, setDebounceSeconds] = useState(30);
   const [savingProduct, setSavingProduct] = useState(false);
   const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
   const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
@@ -185,6 +186,7 @@ export function PageAutomationDialog({
       setAiInstructions((page as any).ai_instructions || "");
       setAiCommentHint((page as any).ai_comment_hint || "");
       setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
+      setDebounceSeconds((page as any).ai_debounce_seconds ?? 30);
       
       // AI Follow-up: load saved steps or start with 1 default
       const followupSettings = (page as any).ai_followup_settings as AiFollowupSettings | null;
@@ -394,6 +396,7 @@ export function PageAutomationDialog({
         ai_instructions: aiInstructions,
         ai_comment_hint: aiCommentHint,
         ai_comment_reply_enabled: aiCommentReplyEnabled,
+        ai_debounce_seconds: debounceSeconds,
         ai_followup_settings: {
           enabled: aiFollowupEnabled,
           steps: aiFollowupSteps,
@@ -721,12 +724,28 @@ export function PageAutomationDialog({
 
           <TabsContent value="ai" className="mt-4">
             <div className="space-y-6">
-              <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${aiEnabled ? 'border-primary/50 bg-primary/5' : 'border-dashed'}`}>
-                <div>
-                  <Label className="text-base font-medium">Enable AI</Label>
-                  <p className="text-sm text-muted-foreground">AI ले यस page को business बुझेर reply गर्छ</p>
+              <div className={`rounded-lg border-2 p-4 transition-colors ${aiEnabled ? 'border-primary/50 bg-primary/5' : 'border-dashed'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-base font-medium">Enable AI</Label>
+                    <p className="text-sm text-muted-foreground">AI ले यस page को business बुझेर reply गर्छ</p>
+                  </div>
+                  <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
                 </div>
-                <Switch checked={aiEnabled} onCheckedChange={handleToggleAI} />
+                {aiEnabled && (
+                  <div className="mt-3 pt-3 border-t flex items-center gap-3">
+                    <Label className="text-sm whitespace-nowrap">Hold Time:</Label>
+                    <Input
+                      type="number"
+                      min={5}
+                      max={120}
+                      value={debounceSeconds}
+                      onChange={(e) => setDebounceSeconds(Math.max(5, Math.min(120, parseInt(e.target.value) || 30)))}
+                      className="w-20 h-8"
+                    />
+                    <span className="text-xs text-muted-foreground">sec (message combine गर्न)</span>
+                  </div>
+                )}
               </div>
 
               {/* AI Comment Reply Toggle */}
