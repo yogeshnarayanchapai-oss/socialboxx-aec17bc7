@@ -38,10 +38,10 @@ export function useConversations(filters?: {
         query = query.ilike("participant_name", `%${filters.search}%`);
       }
       if (filters?.dateFrom) {
-        query = query.gte("created_at", filters.dateFrom);
+        query = query.gte("last_message_at", filters.dateFrom);
       }
       if (filters?.dateTo) {
-        query = query.lte("created_at", filters.dateTo);
+        query = query.lte("last_message_at", filters.dateTo);
       }
 
       const { data, error } = await query;
