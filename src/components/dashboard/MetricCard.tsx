@@ -1,5 +1,6 @@
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useNavigate } from "react-router-dom";
 
 interface MetricCardProps {
   title: string;
@@ -8,6 +9,7 @@ interface MetricCardProps {
   changeType?: "positive" | "negative" | "neutral";
   icon: LucideIcon;
   iconColor?: string;
+  href?: string;
 }
 
 export function MetricCard({
@@ -17,9 +19,14 @@ export function MetricCard({
   changeType = "neutral",
   icon: Icon,
   iconColor = "text-primary",
+  href,
 }: MetricCardProps) {
+  const navigate = useNavigate();
   return (
-    <div className="metric-card animate-fade-in">
+    <div
+      className={cn("metric-card animate-fade-in", href && "cursor-pointer hover:shadow-md transition-shadow")}
+      onClick={() => href && navigate(href)}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</p>
