@@ -15,90 +15,62 @@ function convertNepaliDigits(text: string): string {
   return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
 }
 
-// Improved phone number extraction - returns only the phone number, not surrounding text
+// Phone number extraction - returns all digits from text, excluding surrounding text
 function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
   
   // Convert Nepali digits first
   const converted = convertNepaliDigits(text);
   
-  // Remove common separators but keep + for country code
-  const cleaned = converted.replace(/[\s\-\(\)\.]/g, '');
-  
-  // Pattern 1: +977XXXXXXXXXX or 977XXXXXXXXXX  
-  const withCountryCode = cleaned.match(/\+?977(\d{10})/);
-  if (withCountryCode) {
-    return withCountryCode[0]; // Return matched number only
-  }
-  
-  // Pattern 2: Any sequence of 9+ digits that looks like a Nepal mobile
-  const allDigitSequences = cleaned.match(/\d{9,}/g);
-  if (allDigitSequences) {
-    for (const seq of allDigitSequences) {
-      const nepalMobile = seq.match(/(9[678]\d{8})/);
-      if (nepalMobile) return nepalMobile[1];
-      if (seq.length >= 9 && seq.length <= 13 && seq.startsWith('9')) return seq;
-    }
-  }
-  
-  // Pattern 3: Number with text mixed - extract digit groups and join
+  // Extract all digit sequences and join them
   const digitGroups = converted.match(/\d+/g);
-  if (digitGroups) {
-    const joined = digitGroups.join('');
-    if (joined.length >= 9) {
-      let digits = joined;
-      if (digits.startsWith('977') && digits.length >= 12) {
-        digits = digits.substring(3);
-      }
-      const nepalMobile = digits.match(/(9[678]\d{8})/);
-      if (nepalMobile) return nepalMobile[1];
-      if (digits.length >= 9 && digits.length <= 13 && digits.startsWith('9')) return digits;
-    }
-    for (const group of digitGroups) {
-      if (group.length >= 9 && group.length <= 13) {
-        let d = group;
-        if (d.startsWith('977') && d.length >= 12) d = d.substring(3);
-        if (d.length >= 9 && d.length <= 10) return d;
-      }
-    }
+  if (!digitGroups) return null;
+  
+  const allDigits = digitGroups.join('');
+  
+  // Must have at least 9 digits to be a phone number
+  if (allDigits.length < 9) return null;
+  
+  // Remove country code prefix if present
+  let digits = allDigits;
+  if (digits.startsWith('977') && digits.length >= 12) {
+    digits = digits.substring(3);
   }
+  
+  // Check if it looks like a Nepal mobile number (starts with 9)
+  if (digits.startsWith('9') && digits.length >= 9) {
+    return digits; // Return ALL digits, no truncation
+  }
+  
+  // For numbers with country code, return with it
+  if (allDigits.startsWith('977') && allDigits.length >= 12) {
+    return '+' + allDigits;
+  }
+  
+  // If at least 9 digits, return as-is
+  if (allDigits.length >= 9) return allDigits;
   
   return null;
 }
 
-// Extract normalized phone for dedup
+// Extract normalized phone for dedup - returns last 10 digits for matching
 function extractNormalizedPhone(text: string): string | null {
   if (!text) return null;
   const converted = convertNepaliDigits(text);
-  const cleaned = converted.replace(/[\s\-\(\)\.]/g, '');
-  
-  const withCountryCode = cleaned.match(/\+?977(\d{10})/);
-  if (withCountryCode) return withCountryCode[1];
-  
-  const allDigitSequences = cleaned.match(/\d{9,}/g);
-  if (allDigitSequences) {
-    for (const seq of allDigitSequences) {
-      const nepalMobile = seq.match(/(9[678]\d{8})/);
-      if (nepalMobile) return nepalMobile[1];
-      if (seq.length >= 10) {
-        const last10 = seq.slice(-10);
-        if (last10.startsWith('9')) return last10;
-      }
-    }
-  }
-  
   const digitGroups = converted.match(/\d+/g);
-  if (digitGroups) {
-    const joined = digitGroups.join('');
-    if (joined.length >= 9) {
-      let digits = joined;
-      if (digits.startsWith('977') && digits.length >= 12) digits = digits.substring(3);
-      const nepalMobile = digits.match(/(9[678]\d{8})/);
-      if (nepalMobile) return nepalMobile[1];
-      if (digits.length >= 9 && digits.startsWith('9')) return digits.substring(0, 10);
-    }
+  if (!digitGroups) return null;
+  
+  let allDigits = digitGroups.join('');
+  if (allDigits.length < 9) return null;
+  
+  // Remove country code
+  if (allDigits.startsWith('977') && allDigits.length >= 12) {
+    allDigits = allDigits.substring(3);
   }
-  return null;
+  
+  // Return last 10 digits for dedup matching
+  if (allDigits.length >= 10) return allDigits.slice(-10);
+  return allDigits;
 }
 
 interface KeywordRule {
@@ -604,6 +576,33 @@ serve(async (req) => {
                 .eq("id", conversationId)
                 .single();
 
+              // Fetch recent customer messages to build remark (inquiry context)
+              const { data: recentMsgs } = await supabase
+                .from("messages")
+                .select("content, sender_type")
+                .eq("conversation_id", conversationId)
+                .eq("sender_type", "customer")
+                .order("created_at", { ascending: false })
+                .limit(10);
+
+              // Build remark from customer messages (exclude phone number lines)
+              let remark = "No Inquiry";
+              if (recentMsgs && recentMsgs.length > 0) {
+                const inquiryTexts = recentMsgs
+                  .map((m: any) => m.content || "")
+                  .filter((t: string) => {
+                    // Skip messages that are just phone numbers
+                    const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
+                    const isJustNumber = /^\d{9,}$/.test(stripped);
+                    return t.trim().length > 0 && !isJustNumber;
+                  })
+                  .reverse(); // chronological order
+                
+                if (inquiryTexts.length > 0) {
+                  remark = inquiryTexts.join(' | ').substring(0, 500);
+                }
+              }
+
               await supabase.from("leads").insert({
                 phone: rawPhone,
                 full_name: conv?.participant_name,
@@ -614,6 +613,7 @@ serve(async (req) => {
                 last_message: message.text?.substring(0, 200),
                 status: "new",
                 organization_id: page.organization_id,
+                remark: remark,
               });
             }
 

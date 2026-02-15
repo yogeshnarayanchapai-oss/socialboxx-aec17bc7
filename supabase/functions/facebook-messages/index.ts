@@ -6,29 +6,34 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Nepali phone number patterns
-const NEPALI_PHONE_PATTERNS = [
-  /\b(98\d{8})\b/,           // 98XXXXXXXX
-  /\b(97\d{8})\b/,           // 97XXXXXXXX  
-  /\b(96\d{8})\b/,           // 96XXXXXXXX
-  /\+977\s*(98\d{8})\b/,     // +977 98XXXXXXXX
-  /\+977\s*(97\d{8})\b/,     // +977 97XXXXXXXX
-  /\+977\s*(96\d{8})\b/,     // +977 96XXXXXXXX
-  /\+977(98\d{8})\b/,        // +97798XXXXXXXX
-  /\+977(97\d{8})\b/,        // +97797XXXXXXXX
-  /\+977(96\d{8})\b/,        // +97796XXXXXXXX
-];
+// Nepali digit conversion
+function convertNepaliDigits(text: string): string {
+  const nepaliDigits: Record<string, string> = {
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4',
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+  };
+  return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
+}
 
 function extractNepaliPhone(text: string): string | null {
   if (!text) return null;
   
-  for (const pattern of NEPALI_PHONE_PATTERNS) {
-    const match = text.match(pattern);
-    if (match) {
-      // Return normalized format: 98XXXXXXXX
-      return match[1] || match[0].replace(/\+977\s*/, '');
-    }
+  const converted = convertNepaliDigits(text);
+  const digitGroups = converted.match(/\d+/g);
+  if (!digitGroups) return null;
+  
+  let allDigits = digitGroups.join('');
+  if (allDigits.length < 9) return null;
+  
+  if (allDigits.startsWith('977') && allDigits.length >= 12) {
+    allDigits = allDigits.substring(3);
   }
+  
+  if (allDigits.startsWith('9') && allDigits.length >= 9) {
+    return allDigits;
+  }
+  
+  if (allDigits.length >= 9) return allDigits;
   return null;
 }
 
@@ -64,6 +69,31 @@ async function checkAndCreateLead(
       .eq("id", existingLead.id);
     console.log("Updated existing lead:", existingLead.id);
   } else {
+    // Fetch recent customer messages to build remark
+    const { data: recentMsgs } = await supabase
+      .from("messages")
+      .select("content, sender_type")
+      .eq("conversation_id", conversationId)
+      .eq("sender_type", "customer")
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    let remark = "No Inquiry";
+    if (recentMsgs && recentMsgs.length > 0) {
+      const inquiryTexts = recentMsgs
+        .map((m: any) => m.content || "")
+        .filter((t: string) => {
+          const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
+          const isJustNumber = /^\d{9,}$/.test(stripped);
+          return t.trim().length > 0 && !isJustNumber;
+        })
+        .reverse();
+      
+      if (inquiryTexts.length > 0) {
+        remark = inquiryTexts.join(' | ').substring(0, 500);
+      }
+    }
+
     // Create new lead with page name as source
     const { error: leadError } = await supabase
       .from("leads")
@@ -75,12 +105,13 @@ async function checkAndCreateLead(
         source: pageName,
         last_message: messageContent.substring(0, 200),
         status: "new",
+        remark: remark,
       });
 
     if (leadError) {
       console.error("Error creating lead:", leadError);
     } else {
-      console.log("Created new lead for phone:", nepaliPhone, "source:", pageName);
+      console.log("Created new lead for phone:", nepaliPhone, "source:", pageName, "remark:", remark);
     }
   }
 }
