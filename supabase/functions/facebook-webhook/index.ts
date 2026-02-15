@@ -626,24 +626,31 @@ serve(async (req) => {
             if (hasLeadTag && isNonsenseOrEmoji) {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
-              console.log("Waiting 7 seconds to batch messages...");
-              await new Promise(resolve => setTimeout(resolve, 7000));
+              console.log("Waiting 10 seconds to batch messages...");
+              await new Promise(resolve => setTimeout(resolve, 10000));
               
               try {
-                const { data: recentMessages } = await supabase
-                  .from("messages")
-                  .select("content, sender_type, created_at, media_url, message_type")
-                  .eq("conversation_id", conversationId)
-                  .order("created_at", { ascending: false })
-                  .limit(15);
+                // Atomic lock: claim this conversation for AI processing
+                // Only one worker can transition from 'unreplied' to 'ai_processing'
+                const { data: lockResult } = await supabase
+                  .from("conversations")
+                  .update({ status: "ai_processing" })
+                  .eq("id", conversationId)
+                  .eq("status", "unreplied")
+                  .select("id");
 
-                const latestMessages = (recentMessages || []).reverse();
-                const lastPageReplyIndex = latestMessages.map(m => m.sender_type).lastIndexOf('page');
-                const lastCustomerIndex = latestMessages.map(m => m.sender_type).lastIndexOf('customer');
-                
-                if (lastPageReplyIndex > lastCustomerIndex) {
-                  console.log("Already replied to latest messages, skipping");
+                if (!lockResult || lockResult.length === 0) {
+                  console.log("Another worker already processing or replied, skipping AI reply");
                 } else {
+                  const { data: recentMessages } = await supabase
+                    .from("messages")
+                    .select("content, sender_type, created_at, media_url, message_type")
+                    .eq("conversation_id", conversationId)
+                    .order("created_at", { ascending: false })
+                    .limit(15);
+
+                  const latestMessages = (recentMessages || []).reverse();
+
                   const unrepliedCustomerMessages: string[] = [];
                   const unrepliedImageUrls: string[] = [];
                   for (let i = latestMessages.length - 1; i >= 0; i--) {
@@ -658,6 +665,8 @@ serve(async (req) => {
                   
                   if (allNonsense && unrepliedImageUrls.length === 0) {
                     console.log("All unreplied messages are emoji/nonsense after lead created, skipping");
+                    // Release lock back to unreplied
+                    await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
                   } else {
                     const conversationHistory = latestMessages
                       .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content || (m.media_url ? '[sent an image]' : '')}`)
@@ -717,14 +726,21 @@ serve(async (req) => {
                             }
                           }
                         }
+                      } else {
+                        // No reply generated, release lock
+                        await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
                       }
                     } else {
                       console.error("AI reply function error:", aiResponse.status);
+                      // Release lock on error
+                      await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
                     }
                   }
                 }
               } catch (aiError) {
                 console.error("AI reply error:", aiError);
+                // Release lock on error
+                await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId).then(() => {});
               }
             }
           }
