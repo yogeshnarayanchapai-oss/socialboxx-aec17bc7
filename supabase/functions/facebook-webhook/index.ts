@@ -626,26 +626,29 @@ serve(async (req) => {
             if (hasLeadTag && isNonsenseOrEmoji) {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
-              // Debounce: wait 7s, then check if newer messages arrived
-              // Only the worker for the LAST message will proceed
-              const myMessageTime = new Date().toISOString();
-              console.log("Debounce: waiting 7 seconds for message batching...");
-              await new Promise(resolve => setTimeout(resolve, 7000));
+              // Debounce: wait 15s to account for Facebook's delayed webhook delivery (~13s between webhooks)
+              // Then check if OUR message is still the latest customer message
+              const myMid = message.mid;
+              console.log(`Debounce: waiting 15 seconds for message batching... (mid: ${myMid})`);
+              await new Promise(resolve => setTimeout(resolve, 15000));
               
               try {
-                // Check if any newer customer message arrived after our wait started
-                const { data: newerMessages } = await supabase
+                // Check if our message is the LATEST customer message in this conversation
+                const { data: latestCustomerMsg } = await supabase
                   .from("messages")
-                  .select("id")
+                  .select("external_message_id")
                   .eq("conversation_id", conversationId)
                   .eq("sender_type", "customer")
-                  .gt("created_at", myMessageTime)
-                  .limit(1);
+                  .order("created_at", { ascending: false })
+                  .limit(1)
+                  .single();
 
-                if (newerMessages && newerMessages.length > 0) {
-                  console.log("Newer message arrived during debounce window, deferring to later worker");
+                if (latestCustomerMsg?.external_message_id !== myMid) {
+                  console.log(`Not the latest message (latest: ${latestCustomerMsg?.external_message_id}, mine: ${myMid}), deferring`);
                   return;
                 }
+
+                console.log("This is the latest customer message, proceeding with AI reply");
 
                 // No newer messages - we are the last worker. Try atomic lock.
                 const { data: lockResult } = await supabase
