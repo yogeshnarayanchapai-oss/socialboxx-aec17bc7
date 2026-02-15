@@ -626,12 +626,28 @@ serve(async (req) => {
             if (hasLeadTag && isNonsenseOrEmoji) {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
-              console.log("Waiting 10 seconds to batch messages...");
-              await new Promise(resolve => setTimeout(resolve, 10000));
+              // Debounce: wait 7s, then check if newer messages arrived
+              // Only the worker for the LAST message will proceed
+              const myMessageTime = new Date().toISOString();
+              console.log("Debounce: waiting 7 seconds for message batching...");
+              await new Promise(resolve => setTimeout(resolve, 7000));
               
               try {
-                // Atomic lock: claim this conversation for AI processing
-                // Only one worker can transition from 'unreplied' to 'ai_processing'
+                // Check if any newer customer message arrived after our wait started
+                const { data: newerMessages } = await supabase
+                  .from("messages")
+                  .select("id")
+                  .eq("conversation_id", conversationId)
+                  .eq("sender_type", "customer")
+                  .gt("created_at", myMessageTime)
+                  .limit(1);
+
+                if (newerMessages && newerMessages.length > 0) {
+                  console.log("Newer message arrived during debounce window, deferring to later worker");
+                  return;
+                }
+
+                // No newer messages - we are the last worker. Try atomic lock.
                 const { data: lockResult } = await supabase
                   .from("conversations")
                   .update({ status: "ai_processing" })
