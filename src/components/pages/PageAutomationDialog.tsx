@@ -740,7 +740,19 @@ export function PageAutomationDialog({
                       min={5}
                       max={120}
                       value={debounceSeconds}
-                      onChange={(e) => setDebounceSeconds(Math.max(5, Math.min(120, parseInt(e.target.value) || 30)))}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "") {
+                          setDebounceSeconds(0 as any);
+                          return;
+                        }
+                        const num = parseInt(val);
+                        if (!isNaN(num)) setDebounceSeconds(num);
+                      }}
+                      onBlur={() => {
+                        if (!debounceSeconds || debounceSeconds < 5) setDebounceSeconds(5);
+                        if (debounceSeconds > 120) setDebounceSeconds(120);
+                      }}
                       className="w-20 h-8"
                     />
                     <span className="text-xs text-muted-foreground">sec (message combine गर्न)</span>
