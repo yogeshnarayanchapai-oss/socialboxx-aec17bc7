@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Search,
   Send,
@@ -105,9 +106,10 @@ function getConversationBg(tag: ConversationTag) {
 }
 
 export default function Inbox() {
+  const [searchParams] = useSearchParams();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [message, setMessage] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(searchParams.get("filter") || "all");
   const [searchQuery, setSearchQuery] = useState("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
