@@ -388,9 +388,31 @@ serve(async (req) => {
             .single();
 
           // Auto-restore soft-deleted conversation when new message arrives
+          // Delete old messages so conversation starts fresh from new message
           if (existingConv?.deleted_at) {
             console.log("Auto-restoring soft-deleted conversation:", existingConv.id);
-            await supabase.from("conversations").update({ deleted_at: null }).eq("id", existingConv.id);
+            
+            // Delete all old messages for this conversation
+            const { error: deleteError } = await supabase
+              .from("messages")
+              .delete()
+              .eq("conversation_id", existingConv.id);
+            if (deleteError) {
+              console.log("Error deleting old messages:", deleteError);
+            } else {
+              console.log("Old messages deleted for restored conversation:", existingConv.id);
+            }
+            
+            // Restore conversation with fresh state
+            await supabase.from("conversations").update({ 
+              deleted_at: null, 
+              status: "unreplied",
+              tags: ["NEW"],
+              auto_followup_step: null,
+              auto_followup_next_at: null,
+              ai_followup_step: null,
+              ai_followup_next_at: null,
+            }).eq("id", existingConv.id);
           }
 
            if (!existingConv) {

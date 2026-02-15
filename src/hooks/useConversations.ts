@@ -30,6 +30,9 @@ export function useConversations(filters?: {
       if (filters?.status && filters.status !== "all") {
         if (filters.status === "lead") {
           query = query.contains("tags", ["lead-created"]);
+        } else if (filters.status === "follow-up") {
+          // Follow-up conversations have followup step >= 1 (either AI or automation)
+          query = query.or("auto_followup_step.gte.1,ai_followup_step.gte.1");
         } else {
           query = query.eq("status", filters.status);
         }
