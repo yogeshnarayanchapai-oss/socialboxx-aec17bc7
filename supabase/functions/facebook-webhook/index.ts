@@ -377,13 +377,21 @@ serve(async (req) => {
           let conversationTags: string[] = [];
           let isFirstMessage = false;
           
+          // Look for ANY conversation (including soft-deleted) to restore if needed
           const { data: existingConv } = await supabase
             .from("conversations")
-            .select("id, status, tags, participant_name")
+            .select("id, status, tags, participant_name, deleted_at")
             .eq("page_id", page.id)
             .eq("participant_id", senderId)
-            .is("deleted_at", null)
+            .order("last_message_at", { ascending: false })
+            .limit(1)
             .single();
+
+          // Auto-restore soft-deleted conversation when new message arrives
+          if (existingConv?.deleted_at) {
+            console.log("Auto-restoring soft-deleted conversation:", existingConv.id);
+            await supabase.from("conversations").update({ deleted_at: null }).eq("id", existingConv.id);
+          }
 
            if (!existingConv) {
             isFirstMessage = true;
