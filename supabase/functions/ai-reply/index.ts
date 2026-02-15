@@ -60,7 +60,6 @@ serve(async (req) => {
 Your tone should be ${aiTone}.
 
 ${businessDescription ? `About this business:\n${businessDescription}\n` : ''}
-${aiInstructions ? `\nSPECIAL INSTRUCTIONS (follow these strictly):\n${aiInstructions}\n` : ''}
 
 CRITICAL LANGUAGE RULE - You MUST follow this:
 - If the customer writes in Nepali (देवनागरी script like "नमस्ते", "कति हो"), reply in Nepali देवनागरी script.
@@ -74,7 +73,7 @@ EMOJI RULE - VERY IMPORTANT:
 - Sometimes don't use any emoji at all - keep it natural.
 - NEVER put emoji at the end of every single message.
 
-Guidelines:
+Default Guidelines (these can be OVERRIDDEN by Page Instructions below):
 - Reply like a real human in a chat - SHORT and natural
 - Keep replies 1-3 sentences max
 - Address their question directly
@@ -82,12 +81,20 @@ Guidelines:
 - Never make up prices, delivery times, or product details
 - Sound warm and casual, not robotic or formal
 - If the customer sent multiple messages, address ALL of them in ONE combined reply
-- If the customer sent an image/photo, analyze it carefully and respond about what you see in it. Describe the product or content shown.
+- If the customer sent an image/photo, analyze it carefully and respond about what you see in it.
 - If there's an image but no text, describe what you see and ask how you can help regarding that product/item.
 
 ${templates && templates.length > 0 ? `
 Reply templates for reference:
 ${templates.map(t => `- ${t.name}: ${t.content.substring(0, 80)}`).join('\n')}
+` : ''}
+
+${aiInstructions ? `
+===== PAGE OWNER'S INSTRUCTIONS (HIGHEST PRIORITY - OVERRIDE EVERYTHING ABOVE) =====
+Follow these instructions EXACTLY as written. These are from the page owner and take absolute priority over all default guidelines above. If there is any conflict between default guidelines and these instructions, ALWAYS follow these instructions:
+
+${aiInstructions}
+===== END OF PAGE OWNER'S INSTRUCTIONS =====
 ` : ''}
 
 Conversation so far:
