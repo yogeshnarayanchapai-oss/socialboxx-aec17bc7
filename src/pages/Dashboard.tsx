@@ -36,7 +36,7 @@ export default function Dashboard() {
       change: stats?.unrepliedCount && stats.unrepliedCount > 0 ? "Needs attention" : "All caught up",
       changeType: (stats?.unrepliedCount || 0) > 0 ? "negative" as const : "positive" as const,
       icon: AlertCircle,
-      href: "/inbox",
+      href: "/inbox?filter=unreplied",
     },
     {
       title: "Leads Pending",
@@ -52,7 +52,7 @@ export default function Dashboard() {
       change: `AI: ${stats?.todayFollowupAI || 0} | Auto: ${stats?.todayFollowupAutomation || 0}`,
       changeType: "neutral" as const,
       icon: Send,
-      href: "/automation",
+      href: "/inbox?filter=follow-up",
     },
     {
       title: "Reply Rate",
@@ -68,7 +68,7 @@ export default function Dashboard() {
       change: stats?.followUpsDue && stats.followUpsDue > 0 ? "Action needed" : "No pending",
       changeType: (stats?.followUpsDue || 0) > 0 ? "negative" as const : "positive" as const,
       icon: Clock,
-      href: "/leads",
+      href: "/leads?status=follow_up",
     },
   ];
 

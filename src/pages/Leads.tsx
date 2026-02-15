@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -49,8 +49,9 @@ const statusConfig: Record<string, { label: string; type: "success" | "warning" 
 
 export default function Leads() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
   const isMobile = useIsMobile();
