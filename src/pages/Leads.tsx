@@ -323,6 +323,7 @@ export default function Leads() {
                     <TableHead>Name</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>Product</TableHead>
+                    <TableHead>Remark</TableHead>
                     <TableHead>Source</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Follow-up</TableHead>
@@ -333,7 +334,7 @@ export default function Leads() {
                 <TableBody>
                   {leads.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         No leads found
                       </TableCell>
                     </TableRow>
@@ -361,6 +362,9 @@ export default function Leads() {
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{(lead as any).product || "—"}</span>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm">{(lead as any).remark || "No Inquiry"}</span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{lead.source || lead.connected_pages?.page_name || "—"}</span>

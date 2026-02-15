@@ -366,6 +366,7 @@ export type Database = {
           page_id: string | null
           phone: string | null
           product: string | null
+          remark: string | null
           source: string | null
           status: string
           updated_at: string
@@ -383,6 +384,7 @@ export type Database = {
           page_id?: string | null
           phone?: string | null
           product?: string | null
+          remark?: string | null
           source?: string | null
           status?: string
           updated_at?: string
@@ -400,6 +402,7 @@ export type Database = {
           page_id?: string | null
           phone?: string | null
           product?: string | null
+          remark?: string | null
           source?: string | null
           status?: string
           updated_at?: string

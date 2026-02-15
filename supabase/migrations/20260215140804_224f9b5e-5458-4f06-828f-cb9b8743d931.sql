@@ -1,0 +1,1 @@
+ALTER TABLE public.leads ADD COLUMN remark text DEFAULT 'No Inquiry';
