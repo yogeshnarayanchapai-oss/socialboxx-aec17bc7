@@ -593,21 +593,58 @@ serve(async (req) => {
                 .order("created_at", { ascending: false })
                 .limit(10);
 
-              // Build remark from customer messages (exclude phone number lines)
+              // Build remark using AI to summarize inquiry
               let remark = "No Inquiry";
               if (recentMsgs && recentMsgs.length > 0) {
                 const inquiryTexts = recentMsgs
                   .map((m: any) => m.content || "")
                   .filter((t: string) => {
-                    // Skip messages that are just phone numbers
                     const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
                     const isJustNumber = /^\d{9,}$/.test(stripped);
                     return t.trim().length > 0 && !isJustNumber;
                   })
-                  .reverse(); // chronological order
+                  .reverse();
                 
                 if (inquiryTexts.length > 0) {
-                  remark = inquiryTexts.join(' | ').substring(0, 500);
+                  // Use AI to summarize inquiry
+                  try {
+                    const aiSummaryResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                      method: "POST",
+                      headers: {
+                        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        model: "google/gemini-2.5-flash-lite",
+                        messages: [
+                          {
+                            role: "system",
+                            content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. Examples: 'Inquiry for shoes import from China', 'Inquiry for import machinery pricing', 'Inquiry for car accessories wholesale'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary, nothing else."
+                          },
+                          {
+                            role: "user",
+                            content: `Customer messages:\n${inquiryTexts.join('\n')}`
+                          }
+                        ],
+                      }),
+                    });
+                    
+                    if (aiSummaryResponse.ok) {
+                      const aiData = await aiSummaryResponse.json();
+                      const summary = aiData.choices?.[0]?.message?.content?.trim();
+                      if (summary && summary.length > 0) {
+                        remark = summary.substring(0, 200);
+                      } else {
+                        remark = inquiryTexts.join(' | ').substring(0, 500);
+                      }
+                    } else {
+                      console.log("AI summary failed, using raw messages");
+                      remark = inquiryTexts.join(' | ').substring(0, 500);
+                    }
+                  } catch (aiErr) {
+                    console.log("AI summary error:", aiErr);
+                    remark = inquiryTexts.join(' | ').substring(0, 500);
+                  }
                 }
               }
 
