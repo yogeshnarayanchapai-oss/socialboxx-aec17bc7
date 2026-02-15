@@ -186,17 +186,25 @@ export default function Inbox() {
 
   useRealtimeConversations();
 
+  // Track if we came from a dashboard filter link - don't auto-select conversation
+  const cameFromFilter = useRef(!!searchParams.get("filter"));
+
   // Sync filter from URL params when navigating from Dashboard
   useEffect(() => {
     const urlFilter = searchParams.get("filter");
     if (urlFilter) {
       setFilter(urlFilter);
       setDateFilter("all");
-      setSelectedConversation(null); // Show list, not individual conversation
+      setSelectedConversation(null);
+      cameFromFilter.current = true;
+    } else {
+      cameFromFilter.current = false;
     }
   }, [searchParams]);
 
   useEffect(() => {
+    // Don't auto-select when coming from dashboard filter - show the list instead
+    if (cameFromFilter.current) return;
     if (!isMobile && conversations.length > 0 && !selectedConversation) {
       setSelectedConversation(conversations[0]);
     }
