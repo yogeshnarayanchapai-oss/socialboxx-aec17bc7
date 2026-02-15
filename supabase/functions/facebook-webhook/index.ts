@@ -644,8 +644,8 @@ serve(async (req) => {
                   .single();
 
                 if (latestCustomerMsg?.external_message_id !== myMid) {
-                  console.log(`Not the latest message (latest: ${latestCustomerMsg?.external_message_id}, mine: ${myMid}), deferring`);
-                  return;
+                  console.log(`Not the latest message (latest: ${latestCustomerMsg?.external_message_id}, mine: ${myMid}), skipping AI for this worker`);
+                  continue; // continue the messaging loop, don't exit the handler — must return 200 to Facebook
                 }
 
                 console.log("This is the latest customer message, proceeding with AI reply");
