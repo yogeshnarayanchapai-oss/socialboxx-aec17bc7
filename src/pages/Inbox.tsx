@@ -186,6 +186,16 @@ export default function Inbox() {
 
   useRealtimeConversations();
 
+  // Sync filter from URL params when navigating from Dashboard
+  useEffect(() => {
+    const urlFilter = searchParams.get("filter");
+    if (urlFilter) {
+      setFilter(urlFilter);
+      setDateFilter("all");
+      setSelectedConversation(null); // Show list, not individual conversation
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     if (!isMobile && conversations.length > 0 && !selectedConversation) {
       setSelectedConversation(conversations[0]);
