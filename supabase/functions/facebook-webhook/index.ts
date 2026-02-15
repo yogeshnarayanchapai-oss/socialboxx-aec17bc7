@@ -541,6 +541,18 @@ serve(async (req) => {
             }
           }
 
+          // Deduplicate: skip if this exact message was already processed (Facebook retry)
+          const { data: existingMsg } = await supabase
+            .from("messages")
+            .select("id")
+            .eq("external_message_id", message.mid)
+            .limit(1);
+
+          if (existingMsg && existingMsg.length > 0) {
+            console.log(`Duplicate message detected (mid: ${message.mid}), skipping entire processing`);
+            continue;
+          }
+
           // Store the message
           await supabase.from("messages").insert({
             external_message_id: message.mid,
@@ -552,11 +564,18 @@ serve(async (req) => {
             created_at: new Date(timestamp).toISOString(),
           });
 
-          // Update conversation
+          // Update conversation - but DON'T reset status if AI is currently processing
+          const { data: currentConv } = await supabase
+            .from("conversations")
+            .select("status")
+            .eq("id", conversationId)
+            .single();
+
+          const newStatus = (currentConv?.status === "ai_processing") ? "ai_processing" : "unreplied";
           await supabase.from("conversations").update({
             last_message_at: new Date(timestamp).toISOString(),
             last_message_preview: message.text?.substring(0, 100),
-            status: "unreplied",
+            status: newStatus,
           }).eq("id", conversationId);
 
           // Check for phone number - store as-is
