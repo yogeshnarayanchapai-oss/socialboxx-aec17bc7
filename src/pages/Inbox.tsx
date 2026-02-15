@@ -127,7 +127,8 @@ export default function Inbox() {
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState(searchParams.get("filter") || "all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [dateFilter, setDateFilter] = useState("today");
+  // If coming from dashboard with a filter, show all dates so results aren't hidden
+  const [dateFilter, setDateFilter] = useState(searchParams.get("filter") ? "all" : "today");
   const [customDateFrom, setCustomDateFrom] = useState<Date>();
   const [customDateTo, setCustomDateTo] = useState<Date>();
   const [pageFilter, setPageFilter] = useState("all");
