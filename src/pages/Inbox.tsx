@@ -17,7 +17,10 @@ import {
   Trash2,
   Link2,
   FileAudio,
+  CalendarIcon,
+  Filter,
 } from "lucide-react";
+import { format, startOfDay, endOfDay, subDays } from "date-fns";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,6 +50,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { toast } from "sonner";
 import { 
   useConversations, 
@@ -111,6 +127,10 @@ export default function Inbox() {
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState(searchParams.get("filter") || "all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState<Date>();
+  const [customDateTo, setCustomDateTo] = useState<Date>();
+  const [pageFilter, setPageFilter] = useState("all");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
@@ -121,9 +141,32 @@ export default function Inbox() {
   const audioInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Compute date range
+  const getDateRange = () => {
+    const now = new Date();
+    if (dateFilter === "today") {
+      return { dateFrom: startOfDay(now).toISOString(), dateTo: endOfDay(now).toISOString() };
+    }
+    if (dateFilter === "yesterday") {
+      const yesterday = subDays(now, 1);
+      return { dateFrom: startOfDay(yesterday).toISOString(), dateTo: endOfDay(yesterday).toISOString() };
+    }
+    if (dateFilter === "custom" && customDateFrom) {
+      return {
+        dateFrom: startOfDay(customDateFrom).toISOString(),
+        dateTo: customDateTo ? endOfDay(customDateTo).toISOString() : endOfDay(customDateFrom).toISOString(),
+      };
+    }
+    return {};
+  };
+
+  const dateRange = getDateRange();
+
   const { data: conversations = [], isLoading: loadingConversations } = useConversations({
     status: filter,
     search: searchQuery,
+    pageId: pageFilter !== "all" ? pageFilter : undefined,
+    ...dateRange,
   });
   const { data: messages = [], isLoading: loadingMessages } = useConversationMessages(
     selectedConversation?.id || null
@@ -353,6 +396,58 @@ export default function Inbox() {
                   </button>
                 ))}
               </div>
+              <div className="flex gap-1.5">
+                <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); if (v !== "custom") { setCustomDateFrom(undefined); setCustomDateTo(undefined); } }}>
+                  <SelectTrigger className="h-8 text-xs flex-1">
+                    <CalendarIcon className="h-3 w-3 mr-1" />
+                    <SelectValue placeholder="Date" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Dates</SelectItem>
+                    <SelectItem value="today">Today</SelectItem>
+                    <SelectItem value="yesterday">Yesterday</SelectItem>
+                    <SelectItem value="custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+                {pages.length > 0 && (
+                  <Select value={pageFilter} onValueChange={setPageFilter}>
+                    <SelectTrigger className="h-8 text-xs flex-1">
+                      <Filter className="h-3 w-3 mr-1" />
+                      <SelectValue placeholder="Page" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Pages</SelectItem>
+                      {pages.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {dateFilter === "custom" && (
+                <div className="flex gap-1.5">
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs flex-1">
+                        {customDateFrom ? format(customDateFrom, "MMM dd") : "From"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={customDateFrom} onSelect={setCustomDateFrom} className="p-3 pointer-events-auto" />
+                    </PopoverContent>
+                  </Popover>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-8 text-xs flex-1">
+                        {customDateTo ? format(customDateTo, "MMM dd") : "To"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar mode="single" selected={customDateTo} onSelect={setCustomDateTo} className="p-3 pointer-events-auto" />
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
             </div>
 
             <div className="custom-scrollbar overflow-y-auto" style={{ height: "calc(100% - 90px)" }}>
