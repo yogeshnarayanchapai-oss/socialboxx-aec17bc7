@@ -11,6 +11,8 @@ export function useLeads(filters?: {
   status?: string;
   search?: string;
   pageId?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }) {
   return useQuery({
     queryKey: ["leads", filters],
@@ -28,6 +30,12 @@ export function useLeads(filters?: {
       }
       if (filters?.pageId) {
         query = query.eq("page_id", filters.pageId);
+      }
+      if (filters?.dateFrom) {
+        query = query.gte("created_at", filters.dateFrom);
+      }
+      if (filters?.dateTo) {
+        query = query.lte("created_at", filters.dateTo);
       }
 
       const { data, error } = await query;

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package } from "lucide-react";
+import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package, Download, CalendarIcon, Filter } from "lucide-react";
+import { format, startOfDay, endOfDay, subDays } from "date-fns";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,9 +36,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useLeads, useLeadStats, useCreateLead, useUpdateLead, useDeleteLead, type Lead } from "@/hooks/useLeads";
+import { useConnectedPages } from "@/hooks/usePages";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 const statusConfig: Record<string, { label: string; type: "success" | "warning" | "info" | "pending" | "error" }> = {
@@ -52,15 +60,70 @@ export default function Leads() {
   const [searchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
+  const [dateFilter, setDateFilter] = useState("all");
+  const [customDateFrom, setCustomDateFrom] = useState<Date>();
+  const [customDateTo, setCustomDateTo] = useState<Date>();
+  const [pageFilter, setPageFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
   const isMobile = useIsMobile();
 
-  const { data: leads = [], isLoading } = useLeads({ status: statusFilter, search: searchQuery });
+  const getDateRange = () => {
+    const now = new Date();
+    if (dateFilter === "today") {
+      return { dateFrom: startOfDay(now).toISOString(), dateTo: endOfDay(now).toISOString() };
+    }
+    if (dateFilter === "yesterday") {
+      const yesterday = subDays(now, 1);
+      return { dateFrom: startOfDay(yesterday).toISOString(), dateTo: endOfDay(yesterday).toISOString() };
+    }
+    if (dateFilter === "custom" && customDateFrom) {
+      return {
+        dateFrom: startOfDay(customDateFrom).toISOString(),
+        dateTo: customDateTo ? endOfDay(customDateTo).toISOString() : endOfDay(customDateFrom).toISOString(),
+      };
+    }
+    return {};
+  };
+
+  const dateRange = getDateRange();
+
+  const { data: leads = [], isLoading } = useLeads({
+    status: statusFilter,
+    search: searchQuery,
+    pageId: pageFilter !== "all" ? pageFilter : undefined,
+    ...dateRange,
+  });
   const { data: stats } = useLeadStats();
+  const { data: pages = [] } = useConnectedPages();
   const createLead = useCreateLead();
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
+
+  const handleExportCSV = () => {
+    if (leads.length === 0) { toast.error("No leads to export"); return; }
+    const headers = ["Name", "Phone", "Product", "Remark", "Source", "Status", "Follow-up Date", "Created", "Last Message"];
+    const rows = leads.map((lead) => [
+      lead.full_name || "",
+      lead.phone || "",
+      lead.product || "",
+      lead.remark || "No Inquiry",
+      lead.source || lead.connected_pages?.page_name || "",
+      lead.status,
+      lead.followup_due_date ? new Date(lead.followup_due_date).toLocaleDateString() : "",
+      new Date(lead.created_at).toLocaleDateString(),
+      lead.last_message || "",
+    ]);
+    const csvContent = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `leads-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${leads.length} leads exported!`);
+  };
 
   const handleCreateLead = async () => {
     if (!newLead.full_name || !newLead.phone) {
@@ -137,14 +200,20 @@ export default function Leads() {
         title="Leads"
         description="Manage and track your sales leads"
         action={
-          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-            <DialogTrigger asChild>
-              <Button size="sm">
-                <Plus className="mr-2 h-4 w-4" />
-                <span className="hidden sm:inline">Add Lead</span>
-                <span className="sm:hidden">Add</span>
-              </Button>
-            </DialogTrigger>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={handleExportCSV}>
+              <Download className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Export CSV</span>
+              <span className="sm:hidden">CSV</span>
+            </Button>
+            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  <span className="hidden sm:inline">Add Lead</span>
+                  <span className="sm:hidden">Add</span>
+                </Button>
+              </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add New Lead</DialogTitle>
@@ -175,13 +244,14 @@ export default function Leads() {
               </div>
             </DialogContent>
           </Dialog>
+          </div>
         }
       />
 
       <div className="p-4 md:p-6">
         {/* Filters */}
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search by name or phone..."
@@ -191,8 +261,8 @@ export default function Leads() {
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Filter by status" />
+            <SelectTrigger className="w-full sm:w-36">
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
@@ -202,7 +272,60 @@ export default function Leads() {
               <SelectItem value="closed">Closed</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); if (v !== "custom") { setCustomDateFrom(undefined); setCustomDateTo(undefined); } }}>
+            <SelectTrigger className="w-full sm:w-36">
+              <CalendarIcon className="h-3.5 w-3.5 mr-1" />
+              <SelectValue placeholder="Date" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Dates</SelectItem>
+              <SelectItem value="today">Today</SelectItem>
+              <SelectItem value="yesterday">Yesterday</SelectItem>
+              <SelectItem value="custom">Custom</SelectItem>
+            </SelectContent>
+          </Select>
+          {pages.length > 0 && (
+            <Select value={pageFilter} onValueChange={setPageFilter}>
+              <SelectTrigger className="w-full sm:w-40">
+                <Filter className="h-3.5 w-3.5 mr-1" />
+                <SelectValue placeholder="Page" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Pages</SelectItem>
+                {pages.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
+        {dateFilter === "custom" && (
+          <div className="mb-4 flex gap-2 items-center">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="text-sm">
+                  <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
+                  {customDateFrom ? format(customDateFrom, "MMM dd, yyyy") : "From date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarPicker mode="single" selected={customDateFrom} onSelect={setCustomDateFrom} className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+            <span className="text-muted-foreground text-sm">to</span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="text-sm">
+                  <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
+                  {customDateTo ? format(customDateTo, "MMM dd, yyyy") : "To date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarPicker mode="single" selected={customDateTo} onSelect={setCustomDateTo} className="p-3 pointer-events-auto" />
+              </PopoverContent>
+            </Popover>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">

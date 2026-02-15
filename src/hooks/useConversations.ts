@@ -12,6 +12,8 @@ export function useConversations(filters?: {
   pageId?: string;
   status?: string;
   search?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }) {
   return useQuery({
     queryKey: ["conversations", filters],
@@ -34,6 +36,12 @@ export function useConversations(filters?: {
       }
       if (filters?.search) {
         query = query.ilike("participant_name", `%${filters.search}%`);
+      }
+      if (filters?.dateFrom) {
+        query = query.gte("created_at", filters.dateFrom);
+      }
+      if (filters?.dateTo) {
+        query = query.lte("created_at", filters.dateTo);
       }
 
       const { data, error } = await query;
