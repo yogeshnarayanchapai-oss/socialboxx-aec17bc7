@@ -418,6 +418,8 @@ serve(async (req) => {
             
             let senderName = "Unknown";
             let senderPicUrl: string | null = null;
+            
+            // Method 1: Try PSID-based lookup
             try {
               const userResponse = await fetch(
                 `https://graph.facebook.com/v19.0/${senderId}?fields=first_name,last_name,profile_pic&access_token=${page.page_access_token}`
@@ -427,13 +429,37 @@ serve(async (req) => {
                 const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(" ");
                 senderName = fullName || "Unknown";
                 senderPicUrl = userData.profile_pic || null;
-                console.log("Fetched sender info:", senderName, senderPicUrl ? "has pic" : "no pic");
+                console.log("Fetched sender info via PSID:", senderName);
               } else {
-                const errData = await userResponse.json();
-                console.error("Failed to fetch sender info, status:", userResponse.status, JSON.stringify(errData));
+                console.log("PSID lookup failed, trying Conversations API fallback...");
               }
             } catch (e) {
-              console.error("Failed to fetch sender info:", e);
+              console.log("PSID lookup error, trying fallback:", e);
+            }
+
+            // Method 2: Fallback - use Conversations API to get participant name
+            if (senderName === "Unknown") {
+              try {
+                const convResponse = await fetch(
+                  `https://graph.facebook.com/v19.0/${pageId}/conversations?fields=participants&user_id=${senderId}&access_token=${page.page_access_token}`
+                );
+                if (convResponse.ok) {
+                  const convData = await convResponse.json();
+                  const participants = convData.data?.[0]?.participants?.data;
+                  if (participants) {
+                    const sender = participants.find((p: any) => p.id === senderId);
+                    if (sender?.name) {
+                      senderName = sender.name;
+                      console.log("Fetched sender name via Conversations API:", senderName);
+                    }
+                  }
+                } else {
+                  const errData = await convResponse.json();
+                  console.error("Conversations API fallback failed:", JSON.stringify(errData));
+                }
+              } catch (e) {
+                console.error("Conversations API fallback error:", e);
+              }
             }
 
             const { data: newConv, error: convError } = await supabase
@@ -476,6 +502,10 @@ serve(async (req) => {
             
             // If participant_name is Unknown, try to re-fetch from Facebook
             if (!existingConv.participant_name || existingConv.participant_name === "Unknown") {
+              let updatedName: string | null = null;
+              let updatedPic: string | null = null;
+
+              // Try PSID lookup first
               try {
                 const userResponse = await fetch(
                   `https://graph.facebook.com/v19.0/${senderId}?fields=first_name,last_name,profile_pic&access_token=${page.page_access_token}`
@@ -483,16 +513,30 @@ serve(async (req) => {
                 if (userResponse.ok) {
                   const userData = await userResponse.json();
                   const fullName = [userData.first_name, userData.last_name].filter(Boolean).join(" ");
-                  if (fullName && fullName !== "Unknown") {
-                    console.log("Updating Unknown participant to:", fullName);
-                    await supabase.from("conversations").update({
-                      participant_name: fullName,
-                      participant_picture_url: userData.profile_pic || null,
-                    }).eq("id", conversationId);
-                  }
+                  if (fullName) { updatedName = fullName; updatedPic = userData.profile_pic || null; }
                 }
-              } catch (e) {
-                console.error("Failed to re-fetch sender info:", e);
+              } catch (_) {}
+
+              // Fallback: Conversations API
+              if (!updatedName) {
+                try {
+                  const convResponse = await fetch(
+                    `https://graph.facebook.com/v19.0/${pageId}/conversations?fields=participants&user_id=${senderId}&access_token=${page.page_access_token}`
+                  );
+                  if (convResponse.ok) {
+                    const convData = await convResponse.json();
+                    const sender = convData.data?.[0]?.participants?.data?.find((p: any) => p.id === senderId);
+                    if (sender?.name) updatedName = sender.name;
+                  }
+                } catch (_) {}
+              }
+
+              if (updatedName && updatedName !== "Unknown") {
+                console.log("Updating Unknown participant to:", updatedName);
+                await supabase.from("conversations").update({
+                  participant_name: updatedName,
+                  ...(updatedPic ? { participant_picture_url: updatedPic } : {}),
+                }).eq("id", conversationId);
               }
             }
           }
