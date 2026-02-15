@@ -293,9 +293,9 @@ export default function Leads() {
                             via {lead.source || lead.connected_pages?.page_name}
                           </span>
                         )}
-                        {(lead as any).product && (
+                        {lead.product && (
                           <span className="text-xs text-primary truncate max-w-[100px]">
-                            📦 {(lead as any).product}
+                            📦 {lead.product}
                           </span>
                         )}
                       </div>
@@ -361,10 +361,10 @@ export default function Leads() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{(lead as any).product || "—"}</span>
+                          <span className="text-sm">{lead.product || "—"}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{(lead as any).remark || "No Inquiry"}</span>
+                          <span className="text-sm">{lead.remark || "No Inquiry"}</span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm">{lead.source || lead.connected_pages?.page_name || "—"}</span>
