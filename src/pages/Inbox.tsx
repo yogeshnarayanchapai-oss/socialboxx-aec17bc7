@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useLocation } from "react-router-dom";
 import {
   Search,
   Send,
@@ -123,6 +123,7 @@ function getConversationBg(tag: ConversationTag) {
 
 export default function Inbox() {
   const [searchParams] = useSearchParams();
+  const location = useLocation();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [message, setMessage] = useState("");
   const [filter, setFilter] = useState(searchParams.get("filter") || "all");
@@ -186,29 +187,36 @@ export default function Inbox() {
 
   useRealtimeConversations();
 
-  // Track if we came from a dashboard filter link - don't auto-select conversation
-  const cameFromFilter = useRef(!!searchParams.get("filter"));
+  // Track previous location key to detect fresh navigation to inbox
+  const prevLocationKey = useRef(location.key);
 
-  // Sync filter from URL params when navigating from Dashboard
+  // When navigating TO inbox (from dashboard or sidebar), reset selected conversation
   useEffect(() => {
-    const urlFilter = searchParams.get("filter");
-    if (urlFilter) {
-      setFilter(urlFilter);
-      setDateFilter("all");
+    if (prevLocationKey.current !== location.key) {
+      prevLocationKey.current = location.key;
+      // Fresh navigation - reset to list view
       setSelectedConversation(null);
-      cameFromFilter.current = true;
-    } else {
-      cameFromFilter.current = false;
+      
+      const urlFilter = searchParams.get("filter");
+      if (urlFilter) {
+        setFilter(urlFilter);
+        setDateFilter("all");
+      } else {
+        setFilter("all");
+        setDateFilter("today");
+      }
     }
-  }, [searchParams]);
+  }, [location.key, searchParams]);
 
   useEffect(() => {
-    // Don't auto-select when coming from dashboard filter - show the list instead
-    if (cameFromFilter.current) return;
     if (!isMobile && conversations.length > 0 && !selectedConversation) {
-      setSelectedConversation(conversations[0]);
+      // Only auto-select if user didn't just navigate here (give time for list to render)
+      const timer = setTimeout(() => {
+        setSelectedConversation(prev => prev === null && !searchParams.get("filter") ? conversations[0] : prev);
+      }, 100);
+      return () => clearTimeout(timer);
     }
-  }, [conversations, selectedConversation, isMobile]);
+  }, [conversations, selectedConversation, isMobile, searchParams]);
 
   // Auto-scroll to latest message (bottom) like Messenger
   useEffect(() => {
