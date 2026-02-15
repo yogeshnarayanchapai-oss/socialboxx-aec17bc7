@@ -198,7 +198,16 @@ export function useUpdateConversation() {
 export function useDeleteConversation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (conversationId: string) => {
+    mutationFn: async ({ conversationId, purgeMessages = false }: { conversationId: string; purgeMessages?: boolean }) => {
+      // If purging messages, delete all messages first
+      if (purgeMessages) {
+        const { error: msgError } = await supabase
+          .from("messages")
+          .delete()
+          .eq("conversation_id", conversationId);
+        if (msgError) throw msgError;
+      }
+      
       const { error } = await supabase
         .from("conversations")
         .update({ deleted_at: new Date().toISOString() } as any)
@@ -207,6 +216,7 @@ export function useDeleteConversation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["messages"] });
     },
   });
 }
