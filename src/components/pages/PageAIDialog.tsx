@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -23,6 +24,7 @@ interface PageAIDialogProps {
     page_name: string;
     ai_enabled?: boolean;
     ai_description?: string;
+    ai_debounce_seconds?: number;
     automation_enabled?: boolean;
   } | null;
 }
@@ -31,12 +33,14 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
   const queryClient = useQueryClient();
   const [aiEnabled, setAiEnabled] = useState(false);
   const [description, setDescription] = useState("");
+  const [debounceSeconds, setDebounceSeconds] = useState(30);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (page && open) {
       setAiEnabled((page as any).ai_enabled || false);
       setDescription((page as any).ai_description || "");
+      setDebounceSeconds((page as any).ai_debounce_seconds ?? 30);
     }
   }, [page, open]);
 
@@ -55,6 +59,7 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
       const updateData: Record<string, any> = {
         ai_enabled: aiEnabled,
         ai_description: description,
+        ai_debounce_seconds: debounceSeconds,
       };
       
       // If AI enabled, disable automation
@@ -122,6 +127,27 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
             />
             <p className="text-xs text-muted-foreground">
               जति detail दिनुहुन्छ, AI ले त्यति राम्रो reply गर्छ
+            </p>
+          </div>
+
+          {/* Debounce Seconds */}
+          <div className="space-y-3 rounded-lg border p-4">
+            <div>
+              <Label className="text-sm font-medium">Reply Hold Time (seconds)</Label>
+              <p className="text-xs text-muted-foreground">
+                Message आएपछि कति second hold गर्ने — यो समय भित्र आएका सबै message combine गरेर एउटै reply दिन्छ। Default: 30 seconds
+              </p>
+            </div>
+            <Input
+              type="number"
+              min={5}
+              max={120}
+              value={debounceSeconds}
+              onChange={(e) => setDebounceSeconds(Math.max(5, Math.min(120, parseInt(e.target.value) || 30)))}
+              className="w-32"
+            />
+            <p className="text-xs text-muted-foreground">
+              ५ देखि १२० second सम्म राख्न सकिन्छ
             </p>
           </div>
         </div>

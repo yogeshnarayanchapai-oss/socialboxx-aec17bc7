@@ -119,6 +119,7 @@ export type Database = {
         Row: {
           ai_comment_hint: string | null
           ai_comment_reply_enabled: boolean | null
+          ai_debounce_seconds: number
           ai_description: string | null
           ai_enabled: boolean | null
           ai_followup_settings: Json | null
@@ -147,6 +148,7 @@ export type Database = {
         Insert: {
           ai_comment_hint?: string | null
           ai_comment_reply_enabled?: boolean | null
+          ai_debounce_seconds?: number
           ai_description?: string | null
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
@@ -175,6 +177,7 @@ export type Database = {
         Update: {
           ai_comment_hint?: string | null
           ai_comment_reply_enabled?: boolean | null
+          ai_debounce_seconds?: number
           ai_description?: string | null
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null

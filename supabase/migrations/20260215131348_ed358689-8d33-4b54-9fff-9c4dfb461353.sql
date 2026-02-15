@@ -1,0 +1,1 @@
+ALTER TABLE public.connected_pages ADD COLUMN ai_debounce_seconds integer NOT NULL DEFAULT 30;

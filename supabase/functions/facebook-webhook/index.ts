@@ -365,7 +365,7 @@ serve(async (req) => {
 
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id, ai_debounce_seconds")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -645,11 +645,12 @@ serve(async (req) => {
             if (hasLeadTag && isNonsenseOrEmoji) {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
-              // Debounce: wait 15s to account for Facebook's delayed webhook delivery (~13s between webhooks)
+              // Configurable debounce: wait for the configured seconds (default 30) to batch messages
               // Then check if OUR message is still the latest customer message
               const myMid = message.mid;
-              console.log(`Debounce: waiting 15 seconds for message batching... (mid: ${myMid})`);
-              await new Promise(resolve => setTimeout(resolve, 15000));
+              const debounceMs = ((page as any).ai_debounce_seconds || 30) * 1000;
+              console.log(`Debounce: waiting ${debounceMs/1000} seconds for message batching... (mid: ${myMid})`);
+              await new Promise(resolve => setTimeout(resolve, debounceMs));
               
               try {
                 // Check if our message is the LATEST customer message in this conversation
