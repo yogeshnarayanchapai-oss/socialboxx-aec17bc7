@@ -134,6 +134,7 @@ export default function Inbox() {
   const [pageFilter, setPageFilter] = useState("all");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [conversationToDelete, setConversationToDelete] = useState<string | null>(null);
+  const [deletePurgeMessages, setDeletePurgeMessages] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -332,7 +333,7 @@ export default function Inbox() {
   const handleDeleteConversation = async () => {
     if (!conversationToDelete) return;
     try {
-      await deleteConversation.mutateAsync(conversationToDelete);
+      await deleteConversation.mutateAsync({ conversationId: conversationToDelete, purgeMessages: deletePurgeMessages });
       if (selectedConversation?.id === conversationToDelete) {
         setSelectedConversation(null);
       }
@@ -340,6 +341,7 @@ export default function Inbox() {
     } catch { toast.error("Failed to delete conversation"); }
     setDeleteDialogOpen(false);
     setConversationToDelete(null);
+    setDeletePurgeMessages(false);
   };
 
   const handleRefreshConversations = async () => {
@@ -565,6 +567,7 @@ export default function Inbox() {
                           className="text-destructive focus:text-destructive"
                           onClick={() => {
                             setConversationToDelete(selectedConversation.id);
+                            setDeletePurgeMessages(true);
                             setDeleteDialogOpen(true);
                           }}
                         >
