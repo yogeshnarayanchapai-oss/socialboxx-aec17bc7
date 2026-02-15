@@ -78,7 +78,9 @@ type ConversationTag = "new" | "follow-up" | "lead";
 
 function getConversationTag(conv: Conversation): ConversationTag {
   if (conv.tags?.includes("lead-created")) return "lead";
-  if (conv.auto_followup_step !== null || conv.ai_followup_step !== null) return "follow-up";
+  // Only show follow-up after at least one followup has been sent (step >= 1)
+  if ((conv.auto_followup_step !== null && conv.auto_followup_step >= 1) || 
+      (conv.ai_followup_step !== null && conv.ai_followup_step >= 1)) return "follow-up";
   if (conv.status === "unreplied") return "new";
   return "new";
 }

@@ -185,6 +185,7 @@ serve(async (req) => {
           await supabase.from("followup_logs").insert({
             conversation_id: conv.id,
             page_id: page.id,
+            organization_id: (await supabase.from("connected_pages").select("organization_id").eq("id", page.id).single()).data?.organization_id,
             followup_type: "automation",
             step_number: currentStep + 1,
             message_text: step.text,

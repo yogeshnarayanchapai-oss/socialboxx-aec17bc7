@@ -28,6 +28,7 @@ export default function Dashboard() {
       change: "Last 7 days",
       changeType: "neutral" as const,
       icon: MessageSquare,
+      href: "/inbox",
     },
     {
       title: "Unreplied",
@@ -35,6 +36,7 @@ export default function Dashboard() {
       change: stats?.unrepliedCount && stats.unrepliedCount > 0 ? "Needs attention" : "All caught up",
       changeType: (stats?.unrepliedCount || 0) > 0 ? "negative" as const : "positive" as const,
       icon: AlertCircle,
+      href: "/inbox",
     },
     {
       title: "Leads Pending",
@@ -42,6 +44,7 @@ export default function Dashboard() {
       change: "New & Hot leads",
       changeType: "neutral" as const,
       icon: Users,
+      href: "/leads",
     },
     {
       title: "Today Follow-ups",
@@ -49,6 +52,7 @@ export default function Dashboard() {
       change: `AI: ${stats?.todayFollowupAI || 0} | Auto: ${stats?.todayFollowupAutomation || 0}`,
       changeType: "neutral" as const,
       icon: Send,
+      href: "/automation",
     },
     {
       title: "Reply Rate",
@@ -56,6 +60,7 @@ export default function Dashboard() {
       change: "Last 7 days",
       changeType: "positive" as const,
       icon: TrendingUp,
+      href: "/reports",
     },
     {
       title: "Follow-ups Due",
@@ -63,6 +68,7 @@ export default function Dashboard() {
       change: stats?.followUpsDue && stats.followUpsDue > 0 ? "Action needed" : "No pending",
       changeType: (stats?.followUpsDue || 0) > 0 ? "negative" as const : "positive" as const,
       icon: Clock,
+      href: "/leads",
     },
   ];
 
@@ -90,7 +96,7 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {metrics.map((metric) => (
-              <MetricCard key={metric.title} title={metric.title} value={metric.value} change={metric.change} changeType={metric.changeType} icon={metric.icon} />
+              <MetricCard key={metric.title} title={metric.title} value={metric.value} change={metric.change} changeType={metric.changeType} icon={metric.icon} href={metric.href} />
             ))}
           </div>
         )}
