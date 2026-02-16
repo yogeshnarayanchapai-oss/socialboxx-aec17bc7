@@ -218,6 +218,7 @@ serve(async (req) => {
             page_picture_url: pageData.picture?.data?.url || pagePictureUrl,
             connection_status: "active",
             connected_by: user.id,
+            organization_id: orgId,
             token_expiry: tokenExpiry.toISOString(),
             updated_at: new Date().toISOString(),
           })
