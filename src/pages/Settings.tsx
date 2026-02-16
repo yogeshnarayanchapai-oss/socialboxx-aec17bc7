@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -163,7 +164,22 @@ function APITab() {
   const baseUrl = import.meta.env.VITE_SUPABASE_URL;
   const { session } = useAuth();
   const [showToken, setShowToken] = useState(false);
+  const [selectedPageId, setSelectedPageId] = useState<string>("");
   
+  // Fetch connected pages for the selector
+  const { data: pages, isLoading: pagesLoading } = useQuery({
+    queryKey: ["connected-pages-api"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("connected_pages")
+        .select("id, page_name")
+        .eq("connection_status", "active")
+        .order("page_name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied!");
@@ -171,6 +187,7 @@ function APITab() {
 
   const leadsEndpoint = `${baseUrl}/functions/v1/leads-api`;
   const token = session?.access_token || "";
+  const selectedPage = pages?.find(p => p.id === selectedPageId);
 
   return (
     <TabsContent value="api" className="space-y-6">
@@ -188,64 +205,99 @@ function APITab() {
         </CardHeader>
         <CardContent className="space-y-6">
 
-          {/* API Token */}
+          {/* Page Selector */}
           <div className="space-y-2">
-            <Label className="text-sm font-medium">API Token (Bearer Token)</Label>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all select-all min-h-[40px] flex items-center">
-                {showToken ? (
-                  <span className="break-all">{token || "Login गर्नुहोस् token पाउन"}</span>
-                ) : (
-                  <span className="tracking-widest">••••••••••••••••••••••••••••••••••••</span>
-                )}
-              </div>
-              <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => setShowToken(!showToken)} title={showToken ? "Hide" : "Show"}>
-                {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-              </Button>
-              <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(token)} disabled={!token}>
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
+            <Label className="text-sm font-medium">Page Select गर्नुहोस्</Label>
+            <Select value={selectedPageId} onValueChange={setSelectedPageId}>
+              <SelectTrigger>
+                <SelectValue placeholder={pagesLoading ? "Loading..." : "-- Page छान्नुहोस् --"} />
+              </SelectTrigger>
+              <SelectContent>
+                {pages?.map(page => (
+                  <SelectItem key={page.id} value={page.id}>{page.page_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">API बाट lead create गर्दा यो page मा मात्र जान्छ। GET गर्दा पनि यो page को मात्र leads आउँछ।</p>
+          </div>
+
+          {!selectedPageId && (
+            <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4 text-center">
+              <p className="text-sm text-muted-foreground">कृपया पहिले माथिबाट Page select गर्नुहोस् API credentials हेर्नको लागि।</p>
             </div>
-            <p className="text-xs text-muted-foreground">यो token तपाईंको account सँग linked छ। Third-party system मा paste गर्नुहोस्।</p>
-          </div>
+          )}
 
-          {/* API Base URL */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">API Base URL</Label>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all">{leadsEndpoint}</code>
-              <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(leadsEndpoint)}>
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">यो URL सबै API calls को लागि use गर्नुहोस्।</p>
-          </div>
-
-          {/* How to connect */}
-          <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-3">
-            <Label className="text-base font-medium">कसरी Third-Party System मा जोड्ने?</Label>
-            <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1.5">
-              <li>माथिको <strong>API Token</strong> र <strong>API Base URL</strong> copy गर्नुहोस्</li>
-              <li>तपाईंको system (CRM, form, website) मा API/Webhook integration खोल्नुहोस्</li>
-              <li>URL मा माथिको <strong>API Base URL</strong> paste गर्नुहोस्</li>
-              <li>Header मा <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;माथिको Token&gt;</code> set गर्नुहोस्</li>
-              <li>Body मा lead data JSON format मा पठाउनुहोस्</li>
-            </ol>
-          </div>
-
-          {/* Example */}
-          <div className="space-y-4 rounded-lg border p-4">
-            <Label className="text-base font-medium">API Examples</Label>
-
-            <div className="space-y-3">
-              <div className="rounded-lg bg-muted p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-medium">POST - Create Lead</p>
-                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Seat Cover","source":"Website Form","status":"new"}'`)}>
-                    <Copy className="h-3 w-3 mr-1" /> Copy cURL
+          {selectedPageId && (
+            <>
+              {/* API Token */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">API Token (Bearer Token)</Label>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all select-all min-h-[40px] flex items-center">
+                    {showToken ? (
+                      <span className="break-all">{token || "Login गर्नुहोस् token पाउन"}</span>
+                    ) : (
+                      <span className="tracking-widest">••••••••••••••••••••••••••••••••••••</span>
+                    )}
+                  </div>
+                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => setShowToken(!showToken)} title={showToken ? "Hide" : "Show"}>
+                    {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                  </Button>
+                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(token)} disabled={!token}>
+                    <Copy className="h-3.5 w-3.5" />
                   </Button>
                 </div>
-                <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
+                <p className="text-xs text-muted-foreground">यो token तपाईंको account सँग linked छ। Third-party system मा paste गर्नुहोस्।</p>
+              </div>
+
+              {/* API Base URL */}
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">API Base URL</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all">{leadsEndpoint}</code>
+                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(leadsEndpoint)}>
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Selected Page Info */}
+              <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
+                <p className="text-xs font-medium">Selected Page</p>
+                <p className="text-sm font-semibold">{selectedPage?.page_name}</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs font-mono text-muted-foreground break-all">{selectedPageId}</code>
+                  <Button variant="ghost" size="sm" className="h-5 px-1" onClick={() => copyToClipboard(selectedPageId)}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* How to connect */}
+              <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-3">
+                <Label className="text-base font-medium">कसरी Third-Party System मा जोड्ने?</Label>
+                <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1.5">
+                  <li>माथिको <strong>API Token</strong> र <strong>API Base URL</strong> copy गर्नुहोस्</li>
+                  <li>तपाईंको system (CRM, form, website) मा API/Webhook integration खोल्नुहोस्</li>
+                  <li>URL मा माथिको <strong>API Base URL</strong> paste गर्नुहोस्</li>
+                  <li>Header मा <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;Token&gt;</code> set गर्नुहोस्</li>
+                  <li>Body मा <code className="bg-muted px-1 rounded">page_id</code> field मा माथिको Page ID राख्नुहोस्</li>
+                </ol>
+              </div>
+
+              {/* Examples */}
+              <div className="space-y-4 rounded-lg border p-4">
+                <Label className="text-base font-medium">API Examples</Label>
+
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-muted p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium">POST - Create Lead</p>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Seat Cover","source":"Website Form","status":"new","page_id":"${selectedPageId}"}'`)}>
+                        <Copy className="h-3 w-3 mr-1" /> Copy cURL
+                      </Button>
+                    </div>
+                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
   -H "Authorization: Bearer <YOUR_TOKEN>" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -254,31 +306,33 @@ function APITab() {
     "product": "Seat Cover",
     "source": "Website Form",
     "status": "new",
-    "notes": "Interested in leather"
+    "page_id": "${selectedPageId}"
   }'`}</pre>
-              </div>
+                  </div>
 
-              <div className="rounded-lg bg-muted p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-medium">GET - Fetch Leads</p>
-                  <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?status=new&limit=50" \\\n  -H "Authorization: Bearer ${token}"`)}>
-                    <Copy className="h-3 w-3 mr-1" /> Copy cURL
-                  </Button>
-                </div>
-                <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?status=new&limit=50" \\
+                  <div className="rounded-lg bg-muted p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-medium">GET - Fetch Leads (यो Page को मात्र)</p>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?page_id=${selectedPageId}&limit=50" \\\n  -H "Authorization: Bearer ${token}"`)}>
+                        <Copy className="h-3 w-3 mr-1" /> Copy cURL
+                      </Button>
+                    </div>
+                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?page_id=${selectedPageId}&limit=50" \\
   -H "Authorization: Bearer <YOUR_TOKEN>"`}</pre>
-              </div>
+                  </div>
 
-              <div className="rounded-lg bg-muted p-3">
-                <p className="text-xs font-medium mb-2">Query Parameters (GET):</p>
-                <ul className="text-xs text-muted-foreground space-y-1">
-                  <li><code className="bg-background px-1 rounded">status</code> - Filter by status (new, hot, follow_up, closed)</li>
-                  <li><code className="bg-background px-1 rounded">page_id</code> - Filter by page ID</li>
-                  <li><code className="bg-background px-1 rounded">limit</code> - Max results (default: 100)</li>
-                </ul>
+                  <div className="rounded-lg bg-muted p-3">
+                    <p className="text-xs font-medium mb-2">Query Parameters (GET):</p>
+                    <ul className="text-xs text-muted-foreground space-y-1">
+                      <li><code className="bg-background px-1 rounded">page_id</code> - Page ID (माथि select गरेको auto-fill हुन्छ)</li>
+                      <li><code className="bg-background px-1 rounded">status</code> - Filter by status (new, hot, follow_up, closed)</li>
+                      <li><code className="bg-background px-1 rounded">limit</code> - Max results (default: 100)</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </TabsContent>
