@@ -52,6 +52,7 @@ serve(async (req) => {
       const url = new URL(req.url);
       const status = url.searchParams.get("status");
       const pageId = url.searchParams.get("page_id");
+      const pageIds = url.searchParams.get("page_ids"); // comma-separated
       const limit = parseInt(url.searchParams.get("limit") || "100");
 
       let query = supabase
@@ -62,7 +63,14 @@ serve(async (req) => {
         .limit(Math.min(limit, 500));
 
       if (status) query = query.eq("status", status);
-      if (pageId) query = query.eq("page_id", pageId);
+      
+      // Support multiple page_ids (comma-separated) or single page_id
+      if (pageIds) {
+        const ids = pageIds.split(",").map(id => id.trim()).filter(Boolean);
+        if (ids.length > 0) query = query.in("page_id", ids);
+      } else if (pageId) {
+        query = query.eq("page_id", pageId);
+      }
 
       const { data, error } = await query;
       if (error) throw error;

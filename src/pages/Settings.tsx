@@ -164,9 +164,8 @@ function APITab() {
   const baseUrl = import.meta.env.VITE_SUPABASE_URL;
   const { session } = useAuth();
   const [showToken, setShowToken] = useState(false);
-  const [selectedPageId, setSelectedPageId] = useState<string>("");
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
   
-  // Fetch connected pages for the selector
   const { data: pages, isLoading: pagesLoading } = useQuery({
     queryKey: ["connected-pages-api"],
     queryFn: async () => {
@@ -180,6 +179,12 @@ function APITab() {
     },
   });
 
+  const togglePage = (pageId: string) => {
+    setSelectedPageIds(prev =>
+      prev.includes(pageId) ? prev.filter(id => id !== pageId) : [...prev, pageId]
+    );
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast.success("Copied!");
@@ -187,7 +192,8 @@ function APITab() {
 
   const leadsEndpoint = `${baseUrl}/functions/v1/leads-api`;
   const token = session?.access_token || "";
-  const selectedPage = pages?.find(p => p.id === selectedPageId);
+  const selectedPages = pages?.filter(p => selectedPageIds.includes(p.id)) || [];
+  const pageIdsParam = selectedPageIds.join(",");
 
   return (
     <TabsContent value="api" className="space-y-6">
@@ -205,29 +211,41 @@ function APITab() {
         </CardHeader>
         <CardContent className="space-y-6">
 
-          {/* Page Selector */}
+          {/* Multi Page Selector */}
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Page Select गर्नुहोस्</Label>
-            <Select value={selectedPageId} onValueChange={setSelectedPageId}>
-              <SelectTrigger>
-                <SelectValue placeholder={pagesLoading ? "Loading..." : "-- Page छान्नुहोस् --"} />
-              </SelectTrigger>
-              <SelectContent>
+            <Label className="text-sm font-medium">Pages Select गर्नुहोस् (Multiple)</Label>
+            {pagesLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading pages...</div>
+            ) : (
+              <div className="space-y-2">
                 {pages?.map(page => (
-                  <SelectItem key={page.id} value={page.id}>{page.page_name}</SelectItem>
+                  <label key={page.id} className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedPageIds.includes(page.id)}
+                      onChange={() => togglePage(page.id)}
+                      className="h-4 w-4 rounded border-border"
+                    />
+                    <span className="text-sm font-medium">{page.page_name}</span>
+                  </label>
                 ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">API बाट lead create गर्दा यो page मा मात्र जान्छ। GET गर्दा पनि यो page को मात्र leads आउँछ।</p>
+                {(!pages || pages.length === 0) && (
+                  <p className="text-sm text-muted-foreground">कुनै active page छैन।</p>
+                )}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Select गरेका pages मा मात्र lead जान्छ। GET गर्दा पनि यी pages को मात्र leads आउँछ।
+            </p>
           </div>
 
-          {!selectedPageId && (
+          {selectedPageIds.length === 0 && (
             <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4 text-center">
-              <p className="text-sm text-muted-foreground">कृपया पहिले माथिबाट Page select गर्नुहोस् API credentials हेर्नको लागि।</p>
+              <p className="text-sm text-muted-foreground">कृपया कम्तीमा एउटा Page select गर्नुहोस् API credentials हेर्नको लागि।</p>
             </div>
           )}
 
-          {selectedPageId && (
+          {selectedPageIds.length > 0 && (
             <>
               {/* API Token */}
               <div className="space-y-2">
@@ -240,7 +258,7 @@ function APITab() {
                       <span className="tracking-widest">••••••••••••••••••••••••••••••••••••</span>
                     )}
                   </div>
-                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => setShowToken(!showToken)} title={showToken ? "Hide" : "Show"}>
+                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => setShowToken(!showToken)}>
                     {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                   </Button>
                   <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(token)} disabled={!token}>
@@ -261,15 +279,28 @@ function APITab() {
                 </div>
               </div>
 
-              {/* Selected Page Info */}
-              <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
-                <p className="text-xs font-medium">Selected Page</p>
-                <p className="text-sm font-semibold">{selectedPage?.page_name}</p>
-                <div className="flex items-center gap-2">
-                  <code className="text-xs font-mono text-muted-foreground break-all">{selectedPageId}</code>
-                  <Button variant="ghost" size="sm" className="h-5 px-1" onClick={() => copyToClipboard(selectedPageId)}>
-                    <Copy className="h-3 w-3" />
-                  </Button>
+              {/* Selected Pages Info */}
+              <div className="rounded-lg border bg-muted/50 p-3 space-y-2">
+                <p className="text-xs font-medium">Selected Pages ({selectedPages.length})</p>
+                {selectedPages.map(page => (
+                  <div key={page.id} className="flex items-center justify-between gap-2">
+                    <span className="text-sm">{page.page_name}</span>
+                    <div className="flex items-center gap-1">
+                      <code className="text-[10px] font-mono text-muted-foreground">{page.id.slice(0, 8)}...</code>
+                      <Button variant="ghost" size="sm" className="h-5 px-1" onClick={() => copyToClipboard(page.id)}>
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <div className="pt-1 border-t">
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs font-mono text-muted-foreground break-all flex-1">{pageIdsParam}</code>
+                    <Button variant="ghost" size="sm" className="h-5 px-1" onClick={() => copyToClipboard(pageIdsParam)}>
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">All Page IDs (comma-separated)</p>
                 </div>
               </div>
 
@@ -281,7 +312,8 @@ function APITab() {
                   <li>तपाईंको system (CRM, form, website) मा API/Webhook integration खोल्नुहोस्</li>
                   <li>URL मा माथिको <strong>API Base URL</strong> paste गर्नुहोस्</li>
                   <li>Header मा <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;Token&gt;</code> set गर्नुहोस्</li>
-                  <li>Body मा <code className="bg-muted px-1 rounded">page_id</code> field मा माथिको Page ID राख्नुहोस्</li>
+                  <li>Body मा <code className="bg-muted px-1 rounded">page_id</code> field मा कुनै एउटा Page ID राख्नुहोस्</li>
+                  <li>GET गर्दा <code className="bg-muted px-1 rounded">page_ids</code> param मा comma-separated IDs पठाउनुहोस्</li>
                 </ol>
               </div>
 
@@ -292,8 +324,8 @@ function APITab() {
                 <div className="space-y-3">
                   <div className="rounded-lg bg-muted p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium">POST - Create Lead</p>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Seat Cover","source":"Website Form","status":"new","page_id":"${selectedPageId}"}'`)}>
+                      <p className="text-xs font-medium">POST - Create Lead (एउटा page मा)</p>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Seat Cover","source":"Website Form","status":"new","page_id":"${selectedPageIds[0]}"}'`)}>
                         <Copy className="h-3 w-3 mr-1" /> Copy cURL
                       </Button>
                     </div>
@@ -306,25 +338,26 @@ function APITab() {
     "product": "Seat Cover",
     "source": "Website Form",
     "status": "new",
-    "page_id": "${selectedPageId}"
+    "page_id": "${selectedPageIds[0]}"
   }'`}</pre>
                   </div>
 
                   <div className="rounded-lg bg-muted p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium">GET - Fetch Leads (यो Page को मात्र)</p>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?page_id=${selectedPageId}&limit=50" \\\n  -H "Authorization: Bearer ${token}"`)}>
+                      <p className="text-xs font-medium">GET - Fetch Leads (Selected Pages को मात्र)</p>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?page_ids=${pageIdsParam}&limit=50" \\\n  -H "Authorization: Bearer ${token}"`)}>
                         <Copy className="h-3 w-3 mr-1" /> Copy cURL
                       </Button>
                     </div>
-                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?page_id=${selectedPageId}&limit=50" \\
+                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?page_ids=${pageIdsParam}&limit=50" \\
   -H "Authorization: Bearer <YOUR_TOKEN>"`}</pre>
                   </div>
 
                   <div className="rounded-lg bg-muted p-3">
                     <p className="text-xs font-medium mb-2">Query Parameters (GET):</p>
                     <ul className="text-xs text-muted-foreground space-y-1">
-                      <li><code className="bg-background px-1 rounded">page_id</code> - Page ID (माथि select गरेको auto-fill हुन्छ)</li>
+                      <li><code className="bg-background px-1 rounded">page_ids</code> - Comma-separated Page IDs (selected pages को leads मात्र)</li>
+                      <li><code className="bg-background px-1 rounded">page_id</code> - Single Page ID filter</li>
                       <li><code className="bg-background px-1 rounded">status</code> - Filter by status (new, hot, follow_up, closed)</li>
                       <li><code className="bg-background px-1 rounded">limit</code> - Max results (default: 100)</li>
                     </ul>
