@@ -85,9 +85,29 @@ serve(async (req) => {
       const body = await req.json();
       const { full_name, phone, product, source, status, notes, page_id } = body;
 
+      if (!page_id) {
+        return new Response(JSON.stringify({ error: "page_id is required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       if (!full_name && !phone) {
         return new Response(JSON.stringify({ error: "full_name or phone is required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Validate page belongs to user's organization
+      const { data: page } = await supabase
+        .from("connected_pages")
+        .select("id")
+        .eq("id", page_id)
+        .eq("organization_id", orgId)
+        .single();
+
+      if (!page) {
+        return new Response(JSON.stringify({ error: "Invalid page_id - page not found in your organization" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
@@ -100,7 +120,7 @@ serve(async (req) => {
           source: source || "API",
           status: status || "new",
           notes: notes || null,
-          page_id: page_id || null,
+          page_id: page_id,
           organization_id: orgId,
         })
         .select()
