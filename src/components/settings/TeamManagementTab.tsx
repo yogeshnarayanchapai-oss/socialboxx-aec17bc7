@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, UserPlus, Shield, Eye, Pencil } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Shield, Eye, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { useTeamMembers, useInviteTeamMember, useRemoveTeamMember, useUpdatePageAccess } from "@/hooks/useTeamMembers";
 import { useConnectedPages } from "@/hooks/usePages";
@@ -37,20 +37,37 @@ export function TeamManagementTab() {
   const updateAccess = useUpdatePageAccess();
 
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState("agent");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [accessDialogMember, setAccessDialogMember] = useState<string | null>(null);
+  // Page access state for invite dialog
+  const [invitePageAccess, setInvitePageAccess] = useState<Record<string, string>>({});
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !orgId) return;
     try {
-      await inviteMember.mutateAsync({
+      const userId = await inviteMember.mutateAsync({
         email: inviteEmail.trim(),
         organizationId: orgId,
         role: inviteRole,
+        name: inviteName.trim() || undefined,
       });
+      // Set page access for the newly added member
+      for (const [pageId, level] of Object.entries(invitePageAccess)) {
+        if (level !== "none") {
+          await updateAccess.mutateAsync({
+            userId,
+            organizationId: orgId,
+            pageId,
+            accessLevel: level,
+          });
+        }
+      }
       toast.success("Team member added!");
       setInviteEmail("");
+      setInviteName("");
+      setInvitePageAccess({});
       setInviteDialogOpen(false);
     } catch (error: any) {
       toast.error(error.message || "Failed to invite member");
@@ -97,21 +114,32 @@ export function TeamManagementTab() {
             <CardTitle>Team Members</CardTitle>
             <CardDescription>Manage team access and page permissions</CardDescription>
           </div>
-          <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+          <Dialog open={inviteDialogOpen} onOpenChange={(open) => {
+            setInviteDialogOpen(open);
+            if (!open) { setInvitePageAccess({}); setInviteName(""); }
+          }}>
             <DialogTrigger asChild>
               <Button size="sm">
                 <UserPlus className="mr-2 h-4 w-4" />
                 Add Member
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Add Team Member</DialogTitle>
                 <DialogDescription>
                   The user must have an existing account. Enter their registered email.
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4 py-2">
+              <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto">
+                <div className="space-y-2">
+                  <Label>Name</Label>
+                  <Input
+                    placeholder="Member's name"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value)}
+                  />
+                </div>
                 <div className="space-y-2">
                   <Label>Email</Label>
                   <Input
@@ -133,6 +161,48 @@ export function TeamManagementTab() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Page Access Section in Invite Dialog */}
+                {pages && pages.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Page Access</Label>
+                    <p className="text-xs text-muted-foreground">कुन page मा कस्तो access दिने?</p>
+                    <div className="space-y-2 rounded-lg border p-3">
+                      {pages.map((page) => (
+                        <div
+                          key={page.id}
+                          className="flex items-center justify-between gap-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            {page.page_picture_url ? (
+                              <img src={page.page_picture_url} className="h-7 w-7 rounded-full flex-shrink-0" alt="" />
+                            ) : (
+                              <div className="h-7 w-7 rounded-full bg-muted flex-shrink-0" />
+                            )}
+                            <span className="text-sm truncate">{page.page_name}</span>
+                          </div>
+                          <Select
+                            value={invitePageAccess[page.id] || "none"}
+                            onValueChange={(val) => setInvitePageAccess(prev => ({ ...prev, [page.id]: val }))}
+                          >
+                            <SelectTrigger className="w-[100px] h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No Access</SelectItem>
+                              <SelectItem value="view">
+                                <span className="flex items-center gap-1"><Eye className="h-3 w-3" /> View</span>
+                              </SelectItem>
+                              <SelectItem value="edit">
+                                <span className="flex items-center gap-1"><Pencil className="h-3 w-3" /> Edit</span>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button onClick={handleInvite} disabled={inviteMember.isPending || !inviteEmail.trim()}>

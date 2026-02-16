@@ -18,7 +18,6 @@ export function useTeamMembers(organizationId: string | undefined) {
     queryFn: async () => {
       if (!organizationId) return [];
 
-      // Get org members
       const { data: members, error } = await supabase
         .from("organization_members")
         .select("id, user_id, organization_id, role, created_at")
@@ -26,7 +25,6 @@ export function useTeamMembers(organizationId: string | undefined) {
 
       if (error) throw error;
 
-      // Get profiles for these users
       const userIds = members?.map((m) => m.user_id) ?? [];
       const { data: profiles } = await supabase
         .from("profiles")
@@ -37,7 +35,6 @@ export function useTeamMembers(organizationId: string | undefined) {
         profiles?.map((p) => [p.user_id, p]) ?? []
       );
 
-      // Get page access
       const { data: accessData } = await supabase
         .from("team_page_access")
         .select("user_id, page_id, access_level")
@@ -69,12 +66,13 @@ export function useInviteTeamMember() {
       email,
       organizationId,
       role,
+      name,
     }: {
       email: string;
       organizationId: string;
       role: string;
+      name?: string;
     }) => {
-      // Find user by email in profiles
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("user_id")
@@ -84,7 +82,6 @@ export function useInviteTeamMember() {
       if (profileError) throw profileError;
       if (!profile) throw new Error("No user found with this email. They must sign up first.");
 
-      // Check if already a member
       const { data: existing } = await supabase
         .from("organization_members")
         .select("id")
@@ -94,7 +91,6 @@ export function useInviteTeamMember() {
 
       if (existing) throw new Error("This user is already a team member.");
 
-      // Get current user for invited_by
       const { data: { user } } = await supabase.auth.getUser();
 
       const { error } = await supabase
@@ -107,6 +103,14 @@ export function useInviteTeamMember() {
         });
 
       if (error) throw error;
+
+      // Update the profile name if provided
+      if (name) {
+        await supabase
+          .from("profiles")
+          .update({ full_name: name })
+          .eq("user_id", profile.user_id);
+      }
 
       return profile.user_id;
     },
@@ -121,7 +125,6 @@ export function useRemoveTeamMember() {
 
   return useMutation({
     mutationFn: async (memberId: string) => {
-      // Remove page access first
       const { data: member } = await supabase
         .from("organization_members")
         .select("user_id, organization_id")
@@ -162,12 +165,11 @@ export function useUpdatePageAccess() {
       userId: string;
       organizationId: string;
       pageId: string;
-      accessLevel: string | null; // null = remove access
+      accessLevel: string | null;
     }) => {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (accessLevel === null) {
-        // Remove access
         const { error } = await supabase
           .from("team_page_access")
           .delete()
@@ -175,7 +177,6 @@ export function useUpdatePageAccess() {
           .eq("page_id", pageId);
         if (error) throw error;
       } else {
-        // Upsert access
         const { error } = await supabase
           .from("team_page_access")
           .upsert(

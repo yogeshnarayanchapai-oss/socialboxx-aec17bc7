@@ -695,6 +695,28 @@ serve(async (req) => {
           // AI reply logic
           if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
+
+            // Check if this is a lead conversation with a long gap (15+ days)
+            let longGapConfirmation = false;
+            if (conversationTags.includes("lead-created") && !isFirstMessage) {
+              const { data: lastPageMsg } = await supabase
+                .from("messages")
+                .select("created_at")
+                .eq("conversation_id", conversationId)
+                .eq("sender_type", "customer")
+                .order("created_at", { ascending: false })
+                .limit(2);
+              
+              if (lastPageMsg && lastPageMsg.length >= 2) {
+                const latestTs = new Date(lastPageMsg[0].created_at).getTime();
+                const prevTs = new Date(lastPageMsg[1].created_at).getTime();
+                const daysDiff = (latestTs - prevTs) / (1000 * 60 * 60 * 24);
+                if (daysDiff >= 15) {
+                  longGapConfirmation = true;
+                  console.log(`Long gap detected: ${daysDiff.toFixed(1)} days between messages. Will ask AI to confirm number.`);
+                }
+              }
+            }
             
             // Customer replied - reset follow-up timer
             const followupSettings = (page as any).ai_followup_settings;
@@ -794,6 +816,7 @@ serve(async (req) => {
                           businessDescription: page.ai_description || "",
                           aiInstructions: (page as any).ai_instructions || "",
                           imageUrls: unrepliedImageUrls.length > 0 ? unrepliedImageUrls : undefined,
+                          longGapConfirmation,
                         }),
                       }
                     );

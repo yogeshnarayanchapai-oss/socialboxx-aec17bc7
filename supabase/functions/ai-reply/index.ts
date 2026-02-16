@@ -38,7 +38,7 @@ serve(async (req) => {
       }
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation } = await req.json();
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -95,6 +95,13 @@ Follow these instructions EXACTLY as written. These are from the page owner and 
 
 ${aiInstructions}
 ===== END OF PAGE OWNER'S INSTRUCTIONS =====
+` : ''}
+
+${longGapConfirmation ? `
+IMPORTANT - LONG GAP DETECTED:
+This customer previously gave their phone number and was marked as a lead. After a gap of 15+ days, they sent a new message. This might be a NEW inquiry.
+You MUST first confirm their number by saying something like: "तपाईंको नम्बर यही xxxxxxxxxx हो नि है? नयाँ inquiry को लागि हो?" (use the language from instructions, and reference their actual phone from conversation history if visible).
+Then address their new message normally.
 ` : ''}
 
 Conversation so far:
