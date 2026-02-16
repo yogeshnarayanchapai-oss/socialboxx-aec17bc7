@@ -738,107 +738,153 @@ serve(async (req) => {
                             last_message_at: new Date().toISOString(),
                           }).eq("id", conversationId);
 
-                          // AI-based lead creation
-                          if (leadAction?.should_create && leadAction.phone && !hasLeadTag) {
-                            console.log("AI detected valid lead with phone:", leadAction.phone);
-                            
+                          // AI-based lead creation / update
+                          if (leadAction?.should_create && leadAction.phone) {
                             const rawPhone = leadAction.phone;
-                            // Normalize for dedup
                             const normalizedPhone = rawPhone.replace(/\D/g, '').slice(-10);
 
-                            // Dedup check
-                            const { data: existingLead } = await supabase
-                              .from("leads")
-                              .select("id")
-                              .eq("organization_id", page.organization_id)
-                              .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-                              .maybeSingle();
-
-                            if (existingLead) {
-                              await supabase.from("leads").update({
-                                conversation_id: conversationId,
-                                last_message: message.text?.substring(0, 200),
-                                updated_at: new Date().toISOString(),
-                              }).eq("id", existingLead.id);
-                            } else {
-                              const { data: conv } = await supabase
-                                .from("conversations")
-                                .select("participant_name")
-                                .eq("id", conversationId)
-                                .single();
-
-                              // AI-powered remark generation
-                              let remark = "No Inquiry";
-                              const { data: recentCustMsgs } = await supabase
-                                .from("messages")
-                                .select("content, sender_type")
+                            if (hasLeadTag) {
+                              // Lead already exists — update phone number on existing lead for this conversation
+                              console.log("Updating existing lead with new phone:", rawPhone);
+                              const { data: existingLeadByConv } = await supabase
+                                .from("leads")
+                                .select("id")
                                 .eq("conversation_id", conversationId)
-                                .eq("sender_type", "customer")
-                                .order("created_at", { ascending: false })
-                                .limit(10);
+                                .eq("organization_id", page.organization_id)
+                                .maybeSingle();
 
-                              if (recentCustMsgs && recentCustMsgs.length > 0) {
-                                const inquiryTexts = recentCustMsgs
-                                  .map((m: any) => m.content || "")
-                                  .filter((t: string) => {
-                                    const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
-                                    return t.trim().length > 0 && !/^\d{9,}$/.test(stripped);
-                                  })
-                                  .reverse();
+                              if (existingLeadByConv) {
+                                await supabase.from("leads").update({
+                                  phone: rawPhone,
+                                  last_message: message.text?.substring(0, 200),
+                                  updated_at: new Date().toISOString(),
+                                }).eq("id", existingLeadByConv.id);
+                                console.log("Updated existing lead phone to:", rawPhone);
+                              } else {
+                                // Lead tag exists but lead record was deleted — recreate it
+                                console.log("Lead tag exists but no lead record found, creating new lead");
+                                const { data: conv } = await supabase
+                                  .from("conversations")
+                                  .select("participant_name")
+                                  .eq("id", conversationId)
+                                  .single();
 
-                                if (inquiryTexts.length > 0) {
-                                  try {
-                                    const aiSummaryResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                                      method: "POST",
-                                      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        model: "google/gemini-2.5-flash-lite",
-                                        messages: [
-                                          { role: "system", content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary." },
-                                          { role: "user", content: `Customer messages:\n${inquiryTexts.join('\n')}` }
-                                        ],
-                                      }),
-                                    });
-                                    if (aiSummaryResponse.ok) {
-                                      const summaryData = await aiSummaryResponse.json();
-                                      const summary = summaryData.choices?.[0]?.message?.content?.trim();
-                                      remark = summary && summary.length > 0 ? summary.substring(0, 200) : inquiryTexts.join(' | ').substring(0, 500);
-                                    } else {
+                                const { error: insertErr } = await supabase.from("leads").insert({
+                                  phone: rawPhone,
+                                  full_name: conv?.participant_name,
+                                  conversation_id: conversationId,
+                                  page_id: page.id,
+                                  source: page.page_name,
+                                  product: (page as any).product_name || null,
+                                  last_message: message.text?.substring(0, 200),
+                                  status: "new",
+                                  organization_id: page.organization_id,
+                                  remark: "No Inquiry",
+                                });
+                                if (insertErr) console.error("Lead re-creation error:", insertErr);
+                                else console.log("Lead re-created successfully");
+                              }
+                            } else {
+                              // New lead — dedup check then create
+                              console.log("AI detected valid lead with phone:", rawPhone);
+
+                              // Dedup check by phone
+                              const { data: existingLead } = await supabase
+                                .from("leads")
+                                .select("id")
+                                .eq("organization_id", page.organization_id)
+                                .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+                                .maybeSingle();
+
+                              if (existingLead) {
+                                await supabase.from("leads").update({
+                                  conversation_id: conversationId,
+                                  last_message: message.text?.substring(0, 200),
+                                  updated_at: new Date().toISOString(),
+                                }).eq("id", existingLead.id);
+                              } else {
+                                const { data: conv } = await supabase
+                                  .from("conversations")
+                                  .select("participant_name")
+                                  .eq("id", conversationId)
+                                  .single();
+
+                                // AI-powered remark generation
+                                let remark = "No Inquiry";
+                                const { data: recentCustMsgs } = await supabase
+                                  .from("messages")
+                                  .select("content, sender_type")
+                                  .eq("conversation_id", conversationId)
+                                  .eq("sender_type", "customer")
+                                  .order("created_at", { ascending: false })
+                                  .limit(10);
+
+                                if (recentCustMsgs && recentCustMsgs.length > 0) {
+                                  const inquiryTexts = recentCustMsgs
+                                    .map((m: any) => m.content || "")
+                                    .filter((t: string) => {
+                                      const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
+                                      return t.trim().length > 0 && !/^\d{9,}$/.test(stripped);
+                                    })
+                                    .reverse();
+
+                                  if (inquiryTexts.length > 0) {
+                                    try {
+                                      const aiSummaryResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                                        method: "POST",
+                                        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          model: "google/gemini-2.5-flash-lite",
+                                          messages: [
+                                            { role: "system", content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary." },
+                                            { role: "user", content: `Customer messages:\n${inquiryTexts.join('\n')}` }
+                                          ],
+                                        }),
+                                      });
+                                      if (aiSummaryResponse.ok) {
+                                        const summaryData = await aiSummaryResponse.json();
+                                        const summary = summaryData.choices?.[0]?.message?.content?.trim();
+                                        remark = summary && summary.length > 0 ? summary.substring(0, 200) : inquiryTexts.join(' | ').substring(0, 500);
+                                      } else {
+                                        remark = inquiryTexts.join(' | ').substring(0, 500);
+                                      }
+                                    } catch {
                                       remark = inquiryTexts.join(' | ').substring(0, 500);
                                     }
-                                  } catch {
-                                    remark = inquiryTexts.join(' | ').substring(0, 500);
                                   }
+                                }
+
+                                const { error: insertErr } = await supabase.from("leads").insert({
+                                  phone: rawPhone,
+                                  full_name: conv?.participant_name,
+                                  conversation_id: conversationId,
+                                  page_id: page.id,
+                                  source: page.page_name,
+                                  product: (page as any).product_name || null,
+                                  last_message: message.text?.substring(0, 200),
+                                  status: "new",
+                                  organization_id: page.organization_id,
+                                  remark,
+                                });
+                                if (insertErr) {
+                                  console.error("Lead creation error:", insertErr);
                                 }
                               }
 
-                              await supabase.from("leads").insert({
-                                phone: rawPhone,
-                                full_name: conv?.participant_name,
-                                conversation_id: conversationId,
-                                page_id: page.id,
-                                source: page.page_name,
-                                product: (page as any).product_name || null,
-                                last_message: message.text?.substring(0, 200),
-                                status: "new",
-                                organization_id: page.organization_id,
-                                remark,
-                              });
-                            }
+                              // Tag conversation as lead-created
+                              if (!conversationTags.includes("lead-created")) {
+                                await supabase.from("conversations").update({
+                                  tags: [...conversationTags, "lead-created"],
+                                }).eq("id", conversationId);
+                                conversationTags = [...conversationTags, "lead-created"];
+                              }
 
-                            // Tag conversation as lead-created
-                            if (!conversationTags.includes("lead-created")) {
+                              // Stop follow-up after lead created
                               await supabase.from("conversations").update({
-                                tags: [...conversationTags, "lead-created"],
+                                ai_followup_step: null,
+                                ai_followup_next_at: null,
                               }).eq("id", conversationId);
-                              conversationTags = [...conversationTags, "lead-created"];
                             }
-
-                            // Stop follow-up after lead created
-                            await supabase.from("conversations").update({
-                              ai_followup_step: null,
-                              ai_followup_next_at: null,
-                            }).eq("id", conversationId);
                           }
                             
                           // Start AI follow-up tracking if no lead yet
