@@ -212,7 +212,7 @@ export type Database = {
           connection_status: string
           created_at: string
           id: string
-          organization_id: string | null
+          organization_id: string
           page_access_token: string
           page_id: string
           page_name: string
@@ -241,7 +241,7 @@ export type Database = {
           connection_status?: string
           created_at?: string
           id?: string
-          organization_id?: string | null
+          organization_id: string
           page_access_token: string
           page_id: string
           page_name: string
@@ -270,7 +270,7 @@ export type Database = {
           connection_status?: string
           created_at?: string
           id?: string
-          organization_id?: string | null
+          organization_id?: string
           page_access_token?: string
           page_id?: string
           page_name?: string
