@@ -742,7 +742,13 @@ serve(async (req) => {
                           // AI-based lead creation / update
                           if (leadAction?.should_create && leadAction.phone) {
                             const rawPhone = leadAction.phone;
-                            const normalizedPhone = rawPhone.replace(/\D/g, '').slice(-10);
+                            const digitsOnly = rawPhone.replace(/\D/g, '');
+                            const normalizedPhone = digitsOnly.slice(-10);
+
+                            // Validate: must be exactly 10 digits (Nepal mobile)
+                            if (digitsOnly.length < 10) {
+                              console.log(`Invalid phone: ${rawPhone} has only ${digitsOnly.length} digits, skipping lead creation`);
+                            } else {
 
                             if (hasLeadTag) {
                               // Lead already exists — create a NEW separate lead with the new phone
@@ -868,6 +874,7 @@ serve(async (req) => {
                                 ai_followup_next_at: null,
                               }).eq("id", conversationId);
                             }
+                            } // end digit validation else
                           }
                             
                           // Start AI follow-up tracking if no lead yet
