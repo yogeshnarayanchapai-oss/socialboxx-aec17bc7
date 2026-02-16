@@ -163,6 +163,8 @@ function FacebookIntegrationTab() {
 function APITab() {
   const baseUrl = import.meta.env.VITE_SUPABASE_URL;
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [selectedPages, setSelectedPages] = useState<string[]>([]);
+  const [creating, setCreating] = useState(false);
   
   const { data: pages, isLoading: pagesLoading } = useQuery({
     queryKey: ["connected-pages-api"],
@@ -178,38 +180,94 @@ function APITab() {
   });
 
   const { data: apiKeys, isLoading: keysLoading, refetch: refetchKeys } = useQuery({
-    queryKey: ["api-integrations"],
+    queryKey: ["api-integrations-combined"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: integrations, error } = await supabase
         .from("api_integrations")
-        .select("*");
+        .select("*")
+        .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as { id: string; page_id: string; api_key: string; is_active: boolean }[];
+
+      // Fetch linked pages for each integration
+      const ids = (integrations || []).map(i => i.id);
+      if (ids.length === 0) return [];
+
+      const { data: linkedPages } = await supabase
+        .from("api_integration_pages")
+        .select("integration_id, page_id, connected_pages:page_id(page_name)")
+        .in("integration_id", ids);
+
+      return (integrations || []).map(int => ({
+        ...int,
+        linked_pages: (linkedPages || [])
+          .filter(lp => lp.integration_id === int.id)
+          .map(lp => ({
+            page_id: lp.page_id,
+            page_name: (lp.connected_pages as any)?.page_name || "Unknown",
+          })),
+      }));
     },
   });
 
-  const generateKey = async (pageId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { toast.error("Please login first"); return; }
-    
-    const { data: org } = await supabase
-      .from("organization_members")
-      .select("organization_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (!org) { toast.error("Organization not found"); return; }
+  const togglePageSelection = (pageId: string) => {
+    setSelectedPages(prev => 
+      prev.includes(pageId) ? prev.filter(id => id !== pageId) : [...prev, pageId]
+    );
+  };
 
-    const { error } = await supabase
-      .from("api_integrations")
-      .upsert({
-        organization_id: org.organization_id,
+  const generateCombinedKey = async () => {
+    if (selectedPages.length === 0) {
+      toast.error("कम्तिमा एउटा page select गर्नुहोस्");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { toast.error("Please login first"); return; }
+      
+      const { data: org } = await supabase
+        .from("organization_members")
+        .select("organization_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!org) { toast.error("Organization not found"); return; }
+
+      // Create the API integration entry
+      const { data: newKey, error: keyError } = await supabase
+        .from("api_integrations")
+        .insert({
+          organization_id: org.organization_id,
+          is_active: true,
+          label: selectedPages.length === 1 
+            ? pages?.find(p => p.id === selectedPages[0])?.page_name 
+            : `${selectedPages.length} Pages Combined`,
+        })
+        .select()
+        .single();
+
+      if (keyError) throw keyError;
+
+      // Link selected pages
+      const pageLinks = selectedPages.map(pageId => ({
+        integration_id: newKey.id,
         page_id: pageId,
-        is_active: true,
-      }, { onConflict: "organization_id,page_id" });
+      }));
 
-    if (error) { toast.error("Failed to generate API key"); return; }
-    toast.success("API Key generated!");
-    refetchKeys();
+      const { error: linkError } = await supabase
+        .from("api_integration_pages")
+        .insert(pageLinks);
+
+      if (linkError) throw linkError;
+
+      toast.success("API Key generated!");
+      setSelectedPages([]);
+      refetchKeys();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate API key");
+    } finally {
+      setCreating(false);
+    }
   };
 
   const toggleKeyActive = async (integrationId: string, currentActive: boolean) => {
@@ -218,6 +276,17 @@ function APITab() {
       .update({ is_active: !currentActive })
       .eq("id", integrationId);
     if (error) { toast.error("Failed to update"); return; }
+    toast.success(currentActive ? "API Key disabled" : "API Key enabled");
+    refetchKeys();
+  };
+
+  const deleteKey = async (integrationId: string) => {
+    const { error } = await supabase
+      .from("api_integrations")
+      .delete()
+      .eq("id", integrationId);
+    if (error) { toast.error("Failed to delete"); return; }
+    toast.success("API Key deleted");
     refetchKeys();
   };
 
@@ -227,8 +296,6 @@ function APITab() {
   };
 
   const leadsEndpoint = `${baseUrl}/functions/v1/leads-api`;
-
-  const getKeyForPage = (pageId: string) => apiKeys?.find(k => k.page_id === pageId);
 
   return (
     <TabsContent value="api" className="space-y-6">
@@ -240,7 +307,7 @@ function APITab() {
             </div>
             <div>
               <CardTitle>API Integration</CardTitle>
-              <CardDescription>प्रत्येक page को लागि unique API Key — third-party मा key र URL मात्र राख्नुहोस्</CardDescription>
+              <CardDescription>Page select गरेर combined API Key generate गर्नुहोस्</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -250,13 +317,14 @@ function APITab() {
           <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-2">
             <p className="text-sm font-medium">कसरी काम गर्छ?</p>
             <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1">
-              <li>जुन page को lead चाहिन्छ त्यसको <strong>API Key Generate</strong> गर्नुहोस्</li>
-              <li><strong>API Key</strong> र <strong>URL</strong> copy गरेर third-party system मा paste गर्नुहोस्</li>
-              <li>Third-party ले lead पठाउँदा automatically सही page मा जान्छ — page_id चाहिँदैन!</li>
+              <li>जुन-जुन page को lead चाहिन्छ ती select गर्नुहोस्</li>
+              <li><strong>Generate API Key</strong> थिच्नुहोस् — एउटा combined key बन्छ</li>
+              <li>Third-party मा key र URL paste गर्नुहोस् — select गरिएका page को lead मात्र आउँछ</li>
+              <li>फरक page group को लागि अर्को API Key बनाउन सकिन्छ</li>
             </ol>
           </div>
 
-          {/* API Base URL - always visible */}
+          {/* API Base URL */}
           <div className="space-y-2">
             <Label className="text-sm font-medium">API Base URL</Label>
             <div className="flex items-center gap-2">
@@ -267,90 +335,126 @@ function APITab() {
             </div>
           </div>
 
-          {/* Per-page API Keys */}
-          {(pagesLoading || keysLoading) ? (
+          {/* Page Selection & Generate */}
+          {pagesLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
           ) : (
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Pages & API Keys</Label>
-              {pages?.map(page => {
-                const existingKey = getKeyForPage(page.id);
-                const isVisible = showKeys[page.id] || false;
-                return (
-                  <div key={page.id} className="rounded-lg border p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{page.page_name}</span>
-                        {existingKey && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${existingKey.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {existingKey.is_active ? 'Active' : 'Disabled'}
-                          </span>
-                        )}
-                      </div>
-                      {!existingKey ? (
-                        <Button size="sm" onClick={() => generateKey(page.id)}>
-                          Generate API Key
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant={existingKey.is_active ? "destructive" : "default"}
-                          onClick={() => toggleKeyActive(existingKey.id, existingKey.is_active)}
-                        >
-                          {existingKey.is_active ? "Disable" : "Enable"}
-                        </Button>
-                      )}
-                    </div>
-
-                    {existingKey && (
-                      <>
-                        {/* API Key */}
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 rounded bg-muted p-2 text-xs font-mono break-all">
-                            {isVisible ? existingKey.api_key : '••••••••••••••••••••••••••••••••'}
-                          </div>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowKeys(prev => ({ ...prev, [page.id]: !prev[page.id] }))}>
-                            {isVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(existingKey.api_key)}>
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-
-                        {/* Ready cURL */}
-                        <div className="rounded bg-muted p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-medium">POST - Lead Create</p>
-                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "X-API-Key: ${existingKey.api_key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Example","source":"Website"}'`)}>
-                              <Copy className="h-3 w-3 mr-1" /> Copy
-                            </Button>
-                          </div>
-                          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
-  -H "X-API-Key: <YOUR_API_KEY>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"full_name":"John Doe","phone":"9841234567"}'`}</pre>
-                        </div>
-
-                        <div className="rounded bg-muted p-3 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-medium">GET - Fetch Leads</p>
-                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?limit=50" \\\n  -H "X-API-Key: ${existingKey.api_key}"`)}>
-                              <Copy className="h-3 w-3 mr-1" /> Copy
-                            </Button>
-                          </div>
-                          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?limit=50" \\
-  -H "X-API-Key: <YOUR_API_KEY>"`}</pre>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+              <Label className="text-sm font-medium">Pages Select गर्नुहोस्</Label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {pages?.map(page => (
+                  <label
+                    key={page.id}
+                    className={`flex items-center gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${
+                      selectedPages.includes(page.id) ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedPages.includes(page.id)}
+                      onChange={() => togglePageSelection(page.id)}
+                      className="rounded"
+                    />
+                    <span className="text-sm font-medium">{page.page_name}</span>
+                  </label>
+                ))}
+              </div>
               {(!pages || pages.length === 0) && (
                 <p className="text-sm text-muted-foreground">कुनै active page छैन। पहिले Pages section मा page connect गर्नुहोस्।</p>
               )}
+              <Button 
+                onClick={generateCombinedKey} 
+                disabled={selectedPages.length === 0 || creating}
+                className="w-full sm:w-auto"
+              >
+                {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Generate API Key ({selectedPages.length} page{selectedPages.length !== 1 ? 's' : ''})
+              </Button>
             </div>
           )}
+
+          {/* Saved API Keys */}
+          {keysLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+          ) : apiKeys && apiKeys.length > 0 ? (
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Saved API Keys</Label>
+              {apiKeys.map(key => {
+                const isVisible = showKeys[key.id] || false;
+                return (
+                  <div key={key.id} className="rounded-lg border p-4 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm">{key.label || 'API Key'}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${key.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {key.is_active ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant={key.is_active ? "destructive" : "default"}
+                          onClick={() => toggleKeyActive(key.id, key.is_active ?? true)}
+                        >
+                          {key.is_active ? "Disable" : "Enable"}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => deleteKey(key.id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Linked Pages */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {key.linked_pages?.map((lp: any) => (
+                        <span key={lp.page_id} className="text-xs bg-muted px-2 py-1 rounded-full">
+                          {lp.page_name}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* API Key display */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 rounded bg-muted p-2 text-xs font-mono break-all">
+                        {isVisible ? key.api_key : '••••••••••••••••••••••••••••••••'}
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowKeys(prev => ({ ...prev, [key.id]: !prev[key.id] }))}>
+                        {isVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(key.api_key)}>
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+
+                    {/* cURL examples */}
+                    <div className="rounded bg-muted p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium">POST - Lead Create</p>
+                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "X-API-Key: ${key.api_key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Example","source":"Website"}'`)}>
+                          <Copy className="h-3 w-3 mr-1" /> Copy
+                        </Button>
+                      </div>
+                      <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
+  -H "X-API-Key: <YOUR_API_KEY>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"full_name":"John Doe","phone":"9841234567"}'`}</pre>
+                    </div>
+
+                    <div className="rounded bg-muted p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-medium">GET - Fetch Leads</p>
+                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?limit=50" \\\n  -H "X-API-Key: ${key.api_key}"`)}>
+                          <Copy className="h-3 w-3 mr-1" /> Copy
+                        </Button>
+                      </div>
+                      <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?limit=50" \\
+  -H "X-API-Key: <YOUR_API_KEY>"`}</pre>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </TabsContent>

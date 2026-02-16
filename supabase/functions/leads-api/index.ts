@@ -17,16 +17,15 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     let orgId: string;
-    let allowedPageId: string | null = null; // If API key auth, restrict to this page
+    let allowedPageIds: string[] = []; // Combined key can have multiple pages
 
-    // Check for X-API-Key header first (per-page API key)
+    // Check for X-API-Key header first
     const apiKey = req.headers.get("X-API-Key") || req.headers.get("x-api-key");
     
     if (apiKey) {
-      // Authenticate via per-page API key
       const { data: integration, error: intError } = await supabase
         .from("api_integrations")
-        .select("organization_id, page_id, is_active")
+        .select("id, organization_id, is_active")
         .eq("api_key", apiKey)
         .single();
 
@@ -43,7 +42,20 @@ serve(async (req) => {
       }
 
       orgId = integration.organization_id;
-      allowedPageId = integration.page_id;
+
+      // Get all pages linked to this key from junction table
+      const { data: linkedPages } = await supabase
+        .from("api_integration_pages")
+        .select("page_id")
+        .eq("integration_id", integration.id);
+
+      allowedPageIds = (linkedPages || []).map(p => p.page_id);
+
+      if (allowedPageIds.length === 0) {
+        return new Response(JSON.stringify({ error: "No pages linked to this API key" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     } else {
       // Fallback: JWT Bearer token auth
       const authHeader = req.headers.get("Authorization");
@@ -80,7 +92,6 @@ serve(async (req) => {
       const url = new URL(req.url);
       const status = url.searchParams.get("status");
       const pageId = url.searchParams.get("page_id");
-      const pageIds = url.searchParams.get("page_ids");
       const limit = parseInt(url.searchParams.get("limit") || "100");
 
       let query = supabase
@@ -92,12 +103,9 @@ serve(async (req) => {
 
       if (status) query = query.eq("status", status);
 
-      // If API key auth, force filter to that page only
-      if (allowedPageId) {
-        query = query.eq("page_id", allowedPageId);
-      } else if (pageIds) {
-        const ids = pageIds.split(",").map(id => id.trim()).filter(Boolean);
-        if (ids.length > 0) query = query.in("page_id", ids);
+      // If API key auth, restrict to allowed pages
+      if (allowedPageIds.length > 0) {
+        query = query.in("page_id", allowedPageIds);
       } else if (pageId) {
         query = query.eq("page_id", pageId);
       }
@@ -120,11 +128,25 @@ serve(async (req) => {
         });
       }
 
-      // Determine which page_id to use
       let finalPageId: string;
-      if (allowedPageId) {
-        // API key auth: always use the key's page, ignore body page_id
-        finalPageId = allowedPageId;
+
+      if (allowedPageIds.length > 0) {
+        // API key auth: use provided page_id if it's in allowed list, else use first allowed
+        if (page_id && allowedPageIds.includes(page_id)) {
+          finalPageId = page_id;
+        } else if (allowedPageIds.length === 1) {
+          finalPageId = allowedPageIds[0];
+        } else if (page_id) {
+          return new Response(JSON.stringify({ 
+            error: "page_id not allowed for this API key",
+            allowed_pages: allowedPageIds 
+          }), {
+            status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } else {
+          // Default to first page if only key has multiple pages and no page_id given
+          finalPageId = allowedPageIds[0];
+        }
       } else if (page_id) {
         // JWT auth: validate page_id belongs to org
         const { data: page } = await supabase
