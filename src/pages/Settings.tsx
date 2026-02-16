@@ -13,14 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings, useUpdateSettings, type AppSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacebookSettings, useUpdateFacebookSettings } from "@/hooks/useAppSettings";
-import { useIsPlatformAdmin } from "@/hooks/useOrganization";
+import { useIsPlatformAdmin, useOrganization } from "@/hooks/useOrganization";
 import { TeamManagementTab } from "@/components/settings/TeamManagementTab";
 
 // Facebook Integration Settings Component
@@ -38,7 +37,7 @@ function FacebookIntegrationTab() {
     if (fbSettings) {
       setAppId(fbSettings.facebook_app_id || "");
       setAppSecret(fbSettings.facebook_app_secret || "");
-      setWebhookToken(fbSettings.facebook_webhook_verify_token || "socialbox_verify_token");
+      setWebhookToken(fbSettings.facebook_webhook_verify_token || "");
     }
   }, [fbSettings]);
 
@@ -57,29 +56,12 @@ function FacebookIntegrationTab() {
 
   const handleTestConnection = async () => {
     setTestResult(null);
-    
-    if (!appId) {
-      toast.error("Please enter App ID first");
-      return;
-    }
-
+    if (!appId) { toast.error("Please enter App ID first"); return; }
     try {
-      // Simple test: try to initialize FB SDK with the app ID
-      const testResponse = await fetch(
-        `https://graph.facebook.com/v19.0/${appId}?fields=id,name`
-      );
-      
-      if (testResponse.ok) {
-        setTestResult("success");
-        toast.success("App ID is valid!");
-      } else {
-        setTestResult("error");
-        toast.error("Invalid App ID or App is not public");
-      }
-    } catch (error) {
-      setTestResult("error");
-      toast.error("Connection test failed");
-    }
+      const testResponse = await fetch(`https://graph.facebook.com/v19.0/${appId}?fields=id,name`);
+      if (testResponse.ok) { setTestResult("success"); toast.success("App ID is valid!"); }
+      else { setTestResult("error"); toast.error("Invalid App ID or App is not public"); }
+    } catch { setTestResult("error"); toast.error("Connection test failed"); }
   };
 
   if (isLoading) {
@@ -102,17 +84,13 @@ function FacebookIntegrationTab() {
             </div>
             <div>
               <CardTitle>Facebook App Configuration</CardTitle>
-              <CardDescription>
-                Configure your Facebook App credentials for OAuth login
-              </CardDescription>
+              <CardDescription>Configure your Facebook App credentials for OAuth login</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4">
-            <p className="text-sm text-muted-foreground">
-              <strong>Setup Instructions:</strong>
-            </p>
+            <p className="text-sm text-muted-foreground"><strong>Setup Instructions:</strong></p>
             <ol className="mt-2 list-decimal list-inside text-sm text-muted-foreground space-y-1">
               <li>Go to <a href="https://developers.facebook.com" target="_blank" rel="noopener" className="text-primary underline">developers.facebook.com</a></li>
               <li>Create or select your app</li>
@@ -126,17 +104,8 @@ function FacebookIntegrationTab() {
             <div className="space-y-2">
               <Label htmlFor="fb-app-id">Facebook App ID</Label>
               <div className="flex gap-2">
-                <Input
-                  id="fb-app-id"
-                  placeholder="Enter your Facebook App ID"
-                  value={appId}
-                  onChange={(e) => setAppId(e.target.value)}
-                />
-                <Button 
-                  variant="outline" 
-                  onClick={handleTestConnection}
-                  disabled={!appId}
-                >
+                <Input id="fb-app-id" placeholder="Enter your Facebook App ID" value={appId} onChange={(e) => setAppId(e.target.value)} />
+                <Button variant="outline" onClick={handleTestConnection} disabled={!appId}>
                   {testResult === "success" && <CheckCircle className="h-4 w-4 text-green-500 mr-1" />}
                   {testResult === "error" && <AlertCircle className="h-4 w-4 text-destructive mr-1" />}
                   Test
@@ -147,46 +116,24 @@ function FacebookIntegrationTab() {
             <div className="space-y-2">
               <Label htmlFor="fb-app-secret">Facebook App Secret</Label>
               <div className="relative">
-                <Input
-                  id="fb-app-secret"
-                  type={showSecret ? "text" : "password"}
-                  placeholder="Enter your Facebook App Secret"
-                  value={appSecret}
-                  onChange={(e) => setAppSecret(e.target.value)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7"
-                  onClick={() => setShowSecret(!showSecret)}
-                >
+                <Input id="fb-app-secret" type={showSecret ? "text" : "password"} placeholder="Enter your Facebook App Secret" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} />
+                <Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7" onClick={() => setShowSecret(!showSecret)}>
                   {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Required for long-lived token exchange and token refresh
-              </p>
+              <p className="text-xs text-muted-foreground">Required for long-lived token exchange and token refresh</p>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="webhook-token">Webhook Verify Token</Label>
-              <Input
-                id="webhook-token"
-                placeholder="socialbox_verify_token"
-                value={webhookToken}
-                onChange={(e) => setWebhookToken(e.target.value)}
-              />
+              <Input id="webhook-token" placeholder="Enter verify token" value={webhookToken} onChange={(e) => setWebhookToken(e.target.value)} />
               <p className="text-xs text-muted-foreground">
                 Use this token when setting up webhooks in Facebook Developer Console
               </p>
             </div>
           </div>
 
-          <Button 
-            onClick={handleSave}
-            disabled={updateFbSettings.isPending}
-          >
+          <Button onClick={handleSave} disabled={updateFbSettings.isPending}>
             {updateFbSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Facebook Settings
           </Button>
@@ -196,9 +143,7 @@ function FacebookIntegrationTab() {
       <Card>
         <CardHeader>
           <CardTitle>Webhook URL</CardTitle>
-          <CardDescription>
-            Use this URL when configuring webhooks in Facebook App settings
-          </CardDescription>
+          <CardDescription>Use this URL when configuring webhooks in Facebook App settings</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-lg bg-muted p-3 font-mono text-sm break-all">
@@ -213,21 +158,205 @@ function FacebookIntegrationTab() {
   );
 }
 
+// API Tab Component
+function APITab() {
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+  
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard!");
+  };
+
+  const leadsEndpoint = `${baseUrl}/functions/v1/leads-api`;
+
+  return (
+    <TabsContent value="api" className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <Code className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle>API Integration</CardTitle>
+              <CardDescription>Connect third-party systems using our API endpoints</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4">
+            <p className="text-sm text-muted-foreground">
+              <strong>Authentication:</strong> All API requests require your user token in the <code className="bg-muted px-1 rounded">Authorization: Bearer YOUR_TOKEN</code> header.
+            </p>
+          </div>
+
+          {/* Leads API */}
+          <div className="space-y-4 rounded-lg border p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base font-medium">Leads API</Label>
+                <p className="text-xs text-muted-foreground mt-1">Push/Pull leads from external CRM, forms, or other systems</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">GET - Fetch Leads</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded-lg bg-muted p-2 text-xs font-mono break-all">{leadsEndpoint}</code>
+                  <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => copyToClipboard(leadsEndpoint)}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">POST - Create Lead</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded-lg bg-muted p-2 text-xs font-mono break-all">{leadsEndpoint}</code>
+                  <Button variant="outline" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => copyToClipboard(leadsEndpoint)}>
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-muted p-3">
+                <p className="text-xs font-medium mb-2">POST Body Example:</p>
+                <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`{
+  "full_name": "John Doe",
+  "phone": "9841234567",
+  "product": "Seat Cover",
+  "source": "Website Form",
+  "status": "new",
+  "notes": "Interested in leather"
+}`}</pre>
+              </div>
+
+              <div className="rounded-lg bg-muted p-3">
+                <p className="text-xs font-medium mb-2">Query Parameters (GET):</p>
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  <li><code className="bg-background px-1 rounded">status</code> - Filter by status (new, hot, follow_up, closed)</li>
+                  <li><code className="bg-background px-1 rounded">page_id</code> - Filter by page ID</li>
+                  <li><code className="bg-background px-1 rounded">limit</code> - Max results (default: 100)</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+}
+
+// Branding Tab Component
+function BrandingTab() {
+  const { data: settings, isLoading } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const [systemName, setSystemName] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+
+  useEffect(() => {
+    if (settings) {
+      setSystemName((settings as any).system_name || "SocialBox");
+      setLogoUrl((settings as any).logo_url || "");
+    }
+  }, [settings]);
+
+  const handleSave = async () => {
+    try {
+      await updateSettings.mutateAsync({
+        system_name: systemName,
+        logo_url: logoUrl,
+      } as any);
+      toast.success("Branding settings saved!");
+    } catch {
+      toast.error("Failed to save branding settings");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <TabsContent value="branding" className="space-y-6">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </TabsContent>
+    );
+  }
+
+  return (
+    <TabsContent value="branding" className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+              <Paintbrush className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <CardTitle>Branding</CardTitle>
+              <CardDescription>Customize your system name and logo</CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <Label htmlFor="system-name">System Name</Label>
+            <Input
+              id="system-name"
+              placeholder="SocialBox"
+              value={systemName}
+              onChange={(e) => setSystemName(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Login page र sidebar मा देखिने नाम</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="logo-url">Logo URL</Label>
+            <Input
+              id="logo-url"
+              placeholder="https://example.com/logo.png"
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">System logo को URL (PNG/SVG recommended)</p>
+            {logoUrl && (
+              <div className="mt-2 rounded-lg border p-4 flex items-center justify-center bg-muted">
+                <img src={logoUrl} alt="Logo Preview" className="max-h-16 max-w-[200px] object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+              </div>
+            )}
+          </div>
+
+          <Button onClick={handleSave} disabled={updateSettings.isPending}>
+            {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Branding
+          </Button>
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+}
+
 export default function Settings() {
   const { data: settings, isLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const { user } = useAuth();
   const { data: isPlatformAdmin } = useIsPlatformAdmin(user?.id);
+  const { data: org } = useOrganization(user?.id);
   
   const [localSettings, setLocalSettings] = useState<AppSettings>({});
-  const [workingDays, setWorkingDays] = useState<string[]>([]);
 
   useEffect(() => {
     if (settings) {
       setLocalSettings(settings);
-      setWorkingDays(settings.working_days || ["Mon", "Tue", "Wed", "Thu", "Fri"]);
     }
   }, [settings]);
+
+  // Auto-fill company name from organization if empty
+  useEffect(() => {
+    if (org && !localSettings.company_name) {
+      setLocalSettings(prev => ({ ...prev, company_name: org.name }));
+    }
+  }, [org, localSettings.company_name]);
 
   const handleSave = async (updates: Partial<AppSettings>) => {
     try {
@@ -241,14 +370,6 @@ export default function Settings() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     toast.success("Signed out successfully");
-  };
-
-  const toggleWorkingDay = (day: string) => {
-    const newDays = workingDays.includes(day)
-      ? workingDays.filter(d => d !== day)
-      : [...workingDays, day];
-    setWorkingDays(newDays);
-    setLocalSettings({ ...localSettings, working_days: newDays });
   };
 
   if (isLoading) {
@@ -270,20 +391,17 @@ export default function Settings() {
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList className="flex-wrap">
             <TabsTrigger value="general">General</TabsTrigger>
-            {isPlatformAdmin && <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>}
-            <TabsTrigger value="business-hours">Business Hours</TabsTrigger>
-            <TabsTrigger value="human-mode">Human Mode</TabsTrigger>
             <TabsTrigger value="team">Team Members</TabsTrigger>
-            <TabsTrigger value="blacklist">Blacklist</TabsTrigger>
+            <TabsTrigger value="branding">Branding</TabsTrigger>
+            <TabsTrigger value="api">API</TabsTrigger>
+            {isPlatformAdmin && <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="general" className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>General Settings</CardTitle>
-                <CardDescription>
-                  Configure basic application settings
-                </CardDescription>
+                <CardDescription>Configure basic application settings</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
@@ -294,6 +412,7 @@ export default function Settings() {
                     value={localSettings.company_name || ""}
                     onChange={(e) => setLocalSettings({ ...localSettings, company_name: e.target.value })}
                   />
+                  <p className="text-xs text-muted-foreground">Signup मा दिएको organization name auto-fill हुन्छ। यहाँ बाट change गर्न सकिन्छ।</p>
                 </div>
                 
                 <div className="space-y-2">
@@ -309,6 +428,7 @@ export default function Settings() {
                       <SelectItem value="utc-8">Pacific Time (UTC-8)</SelectItem>
                       <SelectItem value="utc-5">Eastern Time (UTC-5)</SelectItem>
                       <SelectItem value="utc+0">UTC</SelectItem>
+                      <SelectItem value="utc+5:45">Nepal Time (UTC+5:45)</SelectItem>
                       <SelectItem value="utc+8">Asia/Manila (UTC+8)</SelectItem>
                     </SelectContent>
                   </Select>
@@ -317,9 +437,7 @@ export default function Settings() {
                 <div className="flex items-center justify-between">
                   <div>
                     <Label>Email Notifications</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Receive email alerts for important events
-                    </p>
+                    <p className="text-sm text-muted-foreground">Receive email alerts for important events</p>
                   </div>
                   <Switch 
                     checked={localSettings.email_notifications ?? true}
@@ -344,9 +462,7 @@ export default function Settings() {
             <Card>
               <CardHeader>
                 <CardTitle>Account</CardTitle>
-                <CardDescription>
-                  Manage your account
-                </CardDescription>
+                <CardDescription>Manage your account</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between rounded-lg border border-border p-4">
@@ -354,9 +470,7 @@ export default function Settings() {
                     <p className="font-medium">{user?.email}</p>
                     <p className="text-sm text-muted-foreground">Signed in</p>
                   </div>
-                  <Button variant="outline" onClick={handleSignOut}>
-                    Sign Out
-                  </Button>
+                  <Button variant="outline" onClick={handleSignOut}>Sign Out</Button>
                 </div>
               </CardContent>
             </Card>
@@ -365,299 +479,12 @@ export default function Settings() {
           {/* Facebook Integration Settings - Platform Admin Only */}
           {isPlatformAdmin && <FacebookIntegrationTab />}
 
-          <TabsContent value="business-hours" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Business Hours</CardTitle>
-                <CardDescription>
-                  Set your operating hours for automated responses
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Enable Business Hours</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Only send automated replies during business hours
-                    </p>
-                  </div>
-                  <Switch 
-                    checked={localSettings.business_hours_enabled ?? true}
-                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, business_hours_enabled: checked })}
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Start Time</Label>
-                    <Input 
-                      type="time" 
-                      value={localSettings.business_hours_start || "09:00"}
-                      onChange={(e) => setLocalSettings({ ...localSettings, business_hours_start: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>End Time</Label>
-                    <Input 
-                      type="time" 
-                      value={localSettings.business_hours_end || "18:00"}
-                      onChange={(e) => setLocalSettings({ ...localSettings, business_hours_end: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Working Days</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
-                      <Button
-                        key={day}
-                        variant={workingDays.includes(day) ? "default" : "outline"}
-                        size="sm"
-                        className="w-12"
-                        onClick={() => toggleWorkingDay(day)}
-                      >
-                        {day}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <Button 
-                  onClick={() => handleSave({
-                    business_hours_enabled: localSettings.business_hours_enabled,
-                    business_hours_start: localSettings.business_hours_start,
-                    business_hours_end: localSettings.business_hours_end,
-                    working_days: workingDays,
-                  })}
-                  disabled={updateSettings.isPending}
-                >
-                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Changes
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Quiet Hours</CardTitle>
-                <CardDescription>
-                  Completely pause all automated messages during these hours
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Enable Quiet Hours</Label>
-                    <p className="text-sm text-muted-foreground">
-                      No automated messages will be sent during quiet hours
-                    </p>
-                  </div>
-                  <Switch 
-                    checked={localSettings.quiet_hours_enabled ?? false}
-                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, quiet_hours_enabled: checked })}
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Quiet Start</Label>
-                    <Input 
-                      type="time" 
-                      value={localSettings.quiet_hours_start || "22:00"}
-                      onChange={(e) => setLocalSettings({ ...localSettings, quiet_hours_start: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Quiet End</Label>
-                    <Input 
-                      type="time" 
-                      value={localSettings.quiet_hours_end || "08:00"}
-                      onChange={(e) => setLocalSettings({ ...localSettings, quiet_hours_end: e.target.value })}
-                    />
-                  </div>
-                </div>
-
-                <Button 
-                  onClick={() => handleSave({
-                    quiet_hours_enabled: localSettings.quiet_hours_enabled,
-                    quiet_hours_start: localSettings.quiet_hours_start,
-                    quiet_hours_end: localSettings.quiet_hours_end,
-                  })}
-                  disabled={updateSettings.isPending}
-                >
-                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Changes
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="human-mode" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Human-Like Behavior</CardTitle>
-                <CardDescription>
-                  Configure settings to make automated responses appear more natural
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Enable Human Mode</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Add random delays and limits to mimic human behavior
-                    </p>
-                  </div>
-                  <Switch 
-                    checked={localSettings.human_mode_enabled ?? true}
-                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, human_mode_enabled: checked })}
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Min Delay (seconds)</Label>
-                    <Input 
-                      type="number" 
-                      value={localSettings.min_delay || 15}
-                      onChange={(e) => setLocalSettings({ ...localSettings, min_delay: parseInt(e.target.value) })}
-                      min="5" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Max Delay (seconds)</Label>
-                    <Input 
-                      type="number" 
-                      value={localSettings.max_delay || 90}
-                      onChange={(e) => setLocalSettings({ ...localSettings, max_delay: parseInt(e.target.value) })}
-                      min="10" 
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Max Messages per Conversation/Day</Label>
-                    <Input 
-                      type="number" 
-                      value={localSettings.max_messages_per_conversation || 5}
-                      onChange={(e) => setLocalSettings({ ...localSettings, max_messages_per_conversation: parseInt(e.target.value) })}
-                      min="1" 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Max Messages per Page/Hour</Label>
-                    <Input 
-                      type="number" 
-                      value={localSettings.max_messages_per_page_hour || 30}
-                      onChange={(e) => setLocalSettings({ ...localSettings, max_messages_per_page_hour: parseInt(e.target.value) })}
-                      min="10" 
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Min Gap Between Messages (seconds)</Label>
-                  <Input 
-                    type="number" 
-                    value={localSettings.min_gap_between_messages || 60}
-                    onChange={(e) => setLocalSettings({ ...localSettings, min_gap_between_messages: parseInt(e.target.value) })}
-                    min="30" 
-                  />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label>Approve Before Send (Default)</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Require approval for AI-generated replies by default
-                    </p>
-                  </div>
-                  <Switch 
-                    checked={localSettings.approve_before_send ?? true}
-                    onCheckedChange={(checked) => setLocalSettings({ ...localSettings, approve_before_send: checked })}
-                  />
-                </div>
-
-                <Button 
-                  onClick={() => handleSave({
-                    human_mode_enabled: localSettings.human_mode_enabled,
-                    min_delay: localSettings.min_delay,
-                    max_delay: localSettings.max_delay,
-                    max_messages_per_conversation: localSettings.max_messages_per_conversation,
-                    max_messages_per_page_hour: localSettings.max_messages_per_page_hour,
-                    min_gap_between_messages: localSettings.min_gap_between_messages,
-                    approve_before_send: localSettings.approve_before_send,
-                  })}
-                  disabled={updateSettings.isPending}
-                >
-                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Changes
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="team" className="space-y-6">
             <TeamManagementTab />
           </TabsContent>
 
-          <TabsContent value="blacklist" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Blacklist Keywords</CardTitle>
-                <CardDescription>
-                  Messages containing these keywords will not trigger automation
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Textarea
-                  placeholder="Enter keywords, one per line..."
-                  className="min-h-[150px]"
-                  value={(localSettings.blacklist_keywords || []).join("\n")}
-                  onChange={(e) => setLocalSettings({ 
-                    ...localSettings, 
-                    blacklist_keywords: e.target.value.split("\n").filter(Boolean) 
-                  })}
-                />
-                <Button 
-                  onClick={() => handleSave({ blacklist_keywords: localSettings.blacklist_keywords })}
-                  disabled={updateSettings.isPending}
-                >
-                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save Keywords
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Do Not Contact List</CardTitle>
-                <CardDescription>
-                  Contacts that should never receive automated messages
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Textarea
-                  placeholder="Enter phone numbers or Facebook IDs, one per line..."
-                  className="min-h-[150px]"
-                  value={(localSettings.do_not_contact || []).join("\n")}
-                  onChange={(e) => setLocalSettings({ 
-                    ...localSettings, 
-                    do_not_contact: e.target.value.split("\n").filter(Boolean) 
-                  })}
-                />
-                <Button 
-                  onClick={() => handleSave({ do_not_contact: localSettings.do_not_contact })}
-                  disabled={updateSettings.isPending}
-                >
-                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Save List
-                </Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+          <BrandingTab />
+          <APITab />
         </Tabs>
       </div>
     </div>
