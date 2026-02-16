@@ -93,6 +93,10 @@ const filterOptions = [
 
 type ConversationTag = "new" | "follow-up" | "lead";
 
+function getFollowupStep(conv: Conversation): number {
+  return Math.max(conv.auto_followup_step || 0, conv.ai_followup_step || 0);
+}
+
 function getConversationTag(conv: Conversation): ConversationTag {
   if (conv.tags?.includes("lead-created")) return "lead";
   // Only show follow-up after at least one followup has been sent (step >= 1)
@@ -102,12 +106,12 @@ function getConversationTag(conv: Conversation): ConversationTag {
   return "new";
 }
 
-function getTagBadge(tag: ConversationTag) {
+function getTagBadge(tag: ConversationTag, followupStep?: number) {
   switch (tag) {
     case "lead":
       return { label: "LEAD", className: "bg-green-600 hover:bg-green-600 text-white" };
     case "follow-up":
-      return { label: "FOLLOW-UP", className: "bg-orange-500 hover:bg-orange-500 text-white" };
+      return { label: `FOLLOW-UP ${followupStep || 1}`, className: "bg-orange-500 hover:bg-orange-500 text-white" };
     case "new":
       return { label: "NEW", className: "bg-blue-500 hover:bg-blue-500 text-white" };
   }
@@ -490,7 +494,7 @@ export default function Inbox() {
               ) : (
                 conversations.map((conv) => {
                   const tag = getConversationTag(conv);
-                  const tagInfo = getTagBadge(tag);
+                  const tagInfo = getTagBadge(tag, getFollowupStep(conv));
                   return (
                     <div
                       key={conv.id}
@@ -566,7 +570,7 @@ export default function Inbox() {
                         <h3 className="font-semibold truncate">{selectedConversation.participant_name || "Unknown"}</h3>
                         {(() => {
                           const tag = getConversationTag(selectedConversation);
-                          const tagInfo = getTagBadge(tag);
+                          const tagInfo = getTagBadge(tag, getFollowupStep(selectedConversation));
                           return (
                             <Badge variant="default" className={cn("text-[10px] px-1.5 py-0 h-4", tagInfo.className)}>
                               {tagInfo.label}
