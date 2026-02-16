@@ -580,117 +580,7 @@ serve(async (req) => {
             status: newStatus,
           }).eq("id", conversationId);
 
-          // Check for phone number - store as-is
-          const rawPhone = extractPhoneNumber(message.text || "");
-          const normalizedPhone = extractNormalizedPhone(message.text || "");
-          if (rawPhone && normalizedPhone) {
-            console.log("Phone detected - raw:", rawPhone, "normalized:", normalizedPhone);
-            
-            // Use normalized phone for dedup
-            const { data: existingLead } = await supabase
-              .from("leads")
-              .select("id")
-              .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-              .single();
-
-            if (existingLead) {
-              await supabase.from("leads").update({
-                conversation_id: conversationId,
-                last_message: message.text?.substring(0, 200),
-                updated_at: new Date().toISOString(),
-              }).eq("id", existingLead.id);
-            } else {
-              const { data: conv } = await supabase
-                .from("conversations")
-                .select("participant_name")
-                .eq("id", conversationId)
-                .single();
-
-              // Fetch recent customer messages to build remark (inquiry context)
-              const { data: recentMsgs } = await supabase
-                .from("messages")
-                .select("content, sender_type")
-                .eq("conversation_id", conversationId)
-                .eq("sender_type", "customer")
-                .order("created_at", { ascending: false })
-                .limit(10);
-
-              // Build remark using AI to summarize inquiry
-              let remark = "No Inquiry";
-              if (recentMsgs && recentMsgs.length > 0) {
-                const inquiryTexts = recentMsgs
-                  .map((m: any) => m.content || "")
-                  .filter((t: string) => {
-                    const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
-                    const isJustNumber = /^\d{9,}$/.test(stripped);
-                    return t.trim().length > 0 && !isJustNumber;
-                  })
-                  .reverse();
-                
-                if (inquiryTexts.length > 0) {
-                  // Use AI to summarize inquiry
-                  try {
-                    const aiSummaryResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                      method: "POST",
-                      headers: {
-                        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                        "Content-Type": "application/json",
-                      },
-                      body: JSON.stringify({
-                        model: "google/gemini-2.5-flash-lite",
-                        messages: [
-                          {
-                            role: "system",
-                            content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. Examples: 'Inquiry for shoes import from China', 'Inquiry for import machinery pricing', 'Inquiry for car accessories wholesale'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary, nothing else."
-                          },
-                          {
-                            role: "user",
-                            content: `Customer messages:\n${inquiryTexts.join('\n')}`
-                          }
-                        ],
-                      }),
-                    });
-                    
-                    if (aiSummaryResponse.ok) {
-                      const aiData = await aiSummaryResponse.json();
-                      const summary = aiData.choices?.[0]?.message?.content?.trim();
-                      if (summary && summary.length > 0) {
-                        remark = summary.substring(0, 200);
-                      } else {
-                        remark = inquiryTexts.join(' | ').substring(0, 500);
-                      }
-                    } else {
-                      console.log("AI summary failed, using raw messages");
-                      remark = inquiryTexts.join(' | ').substring(0, 500);
-                    }
-                  } catch (aiErr) {
-                    console.log("AI summary error:", aiErr);
-                    remark = inquiryTexts.join(' | ').substring(0, 500);
-                  }
-                }
-              }
-
-              await supabase.from("leads").insert({
-                phone: rawPhone,
-                full_name: conv?.participant_name,
-                conversation_id: conversationId,
-                page_id: page.id,
-                source: page.page_name,
-                product: (page as any).product_name || null,
-                last_message: message.text?.substring(0, 200),
-                status: "new",
-                organization_id: page.organization_id,
-                remark: remark,
-              });
-            }
-
-            if (!conversationTags.includes("lead-created")) {
-              await supabase.from("conversations").update({
-                tags: [...conversationTags, "lead-created"],
-              }).eq("id", conversationId);
-              conversationTags = [...conversationTags, "lead-created"];
-            }
-          }
+          // Phone-based lead detection REMOVED — now handled by AI in lead_action
 
           // AI reply logic
           if (page.ai_enabled && !page.automation_enabled) {
@@ -817,6 +707,7 @@ serve(async (req) => {
                           aiInstructions: (page as any).ai_instructions || "",
                           imageUrls: unrepliedImageUrls.length > 0 ? unrepliedImageUrls : undefined,
                           longGapConfirmation,
+                          hasExistingLead: hasLeadTag,
                         }),
                       }
                     );
@@ -824,6 +715,7 @@ serve(async (req) => {
                     if (aiResponse.ok) {
                       const aiData = await aiResponse.json();
                       const suggestedReply = aiData.suggestedReply;
+                      const leadAction = aiData.leadAction;
 
                       if (suggestedReply) {
                         const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
@@ -842,9 +734,112 @@ serve(async (req) => {
                             last_message_preview: suggestedReply.substring(0, 100),
                             last_message_at: new Date().toISOString(),
                           }).eq("id", conversationId);
+
+                          // AI-based lead creation
+                          if (leadAction?.should_create && leadAction.phone && !hasLeadTag) {
+                            console.log("AI detected valid lead with phone:", leadAction.phone);
+                            
+                            const rawPhone = leadAction.phone;
+                            // Normalize for dedup
+                            const normalizedPhone = rawPhone.replace(/\D/g, '').slice(-10);
+
+                            // Dedup check
+                            const { data: existingLead } = await supabase
+                              .from("leads")
+                              .select("id")
+                              .eq("organization_id", page.organization_id)
+                              .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+                              .maybeSingle();
+
+                            if (existingLead) {
+                              await supabase.from("leads").update({
+                                conversation_id: conversationId,
+                                last_message: message.text?.substring(0, 200),
+                                updated_at: new Date().toISOString(),
+                              }).eq("id", existingLead.id);
+                            } else {
+                              const { data: conv } = await supabase
+                                .from("conversations")
+                                .select("participant_name")
+                                .eq("id", conversationId)
+                                .single();
+
+                              // AI-powered remark generation
+                              let remark = "No Inquiry";
+                              const { data: recentCustMsgs } = await supabase
+                                .from("messages")
+                                .select("content, sender_type")
+                                .eq("conversation_id", conversationId)
+                                .eq("sender_type", "customer")
+                                .order("created_at", { ascending: false })
+                                .limit(10);
+
+                              if (recentCustMsgs && recentCustMsgs.length > 0) {
+                                const inquiryTexts = recentCustMsgs
+                                  .map((m: any) => m.content || "")
+                                  .filter((t: string) => {
+                                    const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
+                                    return t.trim().length > 0 && !/^\d{9,}$/.test(stripped);
+                                  })
+                                  .reverse();
+
+                                if (inquiryTexts.length > 0) {
+                                  try {
+                                    const aiSummaryResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                                      method: "POST",
+                                      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        model: "google/gemini-2.5-flash-lite",
+                                        messages: [
+                                          { role: "system", content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary." },
+                                          { role: "user", content: `Customer messages:\n${inquiryTexts.join('\n')}` }
+                                        ],
+                                      }),
+                                    });
+                                    if (aiSummaryResponse.ok) {
+                                      const summaryData = await aiSummaryResponse.json();
+                                      const summary = summaryData.choices?.[0]?.message?.content?.trim();
+                                      remark = summary && summary.length > 0 ? summary.substring(0, 200) : inquiryTexts.join(' | ').substring(0, 500);
+                                    } else {
+                                      remark = inquiryTexts.join(' | ').substring(0, 500);
+                                    }
+                                  } catch {
+                                    remark = inquiryTexts.join(' | ').substring(0, 500);
+                                  }
+                                }
+                              }
+
+                              await supabase.from("leads").insert({
+                                phone: rawPhone,
+                                full_name: conv?.participant_name,
+                                conversation_id: conversationId,
+                                page_id: page.id,
+                                source: page.page_name,
+                                product: (page as any).product_name || null,
+                                last_message: message.text?.substring(0, 200),
+                                status: "new",
+                                organization_id: page.organization_id,
+                                remark,
+                              });
+                            }
+
+                            // Tag conversation as lead-created
+                            if (!conversationTags.includes("lead-created")) {
+                              await supabase.from("conversations").update({
+                                tags: [...conversationTags, "lead-created"],
+                              }).eq("id", conversationId);
+                              conversationTags = [...conversationTags, "lead-created"];
+                            }
+
+                            // Stop follow-up after lead created
+                            await supabase.from("conversations").update({
+                              ai_followup_step: null,
+                              ai_followup_next_at: null,
+                            }).eq("id", conversationId);
+                          }
                             
                           // Start AI follow-up tracking if no lead yet
-                          if (!hasLeadTag) {
+                          if (!conversationTags.includes("lead-created")) {
                             const followupSettings = (page as any).ai_followup_settings;
                             if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
                               const firstStep = followupSettings.steps[0];

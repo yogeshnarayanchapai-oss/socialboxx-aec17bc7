@@ -189,10 +189,14 @@ function APITab() {
   });
 
   const generateKey = async (pageId: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { toast.error("Please login first"); return; }
+    
     const { data: org } = await supabase
       .from("organization_members")
       .select("organization_id")
-      .single();
+      .eq("user_id", user.id)
+      .maybeSingle();
     if (!org) { toast.error("Organization not found"); return; }
 
     const { error } = await supabase
