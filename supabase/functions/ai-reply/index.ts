@@ -126,7 +126,7 @@ Rules for lead_action:
 - "phone": extract the raw digits (remove spaces, dashes, country code prefix like +977 or 977, keep all digits)
 - "invalid_number": true if customer sent something that looks like a phone number but is INVALID (wrong length, wrong format per instructions)
 - When invalid_number is true, your "reply" should ask for the correct number
-- ${hasExistingLead ? 'This conversation already has a lead created. Set should_create to false unless this is clearly a NEW/DIFFERENT phone number.' : 'No lead exists yet for this conversation.'}
+- ${hasExistingLead ? 'This conversation already has a lead created. If the customer provides ANY phone number (even a corrected/updated one), set should_create to true and include the phone number. The system will update the existing lead automatically.' : 'No lead exists yet for this conversation.'}
 
 Conversation so far:
 ${conversationHistory || 'First message from customer.'}`;
