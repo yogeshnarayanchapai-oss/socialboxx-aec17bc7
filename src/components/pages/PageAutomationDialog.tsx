@@ -868,24 +868,36 @@ export function PageAutomationDialog({
                           placeholder="AI लाई के बारेमा message गर्ने hint दिनुहोस्..."
                           className="text-xs"
                         />
-                        <div className="flex gap-2 items-center">
+                        <div className="space-y-2">
+                          <div className="flex gap-2 items-center">
+                            <Input
+                              value={step.media?.url || ""}
+                              onChange={(e) => {
+                                const updated = [...aiFollowupSteps];
+                                updated[idx] = { ...updated[idx], media: e.target.value ? { type: "link", url: e.target.value } : null };
+                                setAiFollowupSteps(updated);
+                              }}
+                              placeholder="Video/Link URL (optional)"
+                              className="text-xs flex-1"
+                            />
+                            {step.media?.url && (
+                              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                                const updated = [...aiFollowupSteps];
+                                updated[idx] = { ...updated[idx], media: null };
+                                setAiFollowupSteps(updated);
+                              }}><X className="h-3 w-3" /></Button>
+                            )}
+                          </div>
                           <Input
-                            value={step.media?.url || ""}
+                            value={(step as any).fb_video_embed || ""}
                             onChange={(e) => {
                               const updated = [...aiFollowupSteps];
-                              updated[idx] = { ...updated[idx], media: e.target.value ? { type: "link", url: e.target.value } : null };
+                              (updated[idx] as any) = { ...updated[idx], fb_video_embed: e.target.value || undefined };
                               setAiFollowupSteps(updated);
                             }}
-                            placeholder="Video/Link URL (optional)"
-                            className="text-xs flex-1"
+                            placeholder="Facebook Video Embed URL (optional) - fb.watch/..."
+                            className="text-xs"
                           />
-                          {step.media?.url && (
-                            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
-                              const updated = [...aiFollowupSteps];
-                              updated[idx] = { ...updated[idx], media: null };
-                              setAiFollowupSteps(updated);
-                            }}><X className="h-3 w-3" /></Button>
-                          )}
                         </div>
                         <p className="text-[10px] text-muted-foreground">
                           {step.delay_hours < 24

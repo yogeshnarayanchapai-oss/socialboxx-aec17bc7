@@ -1,6 +1,6 @@
-import { useState, Fragment } from "react";
+import { useState, Fragment, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { FileText, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, ChevronDown, ChevronUp, Users } from "lucide-react";
 import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package, Download, CalendarIcon, Filter } from "lucide-react";
 import { format, startOfDay, endOfDay, subDays } from "date-fns";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -68,6 +68,7 @@ export default function Leads() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
+  const [showDuplicates, setShowDuplicates] = useState(false);
   const isMobile = useIsMobile();
 
   const getDateRange = () => {
@@ -101,6 +102,25 @@ export default function Leads() {
   const createLead = useCreateLead();
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
+
+  // Find duplicate leads by phone number
+  const duplicateLeads = useMemo(() => {
+    if (!showDuplicates || leads.length === 0) return null;
+    const phoneMap = new Map<string, Lead[]>();
+    leads.forEach(lead => {
+      const phone = lead.phone?.replace(/\D/g, '');
+      if (phone && phone.length >= 7) {
+        const existing = phoneMap.get(phone) || [];
+        existing.push(lead);
+        phoneMap.set(phone, existing);
+      }
+    });
+    const duplicates: Lead[][] = [];
+    phoneMap.forEach(group => {
+      if (group.length > 1) duplicates.push(group);
+    });
+    return duplicates;
+  }, [leads, showDuplicates]);
 
   const handleExportCSV = () => {
     if (leads.length === 0) { toast.error("No leads to export"); return; }
@@ -203,6 +223,11 @@ export default function Leads() {
         description="Manage and track your sales leads"
         action={
           <div className="flex gap-2">
+            <Button size="sm" variant={showDuplicates ? "default" : "outline"} onClick={() => setShowDuplicates(!showDuplicates)}>
+              <Users className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Duplicates</span>
+              <span className="sm:hidden">Dup</span>
+            </Button>
             <Button size="sm" variant="outline" onClick={handleExportCSV}>
               <Download className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Export CSV</span>
@@ -344,7 +369,50 @@ export default function Leads() {
           ))}
         </div>
 
-        {/* Mobile Cards or Desktop Table */}
+        {/* Duplicate Leads Results */}
+        {showDuplicates && duplicateLeads && (
+          <div className="mb-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-foreground">
+                Duplicate Leads ({duplicateLeads.length} groups found)
+              </h3>
+              <Button variant="ghost" size="sm" onClick={() => setShowDuplicates(false)} className="text-xs">
+                Close
+              </Button>
+            </div>
+            {duplicateLeads.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+                No duplicate leads found! 🎉
+              </div>
+            ) : (
+              duplicateLeads.map((group, gi) => (
+                <Card key={gi}>
+                  <CardContent className="p-3">
+                    <p className="text-xs font-medium text-warning mb-2">📞 {group[0].phone} - {group.length} duplicates</p>
+                    <div className="space-y-1">
+                      {group.map(lead => (
+                        <div key={lead.id} className="flex items-center justify-between text-xs p-2 rounded bg-muted/50">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{lead.full_name || "Unknown"}</span>
+                            <StatusBadge status={statusConfig[lead.status]?.type || "info"}>
+                              {statusConfig[lead.status]?.label || lead.status}
+                            </StatusBadge>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">{new Date(lead.created_at).toLocaleDateString()}</span>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => handleDelete(lead.id)}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        )}
         {isMobile ? (
           <div className="space-y-3">
             {leads.length === 0 ? (
