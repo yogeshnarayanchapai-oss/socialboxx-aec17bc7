@@ -19,8 +19,20 @@ serve(async (req) => {
     let orgId: string;
     let allowedPageIds: string[] = []; // Combined key can have multiple pages
 
-    // Check for X-API-Key header first
-    const apiKey = req.headers.get("X-API-Key") || req.headers.get("x-api-key");
+    // Check for X-API-Key header first, then fallback to Bearer token as API key
+    let apiKey = req.headers.get("X-API-Key") || req.headers.get("x-api-key");
+    
+    // Also support Authorization: Bearer <api_key> for third-party compatibility
+    if (!apiKey) {
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.replace("Bearer ", "");
+        // Check if this token is an API key (not a JWT - JWTs have 3 dot-separated parts)
+        if (token.split(".").length !== 3) {
+          apiKey = token;
+        }
+      }
+    }
     
     if (apiKey) {
       const { data: integration, error: intError } = await supabase
