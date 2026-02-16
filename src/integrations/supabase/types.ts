@@ -14,14 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_integration_pages: {
+        Row: {
+          created_at: string | null
+          id: string
+          integration_id: string
+          page_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          integration_id: string
+          page_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          integration_id?: string
+          page_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_integration_pages_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "api_integrations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_integration_pages_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "connected_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       api_integrations: {
         Row: {
           api_key: string
           created_at: string | null
           id: string
           is_active: boolean | null
+          label: string | null
           organization_id: string
-          page_id: string
+          page_id: string | null
           updated_at: string | null
         }
         Insert: {
@@ -29,8 +66,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_active?: boolean | null
+          label?: string | null
           organization_id: string
-          page_id: string
+          page_id?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -38,8 +76,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           is_active?: boolean | null
+          label?: string | null
           organization_id?: string
-          page_id?: string
+          page_id?: string | null
           updated_at?: string | null
         }
         Relationships: [
