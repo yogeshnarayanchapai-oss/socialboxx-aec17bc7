@@ -195,19 +195,42 @@ ${conversationHistory || 'First message from customer.'}`;
     const aiResponse = await response.json();
     const rawContent = aiResponse.choices?.[0]?.message?.content || "";
     
-    // Parse structured JSON response
+    // Parse structured JSON response with robust extraction
     let suggestedReply = "";
     let leadAction = { should_create: false, phone: null as string | null, invalid_number: false, reason: "" };
     
+    console.log("Raw AI response length:", rawContent.length, "content:", rawContent.substring(0, 500));
+    
     try {
-      // Try to extract JSON from the response (handle markdown code blocks)
-      let jsonStr = rawContent.trim();
-      // Remove markdown code block wrapper if present
-      if (jsonStr.startsWith("```")) {
-        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+      // Step 1: Remove markdown code blocks
+      let cleaned = rawContent.trim()
+        .replace(/```json\s*/gi, "")
+        .replace(/```\s*/g, "")
+        .trim();
+
+      // Step 2: Find JSON boundaries
+      const jsonStart = cleaned.indexOf("{");
+      const jsonEnd = cleaned.lastIndexOf("}");
+
+      if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+        throw new Error("No JSON object found in response");
+      }
+
+      cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+
+      // Step 3: Attempt parse with error handling
+      let parsed;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch (_e) {
+        // Step 4: Try to fix common issues
+        cleaned = cleaned
+          .replace(/,\s*}/g, "}") // Remove trailing commas
+          .replace(/,\s*]/g, "]")
+          .replace(/[\x00-\x1F\x7F]/g, ""); // Remove control characters
+        parsed = JSON.parse(cleaned);
       }
       
-      const parsed = JSON.parse(jsonStr);
       suggestedReply = parsed.reply || rawContent;
       if (parsed.lead_action) {
         leadAction = {
@@ -217,10 +240,19 @@ ${conversationHistory || 'First message from customer.'}`;
           reason: parsed.lead_action.reason || "",
         };
       }
+      console.log("Parsed lead_action:", JSON.stringify(leadAction));
     } catch (parseErr) {
       // If JSON parsing fails, use raw content as reply
-      console.log("Could not parse structured response, using raw:", parseErr);
+      console.error("JSON parse failed for AI response:", parseErr, "Raw:", rawContent.substring(0, 300));
       suggestedReply = rawContent;
+      
+      // Last resort: try regex extraction for phone-based lead
+      const phoneMatch = rawContent.match(/["']phone["']\s*:\s*["'](\d{10,})["']/);
+      const shouldCreateMatch = rawContent.match(/["']should_create["']\s*:\s*(true)/);
+      if (phoneMatch && shouldCreateMatch) {
+        console.log("Regex fallback extracted phone:", phoneMatch[1]);
+        leadAction = { should_create: true, phone: phoneMatch[1], invalid_number: false, reason: "regex-extracted" };
+      }
     }
 
     return new Response(

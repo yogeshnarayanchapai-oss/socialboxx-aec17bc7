@@ -720,6 +720,8 @@ serve(async (req) => {
                       const aiData = await aiResponse.json();
                       const suggestedReply = aiData.suggestedReply;
                       const leadAction = aiData.leadAction;
+                      
+                      console.log("AI response - leadAction:", JSON.stringify(leadAction), "hasReply:", !!suggestedReply);
 
                       if (suggestedReply) {
                         const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
