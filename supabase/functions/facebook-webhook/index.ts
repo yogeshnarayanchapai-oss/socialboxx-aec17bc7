@@ -757,9 +757,10 @@ serve(async (req) => {
                                 await supabase.from("leads").update({
                                   phone: rawPhone,
                                   last_message: message.text?.substring(0, 200),
+                                  created_at: new Date().toISOString(),
                                   updated_at: new Date().toISOString(),
                                 }).eq("id", existingLeadByConv.id);
-                                console.log("Updated existing lead phone to:", rawPhone);
+                                console.log("Updated existing lead phone and date to:", rawPhone);
                               } else {
                                 // Lead tag exists but lead record was deleted — recreate it
                                 console.log("Lead tag exists but no lead record found, creating new lead");
