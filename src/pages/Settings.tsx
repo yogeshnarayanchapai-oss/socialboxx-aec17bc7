@@ -279,88 +279,65 @@ function APITab() {
                 </div>
               </div>
 
-              {/* Selected Pages Info */}
-              <div className="rounded-lg border bg-muted/50 p-3 space-y-2">
+              {/* Selected Pages Summary */}
+              <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
                 <p className="text-xs font-medium">Selected Pages ({selectedPages.length})</p>
-                {selectedPages.map(page => (
-                  <div key={page.id} className="flex items-center justify-between gap-2">
-                    <span className="text-sm">{page.page_name}</span>
-                    <div className="flex items-center gap-1">
-                      <code className="text-[10px] font-mono text-muted-foreground">{page.id.slice(0, 8)}...</code>
-                      <Button variant="ghost" size="sm" className="h-5 px-1" onClick={() => copyToClipboard(page.id)}>
-                        <Copy className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                <div className="pt-1 border-t">
-                  <div className="flex items-center gap-2">
-                    <code className="text-xs font-mono text-muted-foreground break-all flex-1">{pageIdsParam}</code>
-                    <Button variant="ghost" size="sm" className="h-5 px-1" onClick={() => copyToClipboard(pageIdsParam)}>
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">All Page IDs (comma-separated)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedPages.map(page => (
+                    <span key={page.id} className="text-xs bg-primary/10 text-primary rounded-full px-2.5 py-0.5">{page.page_name}</span>
+                  ))}
                 </div>
               </div>
 
-              {/* How to connect */}
+              {/* How to connect - simplified */}
               <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-3">
                 <Label className="text-base font-medium">कसरी Third-Party System मा जोड्ने?</Label>
                 <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1.5">
                   <li>माथिको <strong>API Token</strong> र <strong>API Base URL</strong> copy गर्नुहोस्</li>
-                  <li>तपाईंको system (CRM, form, website) मा API/Webhook integration खोल्नुहोस्</li>
-                  <li>URL मा माथिको <strong>API Base URL</strong> paste गर्नुहोस्</li>
-                  <li>Header मा <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;Token&gt;</code> set गर्नुहोस्</li>
-                  <li>Body मा <code className="bg-muted px-1 rounded">page_id</code> field मा कुनै एउटा Page ID राख्नुहोस्</li>
-                  <li>GET गर्दा <code className="bg-muted px-1 rounded">page_ids</code> param मा comma-separated IDs पठाउनुहोस्</li>
+                  <li>तलको <strong>Ready-to-use cURL</strong> copy गर्नुहोस् — page_id पहिले नै set भइसकेको छ</li>
+                  <li>तपाईंको system (CRM, form, website) मा paste गर्नुहोस्</li>
+                  <li>Token <code className="bg-muted px-1 rounded">&lt;YOUR_TOKEN&gt;</code> ठाउँमा माथिको token राख्नुहोस्</li>
                 </ol>
               </div>
 
-              {/* Examples */}
+              {/* Ready-to-use cURL examples with page_ids baked in */}
               <div className="space-y-4 rounded-lg border p-4">
-                <Label className="text-base font-medium">API Examples</Label>
+                <Label className="text-base font-medium">Ready-to-use API Commands</Label>
 
                 <div className="space-y-3">
-                  <div className="rounded-lg bg-muted p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium">POST - Create Lead (एउटा page मा)</p>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Seat Cover","source":"Website Form","status":"new","page_id":"${selectedPageIds[0]}"}'`)}>
-                        <Copy className="h-3 w-3 mr-1" /> Copy cURL
-                      </Button>
-                    </div>
-                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
+                  {/* POST - one per selected page */}
+                  {selectedPages.map(page => {
+                    const postCurl = `curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Example","source":"Website Form","status":"new","page_id":"${page.id}"}'`;
+                    return (
+                      <div key={page.id} className="rounded-lg bg-muted p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-medium">POST - Lead Create → <span className="text-primary">{page.page_name}</span></p>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(postCurl)}>
+                            <Copy className="h-3 w-3 mr-1" /> Copy cURL
+                          </Button>
+                        </div>
+                        <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
   -H "Authorization: Bearer <YOUR_TOKEN>" \\
   -H "Content-Type: application/json" \\
   -d '{
     "full_name": "John Doe",
     "phone": "9841234567",
-    "product": "Seat Cover",
-    "source": "Website Form",
-    "status": "new",
-    "page_id": "${selectedPageIds[0]}"
+    "page_id": "${page.id}"
   }'`}</pre>
-                  </div>
+                      </div>
+                    );
+                  })}
 
+                  {/* GET - all selected pages */}
                   <div className="rounded-lg bg-muted p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium">GET - Fetch Leads (Selected Pages को मात्र)</p>
+                      <p className="text-xs font-medium">GET - Fetch Leads (Selected {selectedPages.length} Pages)</p>
                       <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?page_ids=${pageIdsParam}&limit=50" \\\n  -H "Authorization: Bearer ${token}"`)}>
                         <Copy className="h-3 w-3 mr-1" /> Copy cURL
                       </Button>
                     </div>
                     <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?page_ids=${pageIdsParam}&limit=50" \\
   -H "Authorization: Bearer <YOUR_TOKEN>"`}</pre>
-                  </div>
-
-                  <div className="rounded-lg bg-muted p-3">
-                    <p className="text-xs font-medium mb-2">Query Parameters (GET):</p>
-                    <ul className="text-xs text-muted-foreground space-y-1">
-                      <li><code className="bg-background px-1 rounded">page_ids</code> - Comma-separated Page IDs (selected pages को leads मात्र)</li>
-                      <li><code className="bg-background px-1 rounded">page_id</code> - Single Page ID filter</li>
-                      <li><code className="bg-background px-1 rounded">status</code> - Filter by status (new, hot, follow_up, closed)</li>
-                      <li><code className="bg-background px-1 rounded">limit</code> - Max results (default: 100)</li>
-                    </ul>
                   </div>
                 </div>
               </div>
