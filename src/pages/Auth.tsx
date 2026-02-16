@@ -16,6 +16,7 @@ const authSchema = z.object({
 });
 
 const signupSchema = authSchema.extend({
+  fullName: z.string().min(2, "Full name must be at least 2 characters"),
   companyName: z.string().min(2, "Company name must be at least 2 characters"),
 });
 
@@ -82,7 +83,7 @@ export default function Auth() {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      signupSchema.parse({ email, password, companyName });
+      signupSchema.parse({ email, password, fullName, companyName });
     } catch (error) {
       if (error instanceof z.ZodError) {
         toast.error(error.errors[0].message);

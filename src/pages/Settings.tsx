@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useFacebookSettings, useUpdateFacebookSettings } from "@/hooks/useAppSettings";
 import { useIsPlatformAdmin } from "@/hooks/useOrganization";
+import { TeamManagementTab } from "@/components/settings/TeamManagementTab";
 
 // Facebook Integration Settings Component
 function FacebookIntegrationTab() {
@@ -599,32 +600,7 @@ export default function Settings() {
           </TabsContent>
 
           <TabsContent value="team" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Team Members</CardTitle>
-                <CardDescription>
-                  Manage team access and permissions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between rounded-lg border border-border p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary font-medium">
-                      {user?.email?.substring(0, 2).toUpperCase()}
-                    </div>
-                    <div>
-                      <p className="font-medium">{user?.email}</p>
-                      <p className="text-sm text-muted-foreground">You</p>
-                    </div>
-                  </div>
-                  <span className="status-badge bg-primary/10 text-primary">Admin</span>
-                </div>
-
-                <Button variant="outline" className="w-full">
-                  + Invite Team Member
-                </Button>
-              </CardContent>
-            </Card>
+            <TeamManagementTab />
           </TabsContent>
 
           <TabsContent value="blacklist" className="space-y-6">
