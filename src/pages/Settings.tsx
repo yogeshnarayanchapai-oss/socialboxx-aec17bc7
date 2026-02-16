@@ -162,9 +162,7 @@ function FacebookIntegrationTab() {
 // API Tab Component
 function APITab() {
   const baseUrl = import.meta.env.VITE_SUPABASE_URL;
-  const { session } = useAuth();
-  const [showToken, setShowToken] = useState(false);
-  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   
   const { data: pages, isLoading: pagesLoading } = useQuery({
     queryKey: ["connected-pages-api"],
@@ -179,10 +177,44 @@ function APITab() {
     },
   });
 
-  const togglePage = (pageId: string) => {
-    setSelectedPageIds(prev =>
-      prev.includes(pageId) ? prev.filter(id => id !== pageId) : [...prev, pageId]
-    );
+  const { data: apiKeys, isLoading: keysLoading, refetch: refetchKeys } = useQuery({
+    queryKey: ["api-integrations"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("api_integrations")
+        .select("*");
+      if (error) throw error;
+      return data as { id: string; page_id: string; api_key: string; is_active: boolean }[];
+    },
+  });
+
+  const generateKey = async (pageId: string) => {
+    const { data: org } = await supabase
+      .from("organization_members")
+      .select("organization_id")
+      .single();
+    if (!org) { toast.error("Organization not found"); return; }
+
+    const { error } = await supabase
+      .from("api_integrations")
+      .upsert({
+        organization_id: org.organization_id,
+        page_id: pageId,
+        is_active: true,
+      }, { onConflict: "organization_id,page_id" });
+
+    if (error) { toast.error("Failed to generate API key"); return; }
+    toast.success("API Key generated!");
+    refetchKeys();
+  };
+
+  const toggleKeyActive = async (integrationId: string, currentActive: boolean) => {
+    const { error } = await supabase
+      .from("api_integrations")
+      .update({ is_active: !currentActive })
+      .eq("id", integrationId);
+    if (error) { toast.error("Failed to update"); return; }
+    refetchKeys();
   };
 
   const copyToClipboard = (text: string) => {
@@ -191,9 +223,8 @@ function APITab() {
   };
 
   const leadsEndpoint = `${baseUrl}/functions/v1/leads-api`;
-  const token = session?.access_token || "";
-  const selectedPages = pages?.filter(p => selectedPageIds.includes(p.id)) || [];
-  const pageIdsParam = selectedPageIds.join(",");
+
+  const getKeyForPage = (pageId: string) => apiKeys?.find(k => k.page_id === pageId);
 
   return (
     <TabsContent value="api" className="space-y-6">
@@ -205,143 +236,116 @@ function APITab() {
             </div>
             <div>
               <CardTitle>API Integration</CardTitle>
-              <CardDescription>Connect third-party systems using our API endpoints</CardDescription>
+              <CardDescription>प्रत्येक page को लागि unique API Key — third-party मा key र URL मात्र राख्नुहोस्</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
 
-          {/* Multi Page Selector */}
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Pages Select गर्नुहोस् (Multiple)</Label>
-            {pagesLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading pages...</div>
-            ) : (
-              <div className="space-y-2">
-                {pages?.map(page => (
-                  <label key={page.id} className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedPageIds.includes(page.id)}
-                      onChange={() => togglePage(page.id)}
-                      className="h-4 w-4 rounded border-border"
-                    />
-                    <span className="text-sm font-medium">{page.page_name}</span>
-                  </label>
-                ))}
-                {(!pages || pages.length === 0) && (
-                  <p className="text-sm text-muted-foreground">कुनै active page छैन।</p>
-                )}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Select गरेका pages मा मात्र lead जान्छ। GET गर्दा पनि यी pages को मात्र leads आउँछ।
-            </p>
+          {/* Instructions */}
+          <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-2">
+            <p className="text-sm font-medium">कसरी काम गर्छ?</p>
+            <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1">
+              <li>जुन page को lead चाहिन्छ त्यसको <strong>API Key Generate</strong> गर्नुहोस्</li>
+              <li><strong>API Key</strong> र <strong>URL</strong> copy गरेर third-party system मा paste गर्नुहोस्</li>
+              <li>Third-party ले lead पठाउँदा automatically सही page मा जान्छ — page_id चाहिँदैन!</li>
+            </ol>
           </div>
 
-          {selectedPageIds.length === 0 && (
-            <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4 text-center">
-              <p className="text-sm text-muted-foreground">कृपया कम्तीमा एउटा Page select गर्नुहोस् API credentials हेर्नको लागि।</p>
+          {/* API Base URL - always visible */}
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">API Base URL</Label>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all">{leadsEndpoint}</code>
+              <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(leadsEndpoint)}>
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
             </div>
-          )}
+          </div>
 
-          {selectedPageIds.length > 0 && (
-            <>
-              {/* API Token */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">API Token (Bearer Token)</Label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all select-all min-h-[40px] flex items-center">
-                    {showToken ? (
-                      <span className="break-all">{token || "Login गर्नुहोस् token पाउन"}</span>
-                    ) : (
-                      <span className="tracking-widest">••••••••••••••••••••••••••••••••••••</span>
-                    )}
-                  </div>
-                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => setShowToken(!showToken)}>
-                    {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </Button>
-                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(token)} disabled={!token}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">यो token तपाईंको account सँग linked छ। Third-party system मा paste गर्नुहोस्।</p>
-              </div>
+          {/* Per-page API Keys */}
+          {(pagesLoading || keysLoading) ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+          ) : (
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Pages & API Keys</Label>
+              {pages?.map(page => {
+                const existingKey = getKeyForPage(page.id);
+                const isVisible = showKeys[page.id] || false;
+                return (
+                  <div key={page.id} className="rounded-lg border p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{page.page_name}</span>
+                        {existingKey && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${existingKey.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {existingKey.is_active ? 'Active' : 'Disabled'}
+                          </span>
+                        )}
+                      </div>
+                      {!existingKey ? (
+                        <Button size="sm" onClick={() => generateKey(page.id)}>
+                          Generate API Key
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant={existingKey.is_active ? "destructive" : "default"}
+                          onClick={() => toggleKeyActive(existingKey.id, existingKey.is_active)}
+                        >
+                          {existingKey.is_active ? "Disable" : "Enable"}
+                        </Button>
+                      )}
+                    </div>
 
-              {/* API Base URL */}
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">API Base URL</Label>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 rounded-lg bg-muted p-2.5 text-xs font-mono break-all">{leadsEndpoint}</code>
-                  <Button variant="outline" size="icon" className="h-9 w-9 flex-shrink-0" onClick={() => copyToClipboard(leadsEndpoint)}>
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Selected Pages Summary */}
-              <div className="rounded-lg border bg-muted/50 p-3 space-y-1">
-                <p className="text-xs font-medium">Selected Pages ({selectedPages.length})</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {selectedPages.map(page => (
-                    <span key={page.id} className="text-xs bg-primary/10 text-primary rounded-full px-2.5 py-0.5">{page.page_name}</span>
-                  ))}
-                </div>
-              </div>
-
-              {/* How to connect - simplified */}
-              <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-3">
-                <Label className="text-base font-medium">कसरी Third-Party System मा जोड्ने?</Label>
-                <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1.5">
-                  <li>माथिको <strong>API Token</strong> र <strong>API Base URL</strong> copy गर्नुहोस्</li>
-                  <li>तलको <strong>Ready-to-use cURL</strong> copy गर्नुहोस् — page_id पहिले नै set भइसकेको छ</li>
-                  <li>तपाईंको system (CRM, form, website) मा paste गर्नुहोस्</li>
-                  <li>Token <code className="bg-muted px-1 rounded">&lt;YOUR_TOKEN&gt;</code> ठाउँमा माथिको token राख्नुहोस्</li>
-                </ol>
-              </div>
-
-              {/* Ready-to-use cURL examples with page_ids baked in */}
-              <div className="space-y-4 rounded-lg border p-4">
-                <Label className="text-base font-medium">Ready-to-use API Commands</Label>
-
-                <div className="space-y-3">
-                  {/* POST - one per selected page */}
-                  {selectedPages.map(page => {
-                    const postCurl = `curl -X POST "${leadsEndpoint}" \\\n  -H "Authorization: Bearer ${token}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Example","source":"Website Form","status":"new","page_id":"${page.id}"}'`;
-                    return (
-                      <div key={page.id} className="rounded-lg bg-muted p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-medium">POST - Lead Create → <span className="text-primary">{page.page_name}</span></p>
-                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(postCurl)}>
-                            <Copy className="h-3 w-3 mr-1" /> Copy cURL
+                    {existingKey && (
+                      <>
+                        {/* API Key */}
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 rounded bg-muted p-2 text-xs font-mono break-all">
+                            {isVisible ? existingKey.api_key : '••••••••••••••••••••••••••••••••'}
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowKeys(prev => ({ ...prev, [page.id]: !prev[page.id] }))}>
+                            {isVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => copyToClipboard(existingKey.api_key)}>
+                            <Copy className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                        <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
-  -H "Authorization: Bearer <YOUR_TOKEN>" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "full_name": "John Doe",
-    "phone": "9841234567",
-    "page_id": "${page.id}"
-  }'`}</pre>
-                      </div>
-                    );
-                  })}
 
-                  {/* GET - all selected pages */}
-                  <div className="rounded-lg bg-muted p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs font-medium">GET - Fetch Leads (Selected {selectedPages.length} Pages)</p>
-                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?page_ids=${pageIdsParam}&limit=50" \\\n  -H "Authorization: Bearer ${token}"`)}>
-                        <Copy className="h-3 w-3 mr-1" /> Copy cURL
-                      </Button>
-                    </div>
-                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?page_ids=${pageIdsParam}&limit=50" \\
-  -H "Authorization: Bearer <YOUR_TOKEN>"`}</pre>
+                        {/* Ready cURL */}
+                        <div className="rounded bg-muted p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium">POST - Lead Create</p>
+                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl -X POST "${leadsEndpoint}" \\\n  -H "X-API-Key: ${existingKey.api_key}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"full_name":"John Doe","phone":"9841234567","product":"Example","source":"Website"}'`)}>
+                              <Copy className="h-3 w-3 mr-1" /> Copy
+                            </Button>
+                          </div>
+                          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl -X POST "${leadsEndpoint}" \\
+  -H "X-API-Key: <YOUR_API_KEY>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"full_name":"John Doe","phone":"9841234567"}'`}</pre>
+                        </div>
+
+                        <div className="rounded bg-muted p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium">GET - Fetch Leads</p>
+                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => copyToClipboard(`curl "${leadsEndpoint}?limit=50" \\\n  -H "X-API-Key: ${existingKey.api_key}"`)}>
+                              <Copy className="h-3 w-3 mr-1" /> Copy
+                            </Button>
+                          </div>
+                          <pre className="text-xs font-mono text-muted-foreground whitespace-pre-wrap">{`curl "${leadsEndpoint}?limit=50" \\
+  -H "X-API-Key: <YOUR_API_KEY>"`}</pre>
+                        </div>
+                      </>
+                    )}
                   </div>
-                </div>
-              </div>
-            </>
+                );
+              })}
+              {(!pages || pages.length === 0) && (
+                <p className="text-sm text-muted-foreground">कुनै active page छैन। पहिले Pages section मा page connect गर्नुहोस्।</p>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
