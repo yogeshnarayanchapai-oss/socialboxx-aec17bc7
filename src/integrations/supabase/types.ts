@@ -653,6 +653,54 @@ export type Database = {
           },
         ]
       }
+      team_page_access: {
+        Row: {
+          access_level: string
+          created_at: string
+          granted_by: string | null
+          id: string
+          organization_id: string
+          page_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_level?: string
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          organization_id: string
+          page_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_level?: string
+          created_at?: string
+          granted_by?: string | null
+          id?: string
+          organization_id?: string
+          page_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_page_access_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_page_access_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "connected_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
