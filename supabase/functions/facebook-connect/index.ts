@@ -32,13 +32,24 @@ serve(async (req) => {
     const { action, pageId, accessToken, pageName, pagePictureUrl, userAccessToken } = await req.json();
 
     // Get user's organization_id
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from("organization_members")
       .select("organization_id")
       .eq("user_id", user.id)
       .single();
 
+    if (membershipError) {
+      console.error("Failed to get user org membership:", membershipError);
+    }
+
     const orgId = membership?.organization_id;
+    if (!orgId) {
+      console.error("No organization found for user:", user.id);
+      return new Response(
+        JSON.stringify({ error: "No organization found. Please contact support." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Helper function to get Facebook app credentials from DB
     async function getFacebookCredentials() {
