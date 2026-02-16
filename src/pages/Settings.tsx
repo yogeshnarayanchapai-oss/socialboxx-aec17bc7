@@ -521,29 +521,12 @@ export default function Settings() {
                   />
                 </div>
 
-                {/* Lead Tag Auto-Remove */}
-                <div className="space-y-2">
-                  <Label htmlFor="lead-tag-remove">Lead Tag Auto-Remove (Days)</Label>
-                  <Input
-                    id="lead-tag-remove"
-                    type="number"
-                    min={0}
-                    placeholder="0 = disabled"
-                    value={(localSettings as any).lead_tag_auto_remove_days ?? ""}
-                    onChange={(e) => setLocalSettings({ ...localSettings, lead_tag_auto_remove_days: parseInt(e.target.value) || 0 } as any)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    कति दिन पछि lead tag (NEW, FOLLOW-UP) automatic हटाउने? 0 = disable
-                  </p>
-                </div>
-
                 <Button 
                   onClick={() => handleSave({
                     company_name: localSettings.company_name,
                     timezone: localSettings.timezone,
                     email_notifications: localSettings.email_notifications,
-                    lead_tag_auto_remove_days: (localSettings as any).lead_tag_auto_remove_days,
-                  } as any)}
+                  })}
                   disabled={updateSettings.isPending}
                 >
                   {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
