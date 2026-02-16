@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush } from "lucide-react";
+import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush, Upload, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings, useUpdateSettings, type AppSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/hooks/useAuth";
@@ -184,10 +184,28 @@ function APITab() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4">
+          <div className="rounded-lg border border-dashed border-amber-500/50 bg-amber-500/5 p-4 space-y-2">
             <p className="text-sm text-muted-foreground">
               <strong>Authentication:</strong> All API requests require your user token in the <code className="bg-muted px-1 rounded">Authorization: Bearer YOUR_TOKEN</code> header.
             </p>
+            <p className="text-sm text-muted-foreground">
+              <strong>कसरी Token पाउने?</strong> Login गरेपछि browser console मा <code className="bg-muted px-1 rounded">supabase.auth.getSession()</code> बाट access_token लिनुहोस्।
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <strong>सबै user को API एउटै हो।</strong> तर Bearer token अनुसार तपाईंको organization को data मात्र आउँछ। Token ले user identify गर्छ र उसको org data return गर्छ।
+            </p>
+          </div>
+
+          {/* How to connect */}
+          <div className="rounded-lg border p-4 space-y-3">
+            <Label className="text-base font-medium">कसरी Third-Party System मा जोड्ने?</Label>
+            <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1.5">
+              <li>तपाईंको system (CRM, form, website) मा webhook/API integration खोल्नुहोस्</li>
+              <li>तलको <strong>POST endpoint</strong> URL paste गर्नुहोस्</li>
+              <li>Header मा <code className="bg-muted px-1 rounded">Authorization: Bearer YOUR_TOKEN</code> set गर्नुहोस्</li>
+              <li>Body मा lead data (name, phone, product) JSON format मा पठाउनुहोस्</li>
+              <li>यसरी external system बाट आएको lead तपाईंको dashboard मा automatically देखिन्छ</li>
+            </ol>
           </div>
 
           {/* Leads API */}
@@ -254,6 +272,8 @@ function BrandingTab() {
   const updateSettings = useUpdateSettings();
   const [systemName, setSystemName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (settings) {
@@ -261,6 +281,43 @@ function BrandingTab() {
       setLogoUrl((settings as any).logo_url || "");
     }
   }, [settings]);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be under 2MB");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop();
+      const fileName = `logo-${Date.now()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("branding")
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("branding")
+        .getPublicUrl(fileName);
+
+      setLogoUrl(publicUrl);
+      toast.success("Logo uploaded!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to upload logo");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -311,19 +368,38 @@ function BrandingTab() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="logo-url">Logo URL</Label>
-            <Input
-              id="logo-url"
-              placeholder="https://example.com/logo.png"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
+            <Label>Logo</Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleLogoUpload}
             />
-            <p className="text-xs text-muted-foreground">System logo को URL (PNG/SVG recommended)</p>
-            {logoUrl && (
-              <div className="mt-2 rounded-lg border p-4 flex items-center justify-center bg-muted">
-                <img src={logoUrl} alt="Logo Preview" className="max-h-16 max-w-[200px] object-contain" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-              </div>
-            )}
+            <div className="flex items-center gap-3">
+              {logoUrl ? (
+                <div className="rounded-lg border p-3 bg-muted flex items-center justify-center">
+                  <img src={logoUrl} alt="Logo" className="max-h-14 max-w-[160px] object-contain" onError={(e) => { (e.target as HTMLImageElement).src = ''; }} />
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed p-6 flex items-center justify-center bg-muted/50">
+                  <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                </div>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mr-2 h-4 w-4" />
+                )}
+                {logoUrl ? "Change Logo" : "Upload Logo"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">PNG/SVG recommended, max 2MB</p>
           </div>
 
           <Button onClick={handleSave} disabled={updateSettings.isPending}>
@@ -445,12 +521,29 @@ export default function Settings() {
                   />
                 </div>
 
+                {/* Lead Tag Auto-Remove */}
+                <div className="space-y-2">
+                  <Label htmlFor="lead-tag-remove">Lead Tag Auto-Remove (Days)</Label>
+                  <Input
+                    id="lead-tag-remove"
+                    type="number"
+                    min={0}
+                    placeholder="0 = disabled"
+                    value={(localSettings as any).lead_tag_auto_remove_days ?? ""}
+                    onChange={(e) => setLocalSettings({ ...localSettings, lead_tag_auto_remove_days: parseInt(e.target.value) || 0 } as any)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    कति दिन पछि lead tag (NEW, FOLLOW-UP) automatic हटाउने? 0 = disable
+                  </p>
+                </div>
+
                 <Button 
                   onClick={() => handleSave({
                     company_name: localSettings.company_name,
                     timezone: localSettings.timezone,
                     email_notifications: localSettings.email_notifications,
-                  })}
+                    lead_tag_auto_remove_days: (localSettings as any).lead_tag_auto_remove_days,
+                  } as any)}
                   disabled={updateSettings.isPending}
                 >
                   {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
