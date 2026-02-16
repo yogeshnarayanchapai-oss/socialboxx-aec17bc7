@@ -413,6 +413,9 @@ serve(async (req) => {
               ai_followup_step: null,
               ai_followup_next_at: null,
             }).eq("id", existingConv.id);
+
+            // CRITICAL: Update in-memory tags to match DB reset
+            existingConv.tags = ["NEW"];
           }
 
            if (!existingConv) {
