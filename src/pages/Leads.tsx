@@ -396,11 +396,12 @@ export default function Leads() {
                 <Card key={gi}>
                   <CardContent className="p-3">
                     <p className="text-xs font-medium text-warning mb-2">👤 {group[0].full_name} - {group.length} entries, {new Set(group.map(l => l.phone?.replace(/\D/g, '')).filter(Boolean)).size} different numbers</p>
-                    <div className="space-y-1">
+                        <div className="space-y-1">
                       {group.map(lead => (
                         <div key={lead.id} className="flex items-center justify-between text-xs p-2 rounded bg-muted/50">
                           <div className="flex items-center gap-2">
                             <span className="font-medium">{lead.full_name || "Unknown"}</span>
+                            <span className="text-muted-foreground font-mono">📞 {lead.phone || "N/A"}</span>
                             <StatusBadge status={statusConfig[lead.status]?.type || "info"}>
                               {statusConfig[lead.status]?.label || lead.status}
                             </StatusBadge>
