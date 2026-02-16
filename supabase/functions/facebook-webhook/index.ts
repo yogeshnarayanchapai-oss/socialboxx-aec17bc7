@@ -740,7 +740,7 @@ serve(async (req) => {
                           }).eq("id", conversationId);
 
                           // AI-based lead creation / update
-                          if (leadAction?.should_create && leadAction.phone) {
+                          if (leadAction?.should_create && leadAction.phone && !leadAction.invalid_number) {
                             const rawPhone = leadAction.phone;
                             const digitsOnly = rawPhone.replace(/\D/g, '');
                             const normalizedPhone = digitsOnly.slice(-10);

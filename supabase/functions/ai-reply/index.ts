@@ -122,11 +122,12 @@ You MUST respond in this EXACT JSON format:
 }
 
 Rules for lead_action:
-- "should_create": true ONLY when customer provides a VALID phone number per instructions
+- "should_create": true ONLY when customer provides a VALID phone number per instructions (correct digit count, correct format)
+- "should_create": MUST be false if the number is invalid (wrong digit count, wrong format) — even for existing leads
 - "phone": extract the raw digits (remove spaces, dashes, country code prefix like +977 or 977, keep all digits)
-- "invalid_number": true if customer sent something that looks like a phone number but is INVALID (wrong length, wrong format per instructions)
-- When invalid_number is true, your "reply" should ask for the correct number
-- ${hasExistingLead ? 'This conversation already has a lead created. If the customer provides ANY phone number (even a corrected/updated one), set should_create to true and include the phone number. The system will update the existing lead automatically.' : 'No lead exists yet for this conversation.'}
+- "invalid_number": true if customer sent something that looks like a phone number but is INVALID (wrong length, wrong format per instructions). When this is true, should_create MUST be false.
+- When invalid_number is true, your "reply" MUST politely tell the customer the number seems incorrect and ask for the correct one
+- ${hasExistingLead ? 'This conversation already has a lead created. If the customer provides a NEW VALID phone number (correct digit count per instructions), set should_create to true. If the number is INVALID, set should_create to false and invalid_number to true.' : 'No lead exists yet for this conversation.'}
 
 Conversation so far:
 ${conversationHistory || 'First message from customer.'}`;
