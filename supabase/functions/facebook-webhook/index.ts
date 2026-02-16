@@ -745,47 +745,28 @@ serve(async (req) => {
                             const normalizedPhone = rawPhone.replace(/\D/g, '').slice(-10);
 
                             if (hasLeadTag) {
-                              // Lead already exists — update phone number on existing lead for this conversation
-                              console.log("Updating existing lead with new phone:", rawPhone);
-                              const { data: existingLeadByConv } = await supabase
-                                .from("leads")
-                                .select("id")
-                                .eq("conversation_id", conversationId)
-                                .eq("organization_id", page.organization_id)
-                                .maybeSingle();
+                              // Lead already exists — create a NEW separate lead with the new phone
+                              console.log("Existing lead detected, creating NEW lead with phone:", rawPhone);
+                              const { data: conv } = await supabase
+                                .from("conversations")
+                                .select("participant_name")
+                                .eq("id", conversationId)
+                                .single();
 
-                              if (existingLeadByConv) {
-                                await supabase.from("leads").update({
-                                  phone: rawPhone,
-                                  last_message: message.text?.substring(0, 200),
-                                  created_at: new Date().toISOString(),
-                                  updated_at: new Date().toISOString(),
-                                }).eq("id", existingLeadByConv.id);
-                                console.log("Updated existing lead phone and date to:", rawPhone);
-                              } else {
-                                // Lead tag exists but lead record was deleted — recreate it
-                                console.log("Lead tag exists but no lead record found, creating new lead");
-                                const { data: conv } = await supabase
-                                  .from("conversations")
-                                  .select("participant_name")
-                                  .eq("id", conversationId)
-                                  .single();
-
-                                const { error: insertErr } = await supabase.from("leads").insert({
-                                  phone: rawPhone,
-                                  full_name: conv?.participant_name,
-                                  conversation_id: conversationId,
-                                  page_id: page.id,
-                                  source: page.page_name,
-                                  product: (page as any).product_name || null,
-                                  last_message: message.text?.substring(0, 200),
-                                  status: "new",
-                                  organization_id: page.organization_id,
-                                  remark: "No Inquiry",
-                                });
-                                if (insertErr) console.error("Lead re-creation error:", insertErr);
-                                else console.log("Lead re-created successfully");
-                              }
+                              const { error: insertErr } = await supabase.from("leads").insert({
+                                phone: rawPhone,
+                                full_name: conv?.participant_name,
+                                conversation_id: conversationId,
+                                page_id: page.id,
+                                source: page.page_name,
+                                product: (page as any).product_name || null,
+                                last_message: message.text?.substring(0, 200),
+                                status: "new",
+                                organization_id: page.organization_id,
+                                remark: leadAction.reason || "No Inquiry",
+                              });
+                              if (insertErr) console.error("New lead creation error:", insertErr);
+                              else console.log("New lead created successfully with phone:", rawPhone);
                             } else {
                               // New lead — dedup check then create
                               console.log("AI detected valid lead with phone:", rawPhone);
