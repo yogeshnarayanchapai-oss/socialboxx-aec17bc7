@@ -653,11 +653,12 @@ serve(async (req) => {
                 console.log("This is the latest customer message, proceeding with AI reply");
 
                 // No newer messages - we are the last worker. Try atomic lock.
+                // Accept "unreplied" OR "replied" (follow-up may have set it to "replied" during debounce)
                 const { data: lockResult } = await supabase
                   .from("conversations")
                   .update({ status: "ai_processing" })
                   .eq("id", conversationId)
-                  .eq("status", "unreplied")
+                  .in("status", ["unreplied", "replied"])
                   .select("id");
 
                 if (!lockResult || lockResult.length === 0) {
