@@ -27,8 +27,6 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    
-    // Allow service role key (for internal calls from webhook)
     const isServiceRole = token === supabaseKey;
     
     if (!isServiceRole) {
@@ -38,7 +36,7 @@ serve(async (req) => {
       }
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead } = await req.json();
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -73,6 +71,13 @@ EMOJI RULE - VERY IMPORTANT:
 - Sometimes don't use any emoji at all - keep it natural.
 - NEVER put emoji at the end of every single message.
 
+LEAD DETECTION - CRITICAL:
+- You MUST analyze every customer message for phone numbers or contact information.
+- Follow the Page Owner's Instructions about what constitutes a valid phone number and when to create a lead.
+- If the customer provides what looks like a phone number but it doesn't match the criteria in instructions (e.g., wrong digit count, wrong format), politely ask them to provide the correct number.
+- When you detect a VALID phone number (per instructions), include it in your response metadata.
+- If no specific phone validation rules are in instructions, default: Nepal 10-digit mobile starting with 97 or 98 is valid.
+
 Default Guidelines (these can be OVERRIDDEN by Page Instructions below):
 - Reply like a real human in a chat - SHORT and natural
 - Keep replies 1-3 sentences max
@@ -103,6 +108,25 @@ This customer previously gave their phone number and was marked as a lead. After
 You MUST first confirm their number by saying something like: "तपाईंको नम्बर यही xxxxxxxxxx हो नि है? नयाँ inquiry को लागि हो?" (use the language from instructions, and reference their actual phone from conversation history if visible).
 Then address their new message normally.
 ` : ''}
+
+RESPONSE FORMAT - VERY IMPORTANT:
+You MUST respond in this EXACT JSON format:
+{
+  "reply": "Your actual reply message to the customer here",
+  "lead_action": {
+    "should_create": true/false,
+    "phone": "the phone number if detected" or null,
+    "invalid_number": true/false,
+    "reason": "why this is/isn't a valid lead"
+  }
+}
+
+Rules for lead_action:
+- "should_create": true ONLY when customer provides a VALID phone number per instructions
+- "phone": extract the raw digits (remove spaces, dashes, country code prefix like +977 or 977, keep all digits)
+- "invalid_number": true if customer sent something that looks like a phone number but is INVALID (wrong length, wrong format per instructions)
+- When invalid_number is true, your "reply" should ask for the correct number
+- ${hasExistingLead ? 'This conversation already has a lead created. Set should_create to false unless this is clearly a NEW/DIFFERENT phone number.' : 'No lead exists yet for this conversation.'}
 
 Conversation so far:
 ${conversationHistory || 'First message from customer.'}`;
@@ -144,7 +168,7 @@ ${conversationHistory || 'First message from customer.'}`;
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
         ],
-        max_tokens: 500,
+        max_tokens: 600,
         temperature: 0.7,
       }),
     });
@@ -168,12 +192,41 @@ ${conversationHistory || 'First message from customer.'}`;
     }
 
     const aiResponse = await response.json();
-    const suggestedReply = aiResponse.choices?.[0]?.message?.content || "";
+    const rawContent = aiResponse.choices?.[0]?.message?.content || "";
+    
+    // Parse structured JSON response
+    let suggestedReply = "";
+    let leadAction = { should_create: false, phone: null as string | null, invalid_number: false, reason: "" };
+    
+    try {
+      // Try to extract JSON from the response (handle markdown code blocks)
+      let jsonStr = rawContent.trim();
+      // Remove markdown code block wrapper if present
+      if (jsonStr.startsWith("```")) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+      }
+      
+      const parsed = JSON.parse(jsonStr);
+      suggestedReply = parsed.reply || rawContent;
+      if (parsed.lead_action) {
+        leadAction = {
+          should_create: !!parsed.lead_action.should_create,
+          phone: parsed.lead_action.phone || null,
+          invalid_number: !!parsed.lead_action.invalid_number,
+          reason: parsed.lead_action.reason || "",
+        };
+      }
+    } catch (parseErr) {
+      // If JSON parsing fails, use raw content as reply
+      console.log("Could not parse structured response, using raw:", parseErr);
+      suggestedReply = rawContent;
+    }
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         suggestedReply: suggestedReply.trim(),
+        leadAction,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

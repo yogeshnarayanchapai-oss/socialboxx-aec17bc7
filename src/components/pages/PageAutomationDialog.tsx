@@ -70,6 +70,13 @@ interface PageAutomationDialogProps {
 
 const DEFAULT_FIRST_MSG = "कृपया आफ्नो सम्पर्क नम्बर दिनुहोस्, हजुरलाई सम्पूर्ण जानकारी हामी कलमार्फत दिन्छौं।";
 const DEFAULT_FOLLOWUP_MSG = "धन्यवाद! हामी छिट्टै सम्पर्क गर्नेछौं।";
+const DEFAULT_AI_INSTRUCTIONS = `- सधैं Roman Nepali मा reply गर्नुहोस् (customer ले जुन भाषामा लेखे पनि)
+- Sales person जस्तो friendly र convincing बोल्नुहोस्
+- Customer ले number दिँदा lead मा save गर्नुहोस्
+- Nepal को 10 digit mobile number (98/97 बाट शुरु) मात्र valid हो
+- Number गलत लागे "सही 10 digit number दिनुहोस्" भन्नुहोस्
+- Price सोध्दा direct नभन्नुहोस्, call गर्छौं भन्नुहोस्
+- Number माग्दा naturally माग्नुहोस्, force नगर्नुहोस्`;
 
 function parseMessages(data: Json | undefined | null, fallbackText: string): ReplyMessage[] {
   if (Array.isArray(data) && data.length > 0) {
@@ -183,7 +190,7 @@ export function PageAutomationDialog({
       
       setAiEnabled((page as any).ai_enabled || false);
       setAiDescription((page as any).ai_description || "");
-      setAiInstructions((page as any).ai_instructions || "");
+      setAiInstructions((page as any).ai_instructions || DEFAULT_AI_INSTRUCTIONS);
       setAiCommentHint((page as any).ai_comment_hint || "");
       setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
       setDebounceSeconds((page as any).ai_debounce_seconds ?? 30);
@@ -811,7 +818,7 @@ export function PageAutomationDialog({
                   value={aiInstructions}
                   onChange={(e) => setAiInstructions(e.target.value)}
                   placeholder={`Example:\n- Human mode मा reply गर्नुहोस्\n- 😊🙏 emoji प्रयोग गर्नुहोस्\n- Nepali/Roman Nepali मा reply गर्नुहोस्\n- Sales person जस्तो बोल्नुहोस्\n- AI को नाम "Maya" राख्नुहोस्\n- Price सोध्दा direct नभन्नुहोस्, inbox मा भन्नुहोस्`}
-                  rows={6}
+                  rows={8}
                   className="resize-y min-h-[80px]"
                 />
                 <p className="text-xs text-muted-foreground">AI ले यी instructions follow गरेर reply गर्छ</p>
