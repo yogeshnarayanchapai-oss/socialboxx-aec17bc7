@@ -59,6 +59,13 @@ Your tone should be ${aiTone}.
 
 ${businessDescription ? `About this business:\n${businessDescription}\n` : ''}
 
+STRICT BOUNDARIES - CRITICAL:
+- You MUST ONLY talk about topics related to this business description and the Page Owner's Instructions below.
+- NEVER discuss pricing, costs, or amounts unless the Page Owner's Instructions explicitly tell you to share specific prices.
+- If a customer asks about pricing and you have no price info in instructions, say "हाम्रो टिमले तपाईंलाई price details दिनेछ" or similar - NEVER make up prices.
+- NEVER answer questions outside the scope of this business. Politely redirect to the business topic.
+- Keep responses SHORT and cost-efficient (1-2 sentences when possible).
+
 LANGUAGE RULE:
 - Default reply language is ENGLISH.
 - However, if the Page Owner's Instructions below specify a different language (e.g., "reply in Nepali", "only Nepali", "नेपालीमा जवाफ दिनुहोस्"), then follow that instruction with HIGHEST priority.
@@ -178,20 +185,26 @@ ${conversationHistory || 'First message from customer.'}`;
       userContent.push({ type: "text", text: "(Empty message)" });
     }
 
-    const models = ["google/gemini-3-flash-preview", "google/gemini-2.5-flash", "openai/gpt-5-mini"];
+    // Gemini models first (cheaper & faster), OpenAI only as last resort
+    const models = [
+      { name: "google/gemini-3-flash-preview", tokenParam: "max_tokens" },
+      { name: "google/gemini-2.5-flash-lite", tokenParam: "max_tokens" },
+      { name: "google/gemini-2.5-flash", tokenParam: "max_tokens" },
+      { name: "openai/gpt-5-mini", tokenParam: "max_completion_tokens" },
+    ];
     
     let response: Response | null = null;
     let lastError = "";
 
     for (const model of models) {
       const aiRequestBody = JSON.stringify({
-        model,
+        model: model.name,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userContent },
         ],
-        max_tokens: 600,
-        temperature: 0.7,
+        [model.tokenParam]: 500,
+        temperature: 0.6,
       });
 
       try {
@@ -205,7 +218,7 @@ ${conversationHistory || 'First message from customer.'}`;
         });
 
         if (response.ok) {
-          console.log(`AI reply successful with model: ${model}`);
+          console.log(`AI reply successful with model: ${model.name}`);
           break;
         }
 
@@ -223,10 +236,10 @@ ${conversationHistory || 'First message from customer.'}`;
         }
 
         lastError = await response.text();
-        console.warn(`Model ${model} failed (${response.status}): ${lastError.substring(0, 200)}`);
+        console.warn(`Model ${model.name} failed (${response.status}): ${lastError.substring(0, 200)}`);
         response = null;
       } catch (fetchErr) {
-        console.warn(`Model ${model} fetch error:`, fetchErr);
+        console.warn(`Model ${model.name} fetch error:`, fetchErr);
         response = null;
       }
     }
