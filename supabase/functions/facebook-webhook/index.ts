@@ -680,7 +680,20 @@ serve(async (req) => {
                   for (let i = latestMessages.length - 1; i >= 0; i--) {
                     if (latestMessages[i].sender_type === 'customer') {
                       if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
-                      if (latestMessages[i].media_url) unrepliedImageUrls.push(latestMessages[i].media_url!);
+                      // Only include actual image URLs (not audio/video) to avoid AI "unsupported format" errors
+                      if (latestMessages[i].media_url) {
+                        const mediaUrl = latestMessages[i].media_url!.toLowerCase();
+                        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) || 
+                                        latestMessages[i].message_type === 'image' ||
+                                        (!mediaUrl.includes('.mp4') && !mediaUrl.includes('.mp3') && !mediaUrl.includes('.wav') && !mediaUrl.includes('.ogg') && !mediaUrl.includes('.m4a') && !mediaUrl.includes('audioclip') && !mediaUrl.includes('videoclip'));
+                        if (isImage) {
+                          unrepliedImageUrls.push(latestMessages[i].media_url!);
+                        } else {
+                          // For audio/video, add a text note instead so AI knows about it
+                          unrepliedCustomerMessages.push('[Customer sent an audio/video message]');
+                          console.log("Skipping non-image media from AI imageUrls:", latestMessages[i].media_url?.substring(0, 80));
+                        }
+                      }
                     } else break;
                   }
 
@@ -902,6 +915,10 @@ serve(async (req) => {
                               }).eq("id", conversationId);
                             }
                           }
+                        } else {
+                          // sendAutoReply FAILED — release lock so conversation isn't stuck forever
+                          console.error("sendAutoReply failed, releasing ai_processing lock");
+                          await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
                         }
                       } else {
                         // No reply generated, release lock
@@ -916,7 +933,7 @@ serve(async (req) => {
                 }
               } catch (aiError) {
                 console.error("AI reply error:", aiError);
-                // Release lock on error
+                // Release lock on ANY error
                 await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId).then(() => {});
               }
             }
