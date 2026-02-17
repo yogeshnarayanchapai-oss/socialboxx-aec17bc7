@@ -93,9 +93,16 @@ export function useCreateLead() {
 
   return useMutation({
     mutationFn: async (lead: TablesInsert<"leads">) => {
+      // Get user's organization_id for RLS compliance
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+
+      const { data: orgId } = await supabase.rpc("get_user_org_id", { _user_id: user.id });
+      if (!orgId) throw new Error("No organization found");
+
       const { data, error } = await supabase
         .from("leads")
-        .insert(lead)
+        .insert({ ...lead, organization_id: orgId })
         .select()
         .single();
 
