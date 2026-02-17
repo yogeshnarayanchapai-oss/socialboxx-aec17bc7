@@ -113,11 +113,11 @@ serve(async (req) => {
         }
 
         const step = followupSettings.steps[currentStep];
-        console.log(`Sending follow-up #${currentStep + 1} for conv ${conv.id}: ${step.message_hint}`);
+        console.log(`Sending follow-up #${currentStep + 1} for conv ${conv.id}: hint="${step.message_hint}"`);
 
         try {
-          // Generate AI follow-up message
-          let followupMessage = step.message_hint;
+          // Generate AI follow-up message — hint is ONLY guidance, NOT the actual message
+          let followupMessage = "";
 
           if (LOVABLE_API_KEY) {
             const { data: recentMsgs } = await supabase
@@ -131,50 +131,86 @@ serve(async (req) => {
               .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
               .join('\n');
 
-            const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash-lite",
-                messages: [
-                  {
-                    role: "system",
-                    content: `You are a follow-up message assistant for "${page.page_name}".
+            // Try multiple models for reliability
+            const models = [
+              { name: "google/gemini-2.5-flash-lite", tokenParam: "max_tokens" },
+              { name: "google/gemini-2.5-flash", tokenParam: "max_tokens" },
+            ];
+
+            for (const model of models) {
+              try {
+                const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model: model.name,
+                    messages: [
+                      {
+                        role: "system",
+                        content: `You are a follow-up message writer for "${page.page_name}".
 ${page.ai_description ? `Business info: ${page.ai_description}` : ''}
 ${page.product_name ? `Product: ${page.product_name}` : ''}
 ${page.product_description ? `Product details: ${page.product_description}` : ''}
 
-LANGUAGE RULE: Match the customer's language (Nepali देवनागरी, Roman Nepali, or English).
+LANGUAGE RULE: Match the customer's language from the conversation (Nepali देवनागरी, Roman Nepali, or English).
 
 This is follow-up #${currentStep + 1} of ${followupSettings.steps.length}.
-Goal: "${step.message_hint}"
+
+IMPORTANT - READ CAREFULLY:
+The page owner has provided this HINT/GUIDANCE for what the follow-up should achieve:
+"${step.message_hint}"
+
+This hint describes the INTENT of the message — it is NOT the message itself!
+You MUST write a NEW, natural, human-like message inspired by this guidance.
+DO NOT copy or repeat the hint text verbatim.
+DO NOT include instructional language like "Tell Sir" or "ask them to..." — write the actual customer-facing message directly.
+
 ${step.media?.url ? `Include this link naturally: ${step.media.url}` : ''}
 
-Guidelines:
+Rules:
+- Write ONLY the final message to send to the customer (no explanations, no quotes)
 - Sound natural and human-like, NOT robotic
-- Keep it short (1-3 sentences)
+- Keep it short (1-3 sentences max)
 - Be friendly but not pushy
-- Reference previous conversation context
-- Don't repeat exact same words from previous follow-ups
-- If sharing a link, introduce it naturally`
-                  },
-                  {
-                    role: "user",
-                    content: `Previous conversation:\n${history}\n\nCustomer name: ${conv.participant_name || 'Customer'}\nGenerate the follow-up message:`
-                  },
-                ],
-                max_tokens: 300,
-                temperature: 0.8,
-              }),
-            });
+- Reference previous conversation context naturally
+- Don't repeat words from previous follow-ups`
+                      },
+                      {
+                        role: "user",
+                        content: `Previous conversation:\n${history}\n\nCustomer name: ${conv.participant_name || 'Customer'}\n\nWrite the follow-up message (just the message text, nothing else):`
+                      },
+                    ],
+                    [model.tokenParam]: 200,
+                    temperature: 0.7,
+                  }),
+                });
 
-            if (aiResponse.ok) {
-              const aiData = await aiResponse.json();
-              followupMessage = aiData.choices?.[0]?.message?.content?.trim() || followupMessage;
+                if (aiResponse.ok) {
+                  const aiData = await aiResponse.json();
+                  const generated = aiData.choices?.[0]?.message?.content?.trim();
+                  if (generated && generated.length > 5) {
+                    followupMessage = generated;
+                    console.log(`Follow-up generated with model: ${model.name}`);
+                    break;
+                  }
+                } else {
+                  console.warn(`Follow-up model ${model.name} failed (${aiResponse.status})`);
+                }
+              } catch (err) {
+                console.warn(`Follow-up model ${model.name} error:`, err);
+              }
             }
+          }
+
+          // If AI completely failed, create a simple generic follow-up (NEVER send the raw hint)
+          if (!followupMessage) {
+            console.warn("AI follow-up generation failed, using generic message");
+            followupMessage = conv.participant_name 
+              ? `नमस्ते ${conv.participant_name}! कस्तो छ? केही सहयोग चाहिन्छ भने भन्नुहोस् 😊`
+              : `नमस्ते! केही सहयोग चाहिन्छ भने भन्नुहोस् 😊`;
           }
 
           // Send via Facebook
