@@ -599,7 +599,7 @@ serve(async (req) => {
           // Update conversation - preserve status if AI processing or if page already replied with a newer message
           const { data: currentConv } = await supabase
             .from("conversations")
-            .select("status, last_message_at")
+            .select("status, last_message_at, updated_at")
             .eq("id", conversationId)
             .single();
 
@@ -609,7 +609,14 @@ serve(async (req) => {
 
           let newStatus: string;
           if (currentConv?.status === "ai_processing") {
-            newStatus = "ai_processing";
+            // Auto-recover stuck ai_processing: if stuck for more than 3 minutes, reset to unreplied
+            const processingAge = Date.now() - new Date(currentConv.updated_at || currentConv.last_message_at).getTime();
+            if (processingAge > 3 * 60 * 1000) {
+              console.log(`Auto-recovering stuck ai_processing conversation ${conversationId} (stuck for ${Math.round(processingAge/1000)}s)`);
+              newStatus = "unreplied";
+            } else {
+              newStatus = "ai_processing";
+            }
           } else if (isOlderMessage && currentConv?.status === "replied") {
             // Don't reset to unreplied if page already replied with a newer message (late webhook)
             newStatus = "replied";
@@ -672,10 +679,11 @@ serve(async (req) => {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
               // Configurable debounce: wait for the configured seconds (default 30) to batch messages
-              // Then check if OUR message is still the latest customer message
+              // Add random jitter (0-10s) to prevent thundering herd when many messages arrive simultaneously
               const myMid = message.mid;
-              const debounceMs = ((page as any).ai_debounce_seconds || 30) * 1000;
-              console.log(`Debounce: waiting ${debounceMs/1000} seconds for message batching... (mid: ${myMid})`);
+              const jitter = Math.floor(Math.random() * 10000); // 0-10 seconds random jitter
+              const debounceMs = ((page as any).ai_debounce_seconds || 30) * 1000 + jitter;
+              console.log(`Debounce: waiting ${Math.round(debounceMs/1000)}s (${((page as any).ai_debounce_seconds || 30)}s + ${Math.round(jitter/1000)}s jitter) for message batching... (mid: ${myMid})`);
               await new Promise(resolve => setTimeout(resolve, debounceMs));
               
               try {
@@ -698,12 +706,32 @@ serve(async (req) => {
 
                 // No newer messages - we are the last worker. Try atomic lock.
                 // Accept "unreplied" OR "replied" (follow-up may have set it to "replied" during debounce)
-                const { data: lockResult } = await supabase
+                // Also recover stuck "ai_processing" conversations older than 3 minutes
+                const { data: stuckCheck } = await supabase
                   .from("conversations")
-                  .update({ status: "ai_processing" })
+                  .select("status, updated_at")
                   .eq("id", conversationId)
-                  .in("status", ["unreplied", "replied"])
-                  .select("id");
+                  .single();
+                
+                let canLock = stuckCheck?.status === "unreplied" || stuckCheck?.status === "replied";
+                if (stuckCheck?.status === "ai_processing") {
+                  const stuckAge = Date.now() - new Date(stuckCheck.updated_at).getTime();
+                  if (stuckAge > 3 * 60 * 1000) {
+                    console.log(`Recovering stuck ai_processing lock (${Math.round(stuckAge/1000)}s old)`);
+                    canLock = true;
+                  }
+                }
+                
+                let lockResult: any[] | null = null;
+                if (canLock) {
+                  const { data } = await supabase
+                    .from("conversations")
+                    .update({ status: "ai_processing", updated_at: new Date().toISOString() })
+                    .eq("id", conversationId)
+                    .in("status", ["unreplied", "replied", ...(stuckCheck?.status === "ai_processing" ? ["ai_processing"] : [])])
+                    .select("id");
+                  lockResult = data;
+                }
 
                 if (!lockResult || lockResult.length === 0) {
                   console.log("Another worker already processing or replied, skipping AI reply");
