@@ -97,7 +97,13 @@ export default function Leads() {
     pageId: pageFilter !== "all" ? pageFilter : undefined,
     ...dateRange,
   });
-  const { data: stats } = useLeadStats();
+  const stats = useMemo(() => ({
+    total: leads.length,
+    new: leads.filter(l => l.status === "new").length,
+    hot: leads.filter(l => l.status === "hot").length,
+    follow_up: leads.filter(l => l.status === "follow_up").length,
+    closed: leads.filter(l => l.status === "closed").length,
+  }), [leads]);
   const { data: pages = [] } = useConnectedPages();
   const createLead = useCreateLead();
   const updateLead = useUpdateLead();
