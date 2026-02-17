@@ -36,7 +36,7 @@ serve(async (req) => {
       }
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead, mediaAssets } = await req.json();
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -89,6 +89,20 @@ Default Guidelines (these can be OVERRIDDEN by Page Instructions below):
 - If the customer sent an image/photo, analyze it carefully and respond about what you see in it.
 - If there's an image but no text, describe what you see and ask how you can help regarding that product/item.
 
+${mediaAssets && Array.isArray(mediaAssets) && mediaAssets.length > 0 ? `
+AVAILABLE MEDIA ASSETS - VERY IMPORTANT:
+You have these media files available to send to customers. When a customer asks for photos, pictures, images, videos, or audio related to products/services, you SHOULD send the relevant media.
+
+${mediaAssets.map((m: any, i: number) => `[${i}] Type: ${m.type} | Label: "${m.label}" | URL: ${m.url}`).join('\n')}
+
+To send media, include "send_media" in your response with the index number(s) of the media to send.
+When sending media, still write a friendly text reply along with it.
+Only send media that is RELEVANT to what the customer is asking about.
+If a customer asks for photos/pictures, send image type assets.
+If they ask for video, send video type assets.
+If they ask for audio/voice, send audio type assets.
+` : ''}
+
 ${templates && templates.length > 0 ? `
 Reply templates for reference:
 ${templates.map(t => `- ${t.name}: ${t.content.substring(0, 80)}`).join('\n')}
@@ -118,8 +132,15 @@ You MUST respond in this EXACT JSON format:
     "phone": "the phone number if detected" or null,
     "invalid_number": true/false,
     "reason": "why this is/isn't a valid lead"
-  }
+  },
+  "send_media": [0, 1] or []
 }
+
+Rules for send_media:
+- Include the index numbers of media assets to send (from AVAILABLE MEDIA ASSETS list above)
+- Use empty array [] if no media should be sent
+- Only send media when the customer explicitly or implicitly asks for photos/images/videos/audio
+- If no media assets are available, always use []
 
 Rules for lead_action:
 - "should_create": true ONLY when customer provides a VALID phone number per instructions (correct digit count, correct format)
@@ -198,6 +219,7 @@ ${conversationHistory || 'First message from customer.'}`;
     // Parse structured JSON response with robust extraction
     let suggestedReply = "";
     let leadAction = { should_create: false, phone: null as string | null, invalid_number: false, reason: "" };
+    let sendMediaIndices: number[] = [];
     
     console.log("Raw AI response length:", rawContent.length, "content:", rawContent.substring(0, 500));
     
@@ -241,6 +263,11 @@ ${conversationHistory || 'First message from customer.'}`;
         };
       }
       console.log("Parsed lead_action:", JSON.stringify(leadAction));
+      
+      // Extract send_media indices
+      if (parsed.send_media && Array.isArray(parsed.send_media)) {
+        sendMediaIndices = parsed.send_media.filter((i: any) => typeof i === 'number');
+      }
     } catch (parseErr) {
       // If JSON parsing fails, use raw content as reply
       console.error("JSON parse failed for AI response:", parseErr, "Raw:", rawContent.substring(0, 300));
@@ -255,11 +282,40 @@ ${conversationHistory || 'First message from customer.'}`;
       }
     }
 
+    // Resolve media assets to send
+    let mediaToSend: any = null;
+    if (sendMediaIndices.length > 0 && mediaAssets && Array.isArray(mediaAssets)) {
+      // Send the first matched media asset
+      const idx = sendMediaIndices[0];
+      if (idx >= 0 && idx < mediaAssets.length) {
+        const asset = mediaAssets[idx];
+        mediaToSend = {
+          type: asset.type === "video" ? "video" : asset.type === "audio" ? "audio" : "image",
+          url: asset.url,
+        };
+        console.log("Sending media asset:", JSON.stringify(mediaToSend));
+      }
+      // If multiple media, send them sequentially (webhook will handle the first one via mediaToSend, 
+      // additional ones need to be sent separately)
+      if (sendMediaIndices.length > 1) {
+        const additionalMedia = sendMediaIndices.slice(1)
+          .filter((i: number) => i >= 0 && i < mediaAssets.length)
+          .map((i: number) => ({
+            type: mediaAssets[i].type === "video" ? "video" : mediaAssets[i].type === "audio" ? "audio" : "image",
+            url: mediaAssets[i].url,
+          }));
+        if (additionalMedia.length > 0) {
+          mediaToSend = { ...mediaToSend, additional: additionalMedia };
+        }
+      }
+    }
+
     return new Response(
       JSON.stringify({ 
         success: true, 
         suggestedReply: suggestedReply.trim(),
         leadAction,
+        mediaToSend,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

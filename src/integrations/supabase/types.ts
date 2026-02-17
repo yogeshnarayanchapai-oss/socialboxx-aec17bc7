@@ -201,6 +201,7 @@ export type Database = {
           ai_enabled: boolean | null
           ai_followup_settings: Json | null
           ai_instructions: string | null
+          ai_media_assets: Json | null
           auto_followup_messages: Json | null
           auto_reply_first_message: string | null
           auto_reply_followup: string | null
@@ -230,6 +231,7 @@ export type Database = {
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
           ai_instructions?: string | null
+          ai_media_assets?: Json | null
           auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
@@ -259,6 +261,7 @@ export type Database = {
           ai_enabled?: boolean | null
           ai_followup_settings?: Json | null
           ai_instructions?: string | null
+          ai_media_assets?: Json | null
           auto_followup_messages?: Json | null
           auto_reply_first_message?: string | null
           auto_reply_followup?: string | null
