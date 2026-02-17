@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare, Bot, FileAudio } from "lucide-react";
+import { Loader2, Plus, Trash2, Image, Video, Link2, Upload, X, Pencil, ChevronLeft, ChevronRight, MessageSquare, Bot, FileAudio, ImagePlus, Music } from "lucide-react";
 import { toast } from "sonner";
 import { useUpdatePageSettings, type AutoReplyKeyword } from "@/hooks/usePageSettings";
 import type { Json } from "@/integrations/supabase/types";
@@ -37,6 +37,13 @@ interface AiFollowupStep {
   delay_hours: number;
   message_hint: string;
   media?: MediaAttachment | null;
+}
+
+interface AiMediaAsset {
+  type: "image" | "audio" | "video";
+  url: string;
+  label: string;
+  created_at: string;
 }
 
 interface AiFollowupSettings {
@@ -65,6 +72,7 @@ interface PageAutomationDialogProps {
     product_description?: string;
     ai_followup_settings?: Json;
     ai_comment_reply_enabled?: boolean;
+    ai_media_assets?: Json;
   } | null;
 }
 
@@ -116,7 +124,10 @@ export function PageAutomationDialog({
   const [followupIndex, setFollowupIndex] = useState(0);
   const [keywords, setKeywords] = useState<ExtendedAutoReplyKeyword[]>([]);
   const [commentAutoReply, setCommentAutoReply] = useState("");
-  
+  const [aiMediaAssets, setAiMediaAssets] = useState<AiMediaAsset[]>([]);
+  const [uploadingAiMedia, setUploadingAiMedia] = useState(false);
+  const [aiVideoUrl, setAiVideoUrl] = useState("");
+  const [aiVideoLabel, setAiVideoLabel] = useState("");
   const [newKeyword, setNewKeyword] = useState("");
   const [newReply, setNewReply] = useState("");
   const [newMediaType, setNewMediaType] = useState<"image" | "video" | "link" | "audio" | null>(null);
@@ -136,7 +147,8 @@ export function PageAutomationDialog({
   const followupMediaRef = useRef<HTMLInputElement>(null);
   const keywordMediaRef = useRef<HTMLInputElement>(null);
   const editMediaRef = useRef<HTMLInputElement>(null);
-
+  const aiImageInputRef = useRef<HTMLInputElement>(null);
+  const aiAudioInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (page && open) {
       setAutomationEnabled(page.automation_enabled || false);
@@ -194,6 +206,10 @@ export function PageAutomationDialog({
       setAiCommentHint((page as any).ai_comment_hint || "");
       setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
       setDebounceSeconds((page as any).ai_debounce_seconds ?? 30);
+
+      // Load AI media assets
+      const assets = (page as any).ai_media_assets;
+      setAiMediaAssets(Array.isArray(assets) ? assets : []);
       
       // AI Follow-up: load saved steps or start with 1 default
       const followupSettings = (page as any).ai_followup_settings as AiFollowupSettings | null;
@@ -404,6 +420,7 @@ export function PageAutomationDialog({
         ai_comment_hint: aiCommentHint,
         ai_comment_reply_enabled: aiCommentReplyEnabled,
         ai_debounce_seconds: debounceSeconds,
+        ai_media_assets: aiMediaAssets,
         ai_followup_settings: {
           enabled: aiFollowupEnabled,
           steps: aiFollowupSteps,
@@ -822,6 +839,144 @@ export function PageAutomationDialog({
                   className="resize-y min-h-[80px]"
                 />
                 <p className="text-xs text-muted-foreground">AI ले यी instructions follow गरेर reply गर्छ</p>
+              </div>
+
+              {/* AI Media Assets */}
+              <div className="space-y-4 rounded-lg border p-4">
+                <div>
+                  <Label className="text-sm font-medium">Media Assets (Photos, Audio, Videos)</Label>
+                  <p className="text-xs text-muted-foreground">Customer ले photo/video माग्दा AI ले यहाँबाट पठाउँछ</p>
+                </div>
+
+                {/* Photos */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium flex items-center gap-1.5">
+                      <ImagePlus className="h-3.5 w-3.5" /> Photos
+                    </Label>
+                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled={uploadingAiMedia}
+                      onClick={() => aiImageInputRef.current?.click()}>
+                      {uploadingAiMedia ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
+                      Upload
+                    </Button>
+                    <input ref={aiImageInputRef} type="file" accept="image/*" multiple className="hidden"
+                      onChange={async (e) => {
+                        const files = e.target.files;
+                        if (!files || !page) return;
+                        setUploadingAiMedia(true);
+                        const newAssets: AiMediaAsset[] = [];
+                        for (const file of Array.from(files)) {
+                          const url = await uploadImage(file);
+                          if (url) newAssets.push({ type: "image", url, label: file.name.replace(/\.[^.]+$/, ""), created_at: new Date().toISOString() });
+                        }
+                        if (newAssets.length > 0) { setAiMediaAssets(prev => [...prev, ...newAssets]); toast.success(`${newAssets.length} photo upload भयो!`); }
+                        setUploadingAiMedia(false);
+                        if (aiImageInputRef.current) aiImageInputRef.current.value = '';
+                      }} />
+                  </div>
+                  {aiMediaAssets.filter(a => a.type === "image").length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {aiMediaAssets.map((asset, i) => asset.type === "image" ? (
+                        <div key={i} className="relative group rounded-md overflow-hidden border">
+                          <img src={asset.url} alt={asset.label} className="w-full h-20 object-cover" />
+                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <Button variant="destructive" size="sm" className="h-6 w-6 p-0"
+                              onClick={() => setAiMediaAssets(prev => prev.filter((_, idx) => idx !== i))}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          <p className="text-[10px] truncate px-1 py-0.5 bg-muted">{asset.label}</p>
+                        </div>
+                      ) : null)}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">कुनै photo upload गरिएको छैन</p>
+                  )}
+                </div>
+
+                {/* Audio */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium flex items-center gap-1.5">
+                      <Music className="h-3.5 w-3.5" /> Audio
+                    </Label>
+                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs" disabled={uploadingAiMedia}
+                      onClick={() => aiAudioInputRef.current?.click()}>
+                      {uploadingAiMedia ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Plus className="h-3 w-3 mr-1" />}
+                      Upload
+                    </Button>
+                    <input ref={aiAudioInputRef} type="file" accept="audio/*" multiple className="hidden"
+                      onChange={async (e) => {
+                        const files = e.target.files;
+                        if (!files || !page) return;
+                        setUploadingAiMedia(true);
+                        const newAssets: AiMediaAsset[] = [];
+                        for (const file of Array.from(files)) {
+                          const url = await uploadImage(file);
+                          if (url) newAssets.push({ type: "audio", url, label: file.name.replace(/\.[^.]+$/, ""), created_at: new Date().toISOString() });
+                        }
+                        if (newAssets.length > 0) { setAiMediaAssets(prev => [...prev, ...newAssets]); toast.success(`${newAssets.length} audio upload भयो!`); }
+                        setUploadingAiMedia(false);
+                        if (aiAudioInputRef.current) aiAudioInputRef.current.value = '';
+                      }} />
+                  </div>
+                  {aiMediaAssets.filter(a => a.type === "audio").length > 0 ? (
+                    <div className="space-y-1.5">
+                      {aiMediaAssets.map((asset, i) => asset.type === "audio" ? (
+                        <div key={i} className="flex items-center gap-2 p-2 rounded border bg-muted/50">
+                          <Music className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="text-xs truncate flex-1">{asset.label}</span>
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive"
+                            onClick={() => setAiMediaAssets(prev => prev.filter((_, idx) => idx !== i))}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : null)}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">कुनै audio upload गरिएको छैन</p>
+                  )}
+                </div>
+
+                {/* Videos (URL) */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium flex items-center gap-1.5">
+                    <Video className="h-3.5 w-3.5" /> Videos (URL / Link)
+                  </Label>
+                  {aiMediaAssets.filter(a => a.type === "video").length > 0 && (
+                    <div className="space-y-1.5">
+                      {aiMediaAssets.map((asset, i) => asset.type === "video" ? (
+                        <div key={i} className="flex items-center gap-2 p-2 rounded border bg-muted/50">
+                          <Video className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{asset.label}</p>
+                            <p className="text-[10px] text-muted-foreground truncate">{asset.url}</p>
+                          </div>
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive"
+                            onClick={() => setAiMediaAssets(prev => prev.filter((_, idx) => idx !== i))}>
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : null)}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Input value={aiVideoLabel} onChange={(e) => setAiVideoLabel(e.target.value)} placeholder="Label" className="h-8 text-xs flex-1" />
+                    <Input value={aiVideoUrl} onChange={(e) => setAiVideoUrl(e.target.value)} placeholder="Video URL" className="h-8 text-xs flex-[2]" />
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs shrink-0" disabled={!aiVideoUrl.trim()}
+                      onClick={() => {
+                        if (!aiVideoUrl.trim()) return;
+                        setAiMediaAssets(prev => [...prev, { type: "video", url: aiVideoUrl.trim(), label: aiVideoLabel.trim() || "Video", created_at: new Date().toISOString() }]);
+                        setAiVideoUrl(""); setAiVideoLabel("");
+                        toast.success("Video link add भयो!");
+                      }}>
+                      <Plus className="h-3 w-3 mr-1" /> Add
+                    </Button>
+                  </div>
+                  {aiMediaAssets.filter(a => a.type === "video").length === 0 && (
+                    <p className="text-xs text-muted-foreground italic">कुनै video link add गरिएको छैन</p>
+                  )}
+                </div>
               </div>
 
               {/* AI Follow-up Schedule */}

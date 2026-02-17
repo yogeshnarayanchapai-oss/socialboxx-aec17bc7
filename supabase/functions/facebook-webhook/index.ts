@@ -168,6 +168,8 @@ async function sendAutoReply(
         mediaPayload = { attachment: { type: "image", payload: { url: mediaToSend.url, is_reusable: true } } };
       } else if (mediaToSend.type === "video") {
         mediaPayload = { attachment: { type: "video", payload: { url: mediaToSend.url, is_reusable: true } } };
+      } else if (mediaToSend.type === "audio") {
+        mediaPayload = { attachment: { type: "audio", payload: { url: mediaToSend.url, is_reusable: true } } };
       } else if (mediaToSend.type === "link") {
         mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🔗 Link:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Open Link" }] } } };
       }
@@ -337,7 +339,7 @@ serve(async (req) => {
 
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id, ai_debounce_seconds")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id, ai_debounce_seconds, ai_media_assets")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -712,6 +714,7 @@ serve(async (req) => {
                           imageUrls: unrepliedImageUrls.length > 0 ? unrepliedImageUrls : undefined,
                           longGapConfirmation,
                           hasExistingLead: hasLeadTag,
+                          mediaAssets: (page as any).ai_media_assets || [],
                         }),
                       }
                     );
@@ -724,7 +727,16 @@ serve(async (req) => {
                       console.log("AI response - leadAction:", JSON.stringify(leadAction), "hasReply:", !!suggestedReply);
 
                       if (suggestedReply) {
-                        const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply);
+                        // Check if AI wants to send media
+                        const mediaToSend = aiData.mediaToSend || null;
+                        const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply, mediaToSend);
+                        
+                        // Send additional media if present
+                        if (mediaToSend?.additional && Array.isArray(mediaToSend.additional)) {
+                          for (const extra of mediaToSend.additional) {
+                            await sendAutoReply(page.page_access_token, senderId, "", extra);
+                          }
+                        }
                         
                         if (sent) {
                           await supabase.from("messages").insert({
