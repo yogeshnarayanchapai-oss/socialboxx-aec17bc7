@@ -538,6 +538,31 @@ export default function Inbox() {
                   {retryingUnreplied ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
                   Retry All
                 </Button>
+                {filter === "unreplied" && conversations.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2 flex-shrink-0 gap-1 text-orange-600 border-orange-300 hover:bg-orange-50"
+                    onClick={async () => {
+                      try {
+                        const ids = conversations.map(c => c.id);
+                        const { error } = await supabase
+                          .from("conversations")
+                          .update({ status: "replied" })
+                          .in("id", ids)
+                          .eq("status", "unreplied");
+                        if (error) throw error;
+                        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                        setSelectedConversation(null);
+                        toast.success(`${ids.length} conversations marked as replied`);
+                      } catch (e) {
+                        toast.error("Failed to mark as replied");
+                      }
+                    }}
+                  >
+                    ✓ Mark All Replied
+                  </Button>
+                )}
               </div>
               <div className="flex gap-1.5">
                 <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); if (v !== "custom") { setCustomDateFrom(undefined); setCustomDateTo(undefined); } }}>
