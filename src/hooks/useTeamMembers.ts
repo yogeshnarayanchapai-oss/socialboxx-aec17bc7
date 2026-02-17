@@ -73,20 +73,17 @@ export function useInviteTeamMember() {
       role: string;
       name?: string;
     }) => {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("user_id")
-        .eq("email", email)
-        .maybeSingle();
+      const { data: userId, error: lookupError } = await supabase
+        .rpc("find_user_by_email", { _email: email });
 
-      if (profileError) throw profileError;
-      if (!profile) throw new Error("No user found with this email. They must sign up first.");
+      if (lookupError) throw lookupError;
+      if (!userId) throw new Error("No user found with this email. They must sign up first.");
 
       const { data: existing } = await supabase
         .from("organization_members")
         .select("id")
         .eq("organization_id", organizationId)
-        .eq("user_id", profile.user_id)
+        .eq("user_id", userId)
         .maybeSingle();
 
       if (existing) throw new Error("This user is already a team member.");
@@ -97,7 +94,7 @@ export function useInviteTeamMember() {
         .from("organization_members")
         .insert({
           organization_id: organizationId,
-          user_id: profile.user_id,
+          user_id: userId,
           role: role as "admin" | "manager" | "agent",
           invited_by: user?.id,
         });
@@ -109,10 +106,10 @@ export function useInviteTeamMember() {
         await supabase
           .from("profiles")
           .update({ full_name: name })
-          .eq("user_id", profile.user_id);
+          .eq("user_id", userId);
       }
 
-      return profile.user_id;
+      return userId;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["team-members"] });
