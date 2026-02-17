@@ -580,14 +580,19 @@ serve(async (req) => {
             console.log("Attachment-only message, constructed content:", messageContent);
           }
 
+          // Determine if attachment is a real media file or just a link share
+          const isLinkShare = attachmentType === 'fallback' || attachmentType === 'share';
+          const actualMediaUrl = isLinkShare ? null : attachmentUrl;
+          const actualMessageType = message.attachments && !isLinkShare ? "media" : "text";
+
           // Store the message
           await supabase.from("messages").insert({
             external_message_id: message.mid,
             conversation_id: conversationId,
             content: messageContent,
             sender_type: "customer",
-            message_type: message.attachments ? "media" : "text",
-            media_url: attachmentUrl,
+            message_type: actualMessageType,
+            media_url: actualMediaUrl,
             created_at: new Date(timestamp).toISOString(),
           });
 
@@ -717,12 +722,16 @@ serve(async (req) => {
                   for (let i = latestMessages.length - 1; i >= 0; i--) {
                     if (latestMessages[i].sender_type === 'customer') {
                       if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
-                      // Only include actual image URLs (not audio/video) to avoid AI "unsupported format" errors
+                      // Only include actual image URLs (not audio/video/links) to avoid AI "unsupported format" errors
                       if (latestMessages[i].media_url) {
                         const mediaUrl = latestMessages[i].media_url!.toLowerCase();
-                        const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) || 
-                                        latestMessages[i].message_type === 'image' ||
-                                        (!mediaUrl.includes('.mp4') && !mediaUrl.includes('.mp3') && !mediaUrl.includes('.wav') && !mediaUrl.includes('.ogg') && !mediaUrl.includes('.m4a') && !mediaUrl.includes('audioclip') && !mediaUrl.includes('videoclip'));
+                        // Exclude link shares (facebook.com/l.php, youtu.be, etc.) - they are NOT images
+                        const isLinkUrl = mediaUrl.includes('l.facebook.com/l.php') || mediaUrl.includes('youtu.be') || mediaUrl.includes('youtube.com') || mediaUrl.includes('fb.me');
+                        const isImage = !isLinkUrl && (
+                          /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) || 
+                          latestMessages[i].message_type === 'image' ||
+                          (!mediaUrl.includes('.mp4') && !mediaUrl.includes('.mp3') && !mediaUrl.includes('.wav') && !mediaUrl.includes('.ogg') && !mediaUrl.includes('.m4a') && !mediaUrl.includes('audioclip') && !mediaUrl.includes('videoclip'))
+                        );
                         if (isImage) {
                           unrepliedImageUrls.push(latestMessages[i].media_url!);
                         } else {
