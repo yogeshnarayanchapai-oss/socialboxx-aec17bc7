@@ -560,14 +560,34 @@ serve(async (req) => {
             continue;
           }
 
+          // Build content: if no text but attachments exist, create a text representation
+          let messageContent = message.text || null;
+          const attachmentUrl = message.attachments?.[0]?.payload?.url || null;
+          const attachmentType = message.attachments?.[0]?.type || null;
+          
+          if (!messageContent && message.attachments && message.attachments.length > 0) {
+            // Extract URL from attachment for link shares
+            const shareUrl = message.attachments[0]?.payload?.url || message.attachments[0]?.url;
+            if (attachmentType === 'fallback' || attachmentType === 'share') {
+              // Link share - extract the title/URL
+              const title = message.attachments[0]?.title || '';
+              messageContent = title ? `[Customer shared a link: ${title}]` : '[Customer shared a link]';
+            } else if (shareUrl) {
+              messageContent = `[Customer sent an attachment: ${shareUrl}]`;
+            } else {
+              messageContent = `[Customer sent a ${attachmentType || 'media'} attachment]`;
+            }
+            console.log("Attachment-only message, constructed content:", messageContent);
+          }
+
           // Store the message
           await supabase.from("messages").insert({
             external_message_id: message.mid,
             conversation_id: conversationId,
-            content: message.text,
+            content: messageContent,
             sender_type: "customer",
             message_type: message.attachments ? "media" : "text",
-            media_url: message.attachments?.[0]?.payload?.url,
+            media_url: attachmentUrl,
             created_at: new Date(timestamp).toISOString(),
           });
 
@@ -598,7 +618,7 @@ serve(async (req) => {
           };
           if (!isOlderMessage) {
             updateData.last_message_at = incomingTimestamp;
-            updateData.last_message_preview = message.text?.substring(0, 100);
+            updateData.last_message_preview = (messageContent || message.text)?.substring(0, 100);
           }
           await supabase.from("conversations").update(updateData).eq("id", conversationId);
 
@@ -640,7 +660,7 @@ serve(async (req) => {
               }).eq("id", conversationId);
             }
             
-            const isNonsenseOrEmoji = isEmojiOrNonsense(message.text || "");
+            const isNonsenseOrEmoji = isEmojiOrNonsense(messageContent || "");
             const hasLeadTag = conversationTags.includes("lead-created");
             
             if (hasLeadTag && isNonsenseOrEmoji) {
