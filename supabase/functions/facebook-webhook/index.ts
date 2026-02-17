@@ -364,8 +364,23 @@ serve(async (req) => {
           }
         }
 
-        // Process messaging events
-        for (const messaging of entry.messaging || []) {
+        // Deduplicate: group messages by sender, keep only the LATEST per sender
+        // This prevents sequential debounce sleeps that cause 504 timeouts
+        const messagingEvents = entry.messaging || [];
+        const latestPerSender = new Map<string, any>();
+        for (const messaging of messagingEvents) {
+          const sid = messaging.sender?.id;
+          if (!sid || sid === pageId || !messaging.message) continue;
+          const existing = latestPerSender.get(sid);
+          if (!existing || (messaging.timestamp > existing.timestamp)) {
+            latestPerSender.set(sid, messaging);
+          }
+        }
+
+        // First pass: store ALL messages in DB (fast, no sleep)
+        const storedMessages: Array<{messaging: any, conversationId: string, conversationTags: string[], isFirstMessage: boolean}> = [];
+        
+        for (const messaging of messagingEvents) {
           const senderId = messaging.sender?.id;
           const recipientId = messaging.recipient?.id;
           const timestamp = messaging.timestamp;
@@ -678,6 +693,12 @@ serve(async (req) => {
             if (hasLeadTag && isNonsenseOrEmoji) {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
             } else {
+              // Skip AI processing if this is NOT the latest message for this sender in this webhook batch
+              // This prevents sequential debounce sleeps from causing 504 timeouts
+              const latestForThisSender = latestPerSender.get(senderId);
+              if (latestForThisSender && latestForThisSender.message?.mid !== message.mid) {
+                console.log(`Skipping AI for older batch message (mid: ${message.mid}), latest for sender: ${latestForThisSender.message?.mid}`);
+              } else {
               // Configurable debounce: wait for the configured seconds (default 30) to batch messages
               // Add random jitter (0-10s) to prevent thundering herd when many messages arrive simultaneously
               const myMid = message.mid;
@@ -1010,6 +1031,7 @@ serve(async (req) => {
                 // Release lock on ANY error
                 await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId).then(() => {});
               }
+            } // end: skip older batch messages
             }
           }
           
