@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Loader2,
   Sparkles,
+  RotateCw,
   RefreshCw,
   ArrowLeft,
   Trash2,
@@ -143,6 +144,7 @@ export default function Inbox() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [retryingUnreplied, setRetryingUnreplied] = useState(false);
   const isMobile = useIsMobile();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -382,6 +384,47 @@ export default function Inbox() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to sync"); }
   };
 
+  const handleRetryUnreplied = async () => {
+    if (pages.length === 0) { toast.error("No pages connected."); return; }
+    setRetryingUnreplied(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast.error("Not authenticated"); return; }
+
+      let totalProcessed = 0;
+      let totalFailed = 0;
+
+      // Process AI-enabled pages only
+      for (const page of pages) {
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ pageId: page.id }),
+          }
+        );
+        if (response.ok) {
+          const result = await response.json();
+          totalProcessed += result.processed || 0;
+          totalFailed += result.failed || 0;
+        }
+      }
+
+      if (totalProcessed > 0) {
+        toast.success(`${totalProcessed} unreplied conversations replied!`);
+      } else if (totalFailed > 0) {
+        toast.error(`${totalFailed} replies failed`);
+      } else {
+        toast.info("No unreplied conversations to retry");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to retry");
+    } finally {
+      setRetryingUnreplied(false);
+    }
+  };
+
   const handleUseTemplate = (content: string) => {
     let processed = content
       .replace(/\{\{name\}\}/g, selectedConversation?.participant_name || "there")
@@ -428,6 +471,16 @@ export default function Inbox() {
                     {opt.label}
                   </button>
                 ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 text-[10px] px-2 flex-shrink-0 gap-1"
+                  onClick={handleRetryUnreplied}
+                  disabled={retryingUnreplied}
+                >
+                  {retryingUnreplied ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                  Retry All
+                </Button>
               </div>
               <div className="flex gap-1.5">
                 <Select value={dateFilter} onValueChange={(v) => { setDateFilter(v); if (v !== "custom") { setCustomDateFrom(undefined); setCustomDateTo(undefined); } }}>
