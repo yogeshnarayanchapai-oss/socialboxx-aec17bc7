@@ -807,6 +807,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      find_user_by_email: { Args: { _email: string }; Returns: string }
       get_org_role: {
         Args: { _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
