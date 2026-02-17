@@ -10,11 +10,11 @@ export interface UserPageAccess {
 
 export function useUserAccess() {
   const { user } = useAuth();
-  const { data: org } = useOrganization(user?.id);
+  const { data: org, isLoading: isOrgLoading } = useOrganization(user?.id);
 
   const isAdmin = org?.userRole === "admin";
 
-  const { data: pageAccess, isLoading } = useQuery({
+  const { data: pageAccess, isLoading: isAccessLoading } = useQuery({
     queryKey: ["user-page-access", user?.id, org?.id],
     queryFn: async () => {
       if (!user?.id || !org?.id) return [];
@@ -34,8 +34,11 @@ export function useUserAccess() {
     enabled: !!user?.id && !!org?.id,
   });
 
-  // Returns null for admins (all access), or array of page IDs
-  const accessiblePageIds = isAdmin ? null : (pageAccess?.map(a => a.page_id) ?? []);
+  // Still loading user role/org - don't return empty array yet
+  const isLoading = isOrgLoading || (!org && !!user?.id) || isAccessLoading;
+
+  // Returns null for admins (all access), undefined while loading, or array of page IDs
+  const accessiblePageIds = isLoading ? undefined : isAdmin ? null : (pageAccess?.map(a => a.page_id) ?? []);
   const canEditPage = (pageId: string) => {
     if (isAdmin) return true;
     return pageAccess?.some(a => a.page_id === pageId && a.access_level === "edit") ?? false;
@@ -44,7 +47,7 @@ export function useUserAccess() {
   return {
     isAdmin,
     userRole: org?.userRole ?? "agent",
-    accessiblePageIds, // null = all, [] = none, [...] = specific pages
+    accessiblePageIds, // null = all, undefined = loading, [] = none, [...] = specific pages
     pageAccess,
     canEditPage,
     isLoading,

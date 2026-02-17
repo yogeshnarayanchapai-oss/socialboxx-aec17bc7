@@ -6,7 +6,7 @@ import { useUserAccess } from "@/hooks/useUserAccess";
 export type ConnectedPage = Tables<"connected_pages">;
 
 export function useConnectedPages() {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["connected-pages", accessiblePageIds],
@@ -18,7 +18,7 @@ export function useConnectedPages() {
         .order("created_at", { ascending: false });
 
       // If not admin, filter by accessible pages
-      if (accessiblePageIds !== null) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) {
         if (accessiblePageIds.length === 0) return [] as ConnectedPage[];
         query = query.in("id", accessiblePageIds);
       }
@@ -27,6 +27,8 @@ export function useConnectedPages() {
       if (error) throw error;
       return data as ConnectedPage[];
     },
+    // Don't run until we know the user's access level
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 

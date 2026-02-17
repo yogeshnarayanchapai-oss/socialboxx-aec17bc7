@@ -3,12 +3,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { useUserAccess } from "@/hooks/useUserAccess";
 
 export function useDashboardStats() {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["dashboard-stats", accessiblePageIds],
     queryFn: async () => {
-      if (accessiblePageIds !== null && accessiblePageIds.length === 0) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) {
         return {
           totalMessages7d: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
           replyRate: "0%", avgResponseTime: "N/A", todayFollowupTotal: 0,
@@ -24,31 +24,29 @@ export function useDashboardStats() {
         .from("conversations")
         .select("id, status, last_message_at, created_at, page_id")
         .is("deleted_at", null);
-      if (accessiblePageIds !== null) convQuery = convQuery.in("page_id", accessiblePageIds);
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) convQuery = convQuery.in("page_id", accessiblePageIds);
 
       let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id");
-      if (accessiblePageIds !== null) leadsQuery = leadsQuery.in("page_id", accessiblePageIds);
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) leadsQuery = leadsQuery.in("page_id", accessiblePageIds);
 
       let followupQuery = supabase
         .from("followup_logs")
         .select("id, followup_type, page_id")
         .gte("sent_at", today.toISOString());
-      if (accessiblePageIds !== null) followupQuery = followupQuery.in("page_id", accessiblePageIds);
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) followupQuery = followupQuery.in("page_id", accessiblePageIds);
 
       const [{ data: conversations }, { data: leads }, { data: todayFollowups }] = await Promise.all([
         convQuery, leadsQuery, followupQuery,
       ]);
 
-      // For messages we need conversation IDs to filter
       const convIds = conversations?.map(c => c.id) ?? [];
       let messagesData: any[] = [];
       if (convIds.length > 0) {
-        // Get messages from last 7 days for accessible conversations
         const { data: messages } = await supabase
           .from("messages")
           .select("id, sender_type, created_at")
           .gte("created_at", sevenDaysAgo.toISOString())
-          .in("conversation_id", convIds.slice(0, 500)); // Limit to avoid too large query
+          .in("conversation_id", convIds.slice(0, 500));
         messagesData = messages ?? [];
       }
 
@@ -80,16 +78,17 @@ export function useDashboardStats() {
         todayFollowupAutomation,
       };
     },
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 
 export function useRecentConversations(limit = 5) {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["recent-conversations", limit, accessiblePageIds],
     queryFn: async () => {
-      if (accessiblePageIds !== null && accessiblePageIds.length === 0) return [];
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) return [];
 
       let query = supabase
         .from("conversations")
@@ -98,17 +97,18 @@ export function useRecentConversations(limit = 5) {
         .order("last_message_at", { ascending: false })
         .limit(limit);
 
-      if (accessiblePageIds !== null) query = query.in("page_id", accessiblePageIds);
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) query = query.in("page_id", accessiblePageIds);
 
       const { data, error } = await query;
       if (error) throw error;
       return data;
     },
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 
 export function usePagePerformance() {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["page-performance", accessiblePageIds],
@@ -118,7 +118,7 @@ export function usePagePerformance() {
         .select("id, page_name")
         .eq("connection_status", "active");
 
-      if (accessiblePageIds !== null) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) {
         if (accessiblePageIds.length === 0) return [];
         query = query.in("id", accessiblePageIds);
       }
@@ -149,6 +149,7 @@ export function usePagePerformance() {
 
       return performance;
     },
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 
