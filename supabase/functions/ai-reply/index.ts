@@ -178,39 +178,70 @@ ${conversationHistory || 'First message from customer.'}`;
       userContent.push({ type: "text", text: "(Empty message)" });
     }
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userContent },
-        ],
-        max_tokens: 600,
-        temperature: 0.7,
-      }),
+    const aiRequestBody = JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
+      max_tokens: 600,
+      temperature: 0.7,
     });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limits exceeded, please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+    // Retry logic with exponential backoff for transient errors
+    let response: Response | null = null;
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: aiRequestBody,
+        });
+
+        // Don't retry on client errors (except 429)
+        if (response.ok) break;
+        
+        if (response.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limits exceeded, please try again later." }),
+            { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "AI credits depleted. Please add credits to continue." }),
+            { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Retry on 5xx errors
+        if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
+          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+          console.warn(`AI gateway returned ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        const errorText = await response.text();
+        console.error("AI gateway error:", response.status, errorText);
+        throw new Error(`AI gateway error: ${response.status}`);
+      } catch (fetchErr) {
+        if (attempt < MAX_RETRIES - 1 && !(fetchErr instanceof Error && fetchErr.message.startsWith("AI gateway error"))) {
+          const delay = Math.pow(2, attempt) * 1000;
+          console.warn(`AI gateway fetch failed, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES}):`, fetchErr);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw fetchErr;
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits depleted. Please add credits to continue." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
-      throw new Error("AI gateway error");
+    }
+
+    if (!response || !response.ok) {
+      throw new Error("AI gateway error after all retries");
     }
 
     const aiResponse = await response.json();
