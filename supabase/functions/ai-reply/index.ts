@@ -178,20 +178,22 @@ ${conversationHistory || 'First message from customer.'}`;
       userContent.push({ type: "text", text: "(Empty message)" });
     }
 
-    const aiRequestBody = JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-      max_tokens: 600,
-      temperature: 0.7,
-    });
-
-    // Retry logic with exponential backoff for transient errors
+    const models = ["google/gemini-3-flash-preview", "google/gemini-2.5-flash", "openai/gpt-5-mini"];
+    
     let response: Response | null = null;
-    const MAX_RETRIES = 3;
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    let lastError = "";
+
+    for (const model of models) {
+      const aiRequestBody = JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+        max_tokens: 600,
+        temperature: 0.7,
+      });
+
       try {
         response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -202,9 +204,11 @@ ${conversationHistory || 'First message from customer.'}`;
           body: aiRequestBody,
         });
 
-        // Don't retry on client errors (except 429)
-        if (response.ok) break;
-        
+        if (response.ok) {
+          console.log(`AI reply successful with model: ${model}`);
+          break;
+        }
+
         if (response.status === 429) {
           return new Response(
             JSON.stringify({ error: "Rate limits exceeded, please try again later." }),
@@ -218,30 +222,17 @@ ${conversationHistory || 'First message from customer.'}`;
           );
         }
 
-        // Retry on 5xx errors
-        if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
-          const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-          console.warn(`AI gateway returned ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-
-        const errorText = await response.text();
-        console.error("AI gateway error:", response.status, errorText);
-        throw new Error(`AI gateway error: ${response.status}`);
+        lastError = await response.text();
+        console.warn(`Model ${model} failed (${response.status}): ${lastError.substring(0, 200)}`);
+        response = null;
       } catch (fetchErr) {
-        if (attempt < MAX_RETRIES - 1 && !(fetchErr instanceof Error && fetchErr.message.startsWith("AI gateway error"))) {
-          const delay = Math.pow(2, attempt) * 1000;
-          console.warn(`AI gateway fetch failed, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES}):`, fetchErr);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        throw fetchErr;
+        console.warn(`Model ${model} fetch error:`, fetchErr);
+        response = null;
       }
     }
 
     if (!response || !response.ok) {
-      throw new Error("AI gateway error after all retries");
+      throw new Error(`All AI models failed. Last: ${lastError.substring(0, 200)}`);
     }
 
     const aiResponse = await response.json();
