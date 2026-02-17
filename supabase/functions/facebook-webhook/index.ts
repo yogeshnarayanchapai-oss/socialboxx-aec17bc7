@@ -571,19 +571,36 @@ serve(async (req) => {
             created_at: new Date(timestamp).toISOString(),
           });
 
-          // Update conversation - but DON'T reset status if AI is currently processing
+          // Update conversation - preserve status if AI processing or if page already replied with a newer message
           const { data: currentConv } = await supabase
             .from("conversations")
-            .select("status")
+            .select("status, last_message_at")
             .eq("id", conversationId)
             .single();
 
-          const newStatus = (currentConv?.status === "ai_processing") ? "ai_processing" : "unreplied";
-          await supabase.from("conversations").update({
-            last_message_at: new Date(timestamp).toISOString(),
-            last_message_preview: message.text?.substring(0, 100),
+          const incomingTimestamp = new Date(timestamp).toISOString();
+          const currentLastMessageAt = currentConv?.last_message_at;
+          const isOlderMessage = currentLastMessageAt && incomingTimestamp <= currentLastMessageAt;
+
+          let newStatus: string;
+          if (currentConv?.status === "ai_processing") {
+            newStatus = "ai_processing";
+          } else if (isOlderMessage && currentConv?.status === "replied") {
+            // Don't reset to unreplied if page already replied with a newer message (late webhook)
+            newStatus = "replied";
+          } else {
+            newStatus = "unreplied";
+          }
+
+          // Only update last_message_at if this message is actually newer
+          const updateData: Record<string, unknown> = {
             status: newStatus,
-          }).eq("id", conversationId);
+          };
+          if (!isOlderMessage) {
+            updateData.last_message_at = incomingTimestamp;
+            updateData.last_message_preview = message.text?.substring(0, 100);
+          }
+          await supabase.from("conversations").update(updateData).eq("id", conversationId);
 
           // Phone-based lead detection REMOVED — now handled by AI in lead_action
 
