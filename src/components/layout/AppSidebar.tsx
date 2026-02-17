@@ -23,8 +23,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsPlatformAdmin } from "@/hooks/useOrganization";
+import { useUserAccess } from "@/hooks/useUserAccess";
 
-const navigationItems = [
+const allNavigationItems = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Pages", href: "/pages", icon: FileText },
   { name: "Inbox", href: "/inbox", icon: Inbox },
@@ -34,6 +35,8 @@ const navigationItems = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
+// Items visible to non-admin team members
+const teamMemberItems = ["Dashboard", "Pages", "Inbox", "Leads"];
 
 export function AppSidebar() {
   const location = useLocation();
@@ -42,6 +45,12 @@ export function AppSidebar() {
   const isMobile = useIsMobile();
   const { user } = useAuth();
   const { data: isPlatformAdmin } = useIsPlatformAdmin(user?.id);
+  const { isAdmin } = useUserAccess();
+
+  // Filter navigation based on role
+  let navigationItems = isAdmin
+    ? allNavigationItems
+    : allNavigationItems.filter(item => teamMemberItems.includes(item.name));
 
   const allNavItems = isPlatformAdmin
     ? [...navigationItems, { name: "Admin", href: "/admin", icon: Shield }]

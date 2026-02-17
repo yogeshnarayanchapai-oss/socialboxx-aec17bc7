@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables, TablesInsert, TablesUpdate } from "@/integrations/supabase/types";
+import { useUserAccess } from "@/hooks/useUserAccess";
 
 export type Lead = Tables<"leads"> & {
   connected_pages?: { page_name: string };
@@ -14,13 +15,22 @@ export function useLeads(filters?: {
   dateFrom?: string;
   dateTo?: string;
 }) {
+  const { accessiblePageIds } = useUserAccess();
+
   return useQuery({
-    queryKey: ["leads", filters],
+    queryKey: ["leads", filters, accessiblePageIds],
     queryFn: async () => {
+      if (accessiblePageIds !== null && accessiblePageIds.length === 0) return [] as Lead[];
+
       let query = supabase
         .from("leads")
         .select("*, connected_pages:page_id(page_name)")
         .order("created_at", { ascending: false });
+
+      // Filter by accessible pages for non-admins
+      if (accessiblePageIds !== null && !filters?.pageId) {
+        query = query.in("page_id", accessiblePageIds);
+      }
 
       if (filters?.status && filters.status !== "all") {
         query = query.eq("status", filters.status);
@@ -46,13 +56,21 @@ export function useLeads(filters?: {
 }
 
 export function useLeadStats() {
-  return useQuery({
-    queryKey: ["lead-stats"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("leads")
-        .select("status");
+  const { accessiblePageIds } = useUserAccess();
 
+  return useQuery({
+    queryKey: ["lead-stats", accessiblePageIds],
+    queryFn: async () => {
+      if (accessiblePageIds !== null && accessiblePageIds.length === 0) {
+        return { total: 0, new: 0, hot: 0, follow_up: 0, closed: 0 };
+      }
+
+      let query = supabase.from("leads").select("status, page_id");
+      if (accessiblePageIds !== null) {
+        query = query.in("page_id", accessiblePageIds);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
 
       const stats = {

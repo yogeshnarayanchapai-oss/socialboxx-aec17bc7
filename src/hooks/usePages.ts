@@ -1,19 +1,29 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { useUserAccess } from "@/hooks/useUserAccess";
 
 export type ConnectedPage = Tables<"connected_pages">;
 
 export function useConnectedPages() {
+  const { accessiblePageIds } = useUserAccess();
+
   return useQuery({
-    queryKey: ["connected-pages"],
+    queryKey: ["connected-pages", accessiblePageIds],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("connected_pages")
         .select("*")
         .in("connection_status", ["active", "token_expired"])
         .order("created_at", { ascending: false });
 
+      // If not admin, filter by accessible pages
+      if (accessiblePageIds !== null) {
+        if (accessiblePageIds.length === 0) return [] as ConnectedPage[];
+        query = query.in("id", accessiblePageIds);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       return data as ConnectedPage[];
     },
