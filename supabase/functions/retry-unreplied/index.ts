@@ -37,6 +37,8 @@ serve(async (req) => {
     if (!page.ai_enabled) throw new Error("AI is not enabled for this page");
 
     const holdTimeSeconds = page.ai_debounce_seconds || 30;
+    const functionStartTime = Date.now();
+    const MAX_FUNCTION_TIME_MS = 120000; // 120s safety limit (edge fn has 150s)
 
     // Get all unreplied conversations for this page (also pick up stuck ai_processing ones)
     const { data: unrepliedConvs, error: convError } = await supabase
@@ -59,6 +61,11 @@ serve(async (req) => {
     let skipped = 0;
 
     for (const conv of unrepliedConvs) {
+      // Safety: stop if approaching function timeout
+      if (Date.now() - functionStartTime > MAX_FUNCTION_TIME_MS) {
+        console.log(`Approaching timeout, stopping after ${processed} processed. Remaining: ${unrepliedConvs.length - processed - failed - skipped}`);
+        break;
+      }
       try {
         // Get recent messages
         const { data: recentMessages } = await supabase
@@ -243,9 +250,9 @@ serve(async (req) => {
         processed++;
         console.log(`Reply sent for conv ${conv.id} (${conv.participant_name})`);
 
-        // Wait hold time between messages to avoid rate limiting
+        // Small delay between conversations to avoid Facebook rate limiting (2s instead of holdTime)
         if (processed < unrepliedConvs.length) {
-          await new Promise((resolve) => setTimeout(resolve, holdTimeSeconds * 1000));
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         }
       } catch (convErr) {
         console.error(`Error processing conv ${conv.id}:`, convErr);

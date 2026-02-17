@@ -451,20 +451,24 @@ export default function Inbox() {
       let totalProcessed = 0;
       let totalFailed = 0;
 
-      // Process AI-enabled pages only
-      for (const page of pages) {
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-            body: JSON.stringify({ pageId: page.id }),
-          }
-        );
-        if (response.ok) {
-          const result = await response.json();
-          totalProcessed += result.processed || 0;
-          totalFailed += result.failed || 0;
+      // Process all pages in parallel instead of sequentially
+      const results = await Promise.allSettled(
+        pages.map(page =>
+          fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ pageId: page.id }),
+            }
+          ).then(r => r.ok ? r.json() : null)
+        )
+      );
+
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value) {
+          totalProcessed += r.value.processed || 0;
+          totalFailed += r.value.failed || 0;
         }
       }
 
