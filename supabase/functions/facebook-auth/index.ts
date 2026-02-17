@@ -452,6 +452,21 @@ serve(async (req) => {
         );
       }
 
+      // Get user's organization ID
+      const { data: orgMember } = await supabase
+        .from("organization_members")
+        .select("organization_id")
+        .eq("user_id", user.id)
+        .single();
+
+      if (!orgMember) {
+        return new Response(
+          JSON.stringify({ success: false, error: "User organization not found" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const organizationId = orgMember.organization_id;
       const results: any[] = [];
       const errors: any[] = [];
 
@@ -501,15 +516,22 @@ serve(async (req) => {
             results.push({ pageId, pageName: page.name, action: "reconnected" });
           } else {
             // Insert new page
-            await supabase.from("connected_pages").insert({
+            const { error: insertError } = await supabase.from("connected_pages").insert({
               page_id: pageId,
               page_name: validateData.name || page.name,
               page_access_token: page.accessToken,
               page_picture_url: validateData.picture?.data?.url || page.pictureUrl,
               connected_by: user.id,
+              organization_id: organizationId,
               connection_status: "active",
               token_expiry: tokenExpiry.toISOString(),
             });
+
+            if (insertError) {
+              console.error(`Insert error for page ${pageId}:`, insertError);
+              errors.push({ pageId, pageName: page.name, error: insertError.message });
+              continue;
+            }
 
             results.push({ pageId, pageName: page.name, action: "connected" });
           }
