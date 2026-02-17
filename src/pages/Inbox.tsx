@@ -373,6 +373,7 @@ export default function Inbox() {
         conversationId: selectedConversation.id,
         updates: { tags: newTags },
       });
+      setSelectedConversation({ ...selectedConversation, tags: newTags });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       toast.success(extractedPhone ? `Lead created with phone ${extractedPhone}!` : "Lead created!");
     } catch { toast.error("Failed to create lead"); }
@@ -381,10 +382,15 @@ export default function Inbox() {
   const handleMarkFollowUp = async () => {
     if (!selectedConversation) return;
     try {
+      const currentTags = selectedConversation.tags || [];
+      const newTags = currentTags.filter(t => t !== 'new' && t !== 'lead-created');
+      if (!newTags.includes('follow-up')) newTags.push('follow-up');
       await updateConversation.mutateAsync({
         conversationId: selectedConversation.id,
-        updates: { status: "follow-up" },
+        updates: { status: "follow-up", tags: newTags, auto_followup_step: Math.max(selectedConversation.auto_followup_step || 0, 1) },
       });
+      setSelectedConversation({ ...selectedConversation, tags: newTags, auto_followup_step: Math.max(selectedConversation.auto_followup_step || 0, 1) });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
       toast.success("Marked for follow-up!");
     } catch { toast.error("Failed to update conversation"); }
   };
