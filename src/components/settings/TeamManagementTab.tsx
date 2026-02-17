@@ -38,35 +38,31 @@ export function TeamManagementTab() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
+  const [invitePassword, setInvitePassword] = useState("");
   const [inviteRole, setInviteRole] = useState("agent");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [accessDialogMember, setAccessDialogMember] = useState<string | null>(null);
-  // Page access state for invite dialog
   const [invitePageAccess, setInvitePageAccess] = useState<Record<string, string>>({});
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !orgId) return;
+    if (!inviteEmail.trim() || !invitePassword.trim() || !orgId) return;
+    if (invitePassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
     try {
-      const userId = await inviteMember.mutateAsync({
+      await inviteMember.mutateAsync({
         email: inviteEmail.trim(),
+        password: invitePassword.trim(),
         organizationId: orgId,
         role: inviteRole,
         name: inviteName.trim() || undefined,
+        pageAccess: invitePageAccess,
       });
-      // Set page access for the newly added member
-      for (const [pageId, level] of Object.entries(invitePageAccess)) {
-        if (level !== "none") {
-          await updateAccess.mutateAsync({
-            userId,
-            organizationId: orgId,
-            pageId,
-            accessLevel: level,
-          });
-        }
-      }
       toast.success("Team member added!");
       setInviteEmail("");
       setInviteName("");
+      setInvitePassword("");
       setInvitePageAccess({});
       setInviteDialogOpen(false);
     } catch (error: any) {
@@ -115,8 +111,8 @@ export function TeamManagementTab() {
             <CardDescription>Manage team access and page permissions</CardDescription>
           </div>
           <Dialog open={inviteDialogOpen} onOpenChange={(open) => {
-            setInviteDialogOpen(open);
-            if (!open) { setInvitePageAccess({}); setInviteName(""); }
+          setInviteDialogOpen(open);
+            if (!open) { setInvitePageAccess({}); setInviteName(""); setInvitePassword(""); }
           }}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -128,7 +124,7 @@ export function TeamManagementTab() {
               <DialogHeader>
                 <DialogTitle>Add Team Member</DialogTitle>
                 <DialogDescription>
-                  The user must have an existing account. Enter their registered email.
+                  Enter member details. They can log in with the email and password you set.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-2 max-h-[60vh] overflow-y-auto">
@@ -146,6 +142,15 @@ export function TeamManagementTab() {
                     placeholder="member@example.com"
                     value={inviteEmail}
                     onChange={(e) => setInviteEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Password</Label>
+                  <Input
+                    type="password"
+                    placeholder="Min 6 characters"
+                    value={invitePassword}
+                    onChange={(e) => setInvitePassword(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -205,7 +210,7 @@ export function TeamManagementTab() {
                 )}
               </div>
               <DialogFooter>
-                <Button onClick={handleInvite} disabled={inviteMember.isPending || !inviteEmail.trim()}>
+                <Button onClick={handleInvite} disabled={inviteMember.isPending || !inviteEmail.trim() || !invitePassword.trim()}>
                   {inviteMember.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Add Member
                 </Button>

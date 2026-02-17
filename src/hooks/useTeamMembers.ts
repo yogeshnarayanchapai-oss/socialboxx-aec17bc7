@@ -64,52 +64,44 @@ export function useInviteTeamMember() {
   return useMutation({
     mutationFn: async ({
       email,
+      password,
       organizationId,
       role,
       name,
+      pageAccess,
     }: {
       email: string;
+      password: string;
       organizationId: string;
       role: string;
       name?: string;
+      pageAccess?: Record<string, string>;
     }) => {
-      const { data: userId, error: lookupError } = await supabase
-        .rpc("find_user_by_email", { _email: email });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
 
-      if (lookupError) throw lookupError;
-      if (!userId) throw new Error("No user found with this email. They must sign up first.");
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/invite-member`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            email,
+            password,
+            name,
+            role,
+            organizationId,
+            pageAccess,
+          }),
+        }
+      );
 
-      const { data: existing } = await supabase
-        .from("organization_members")
-        .select("id")
-        .eq("organization_id", organizationId)
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (existing) throw new Error("This user is already a team member.");
-
-      const { data: { user } } = await supabase.auth.getUser();
-
-      const { error } = await supabase
-        .from("organization_members")
-        .insert({
-          organization_id: organizationId,
-          user_id: userId,
-          role: role as "admin" | "manager" | "agent",
-          invited_by: user?.id,
-        });
-
-      if (error) throw error;
-
-      // Update the profile name if provided
-      if (name) {
-        await supabase
-          .from("profiles")
-          .update({ full_name: name })
-          .eq("user_id", userId);
-      }
-
-      return userId;
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to add member");
+      return result.userId;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["team-members"] });
