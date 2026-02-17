@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSearchParams, useLocation } from "react-router-dom";
 import {
   Search,
@@ -127,6 +128,7 @@ function getConversationBg(tag: ConversationTag) {
 }
 
 export default function Inbox() {
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
@@ -366,11 +368,12 @@ export default function Inbox() {
       // Update conversation tag to "lead"
       const currentTags = selectedConversation.tags || [];
       const newTags = currentTags.filter(t => t !== 'new' && t !== 'follow-up');
-      if (!newTags.includes('lead')) newTags.push('lead');
+      if (!newTags.includes('lead-created')) newTags.push('lead-created');
       await updateConversation.mutateAsync({
         conversationId: selectedConversation.id,
         updates: { tags: newTags },
       });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
       toast.success(extractedPhone ? `Lead created with phone ${extractedPhone}!` : "Lead created!");
     } catch { toast.error("Failed to create lead"); }
   };
