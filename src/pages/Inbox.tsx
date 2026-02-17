@@ -358,11 +358,35 @@ export default function Inbox() {
         }
       }
 
+      // Get page details for source & product (same as AI lead creation)
+      const connectedPage = pages.find(p => p.id === selectedConversation.page_id);
+      const sourceName = connectedPage?.page_name || null;
+      const productName = connectedPage?.product_name || null;
+
+      // Build last_message from most recent customer message
+      const lastCustomerMsg = messages
+        .filter(m => m.sender_type === "customer" && m.content)
+        .slice(-1)[0]?.content?.substring(0, 200) || null;
+
+      // Build remark from customer inquiry messages (exclude pure phone numbers)
+      const inquiryTexts = customerMessages
+        .filter(t => {
+          const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
+          return t.trim().length > 0 && !/^\d{9,}$/.test(stripped);
+        });
+      const remark = inquiryTexts.length > 0
+        ? inquiryTexts.join(' | ').substring(0, 500)
+        : "No Inquiry";
+
       await createLead.mutateAsync({
         full_name: selectedConversation.participant_name,
         conversation_id: selectedConversation.id,
         page_id: selectedConversation.page_id,
         phone: extractedPhone,
+        source: sourceName,
+        product: productName,
+        last_message: lastCustomerMsg,
+        remark,
         status: "new",
       });
       // Update conversation tag to "lead"
