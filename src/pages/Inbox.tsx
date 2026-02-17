@@ -341,13 +341,29 @@ export default function Inbox() {
   const handleCreateLead = async () => {
     if (!selectedConversation) return;
     try {
+      // Extract phone number from conversation messages
+      let extractedPhone: string | null = null;
+      const customerMessages = messages
+        .filter(m => m.sender_type === "customer" && m.content)
+        .map(m => m.content!);
+      
+      // Search for Nepal mobile numbers (10 digits starting with 97 or 98)
+      for (const msg of customerMessages) {
+        const phoneMatch = msg.match(/(?:^|\D)(9[78]\d{8})(?:\D|$)/);
+        if (phoneMatch) {
+          extractedPhone = phoneMatch[1];
+          break;
+        }
+      }
+
       await createLead.mutateAsync({
         full_name: selectedConversation.participant_name,
         conversation_id: selectedConversation.id,
         page_id: selectedConversation.page_id,
+        phone: extractedPhone,
         status: "new",
       });
-      toast.success("Lead created!");
+      toast.success(extractedPhone ? `Lead created with phone ${extractedPhone}!` : "Lead created!");
     } catch { toast.error("Failed to create lead"); }
   };
 
