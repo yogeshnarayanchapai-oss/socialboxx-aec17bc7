@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -193,10 +193,24 @@ export default function Pages() {
                     </DropdownMenu>
                   </div>
                   
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
                     <StatusBadge status={getStatusVariant(page.connection_status)}>
                       {page.connection_status === "token_expired" ? "Token Expired" : page.connection_status}
                     </StatusBadge>
+                    {page.ai_enabled && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-info/10 px-2 py-0.5 text-[11px] font-medium text-info">
+                        <Bot className="h-3 w-3" />
+                        AI
+                      </span>
+                    )}
+                    {page.automation_enabled && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+                        <Zap className="h-3 w-3" />
+                        Auto
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2">
                     <span className="text-xs text-muted-foreground">
                       Connected {new Date(page.created_at).toLocaleDateString()}
                     </span>
