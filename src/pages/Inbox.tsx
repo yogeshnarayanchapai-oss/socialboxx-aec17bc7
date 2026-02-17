@@ -363,6 +363,14 @@ export default function Inbox() {
         phone: extractedPhone,
         status: "new",
       });
+      // Update conversation tag to "lead"
+      const currentTags = selectedConversation.tags || [];
+      const newTags = currentTags.filter(t => t !== 'new' && t !== 'follow-up');
+      if (!newTags.includes('lead')) newTags.push('lead');
+      await updateConversation.mutateAsync({
+        conversationId: selectedConversation.id,
+        updates: { tags: newTags },
+      });
       toast.success(extractedPhone ? `Lead created with phone ${extractedPhone}!` : "Lead created!");
     } catch { toast.error("Failed to create lead"); }
   };
