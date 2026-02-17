@@ -36,7 +36,7 @@ const allNavigationItems = [
 ];
 
 // Items visible to non-admin team members
-const teamMemberItems = ["Dashboard", "Pages", "Inbox", "Leads"];
+const teamMemberItems = ["Dashboard", "Pages", "Inbox", "Leads", "Reports"];
 
 export function AppSidebar() {
   const location = useLocation();
