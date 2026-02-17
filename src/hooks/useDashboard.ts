@@ -1,39 +1,62 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useUserAccess } from "@/hooks/useUserAccess";
 
 export function useDashboardStats() {
+  const { accessiblePageIds } = useUserAccess();
+
   return useQuery({
-    queryKey: ["dashboard-stats"],
+    queryKey: ["dashboard-stats", accessiblePageIds],
     queryFn: async () => {
+      if (accessiblePageIds !== null && accessiblePageIds.length === 0) {
+        return {
+          totalMessages7d: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
+          replyRate: "0%", avgResponseTime: "N/A", todayFollowupTotal: 0,
+          todayFollowupAI: 0, todayFollowupAutomation: 0,
+        };
+      }
+
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      const { data: conversations } = await supabase
+      let convQuery = supabase
         .from("conversations")
-        .select("id, status, last_message_at, created_at")
+        .select("id, status, last_message_at, created_at, page_id")
         .is("deleted_at", null);
+      if (accessiblePageIds !== null) convQuery = convQuery.in("page_id", accessiblePageIds);
 
-      const { data: messages } = await supabase
-        .from("messages")
-        .select("id, sender_type, created_at")
-        .gte("created_at", sevenDaysAgo.toISOString());
+      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id");
+      if (accessiblePageIds !== null) leadsQuery = leadsQuery.in("page_id", accessiblePageIds);
 
-      const { data: leads } = await supabase
-        .from("leads")
-        .select("id, status, followup_due_date");
-
-      // Today's follow-up counts
-      const { data: todayFollowups } = await supabase
+      let followupQuery = supabase
         .from("followup_logs")
-        .select("id, followup_type")
+        .select("id, followup_type, page_id")
         .gte("sent_at", today.toISOString());
+      if (accessiblePageIds !== null) followupQuery = followupQuery.in("page_id", accessiblePageIds);
+
+      const [{ data: conversations }, { data: leads }, { data: todayFollowups }] = await Promise.all([
+        convQuery, leadsQuery, followupQuery,
+      ]);
+
+      // For messages we need conversation IDs to filter
+      const convIds = conversations?.map(c => c.id) ?? [];
+      let messagesData: any[] = [];
+      if (convIds.length > 0) {
+        // Get messages from last 7 days for accessible conversations
+        const { data: messages } = await supabase
+          .from("messages")
+          .select("id, sender_type, created_at")
+          .gte("created_at", sevenDaysAgo.toISOString())
+          .in("conversation_id", convIds.slice(0, 500)); // Limit to avoid too large query
+        messagesData = messages ?? [];
+      }
 
       const todayFollowupTotal = todayFollowups?.length || 0;
       const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
       const todayFollowupAutomation = todayFollowups?.filter(f => f.followup_type === "automation").length || 0;
 
-      const totalMessages7d = messages?.length || 0;
+      const totalMessages7d = messagesData.length;
       const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
       const leadsPending = leads?.filter(l => l.status === "new" || l.status === "hot").length || 0;
       const followUpsDue = leads?.filter(l => {
@@ -41,8 +64,8 @@ export function useDashboardStats() {
         return new Date(l.followup_due_date) <= now && l.status !== "closed";
       }).length || 0;
 
-      const incomingMessages = messages?.filter(m => m.sender_type === "customer").length || 0;
-      const outgoingMessages = messages?.filter(m => m.sender_type === "page").length || 0;
+      const incomingMessages = messagesData.filter(m => m.sender_type === "customer").length;
+      const outgoingMessages = messagesData.filter(m => m.sender_type === "page").length;
       const replyRate = incomingMessages > 0 ? Math.round((outgoingMessages / incomingMessages) * 100) : 0;
 
       return {
@@ -61,15 +84,23 @@ export function useDashboardStats() {
 }
 
 export function useRecentConversations(limit = 5) {
+  const { accessiblePageIds } = useUserAccess();
+
   return useQuery({
-    queryKey: ["recent-conversations", limit],
+    queryKey: ["recent-conversations", limit, accessiblePageIds],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (accessiblePageIds !== null && accessiblePageIds.length === 0) return [];
+
+      let query = supabase
         .from("conversations")
         .select("*, connected_pages(page_name)")
         .is("deleted_at", null)
         .order("last_message_at", { ascending: false })
         .limit(limit);
+
+      if (accessiblePageIds !== null) query = query.in("page_id", accessiblePageIds);
+
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     },
@@ -77,14 +108,22 @@ export function useRecentConversations(limit = 5) {
 }
 
 export function usePagePerformance() {
+  const { accessiblePageIds } = useUserAccess();
+
   return useQuery({
-    queryKey: ["page-performance"],
+    queryKey: ["page-performance", accessiblePageIds],
     queryFn: async () => {
-      const { data: pages } = await supabase
+      let query = supabase
         .from("connected_pages")
         .select("id, page_name")
         .eq("connection_status", "active");
 
+      if (accessiblePageIds !== null) {
+        if (accessiblePageIds.length === 0) return [];
+        query = query.in("id", accessiblePageIds);
+      }
+
+      const { data: pages } = await query;
       if (!pages?.length) return [];
 
       const performance = await Promise.all(

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
 import { useEffect } from "react";
+import { useUserAccess } from "@/hooks/useUserAccess";
 
 export type Conversation = Tables<"conversations"> & {
   connected_pages?: { page_name: string };
@@ -15,14 +16,24 @@ export function useConversations(filters?: {
   dateFrom?: string;
   dateTo?: string;
 }) {
+  const { accessiblePageIds } = useUserAccess();
+
   return useQuery({
-    queryKey: ["conversations", filters],
+    queryKey: ["conversations", filters, accessiblePageIds],
     queryFn: async () => {
+      // Non-admin with no page access
+      if (accessiblePageIds !== null && accessiblePageIds.length === 0) return [] as Conversation[];
+
       let query = supabase
         .from("conversations")
         .select("*, connected_pages(page_name)")
         .is("deleted_at", null)
         .order("last_message_at", { ascending: false });
+
+      // Filter by accessible pages for non-admins
+      if (accessiblePageIds !== null && !filters?.pageId) {
+        query = query.in("page_id", accessiblePageIds);
+      }
 
       if (filters?.pageId) {
         query = query.eq("page_id", filters.pageId);
@@ -31,7 +42,6 @@ export function useConversations(filters?: {
         if (filters.status === "lead") {
           query = query.contains("tags", ["lead-created"]);
         } else if (filters.status === "follow-up") {
-          // Follow-up conversations have followup step >= 1 (either AI or automation)
           query = query.or("auto_followup_step.gte.1,ai_followup_step.gte.1");
         } else {
           query = query.eq("status", filters.status);

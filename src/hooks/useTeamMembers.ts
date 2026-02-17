@@ -186,3 +186,27 @@ export function useUpdatePageAccess() {
     },
   });
 }
+
+export function useUpdateMemberRole() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      memberId,
+      role,
+    }: {
+      memberId: string;
+      role: string;
+    }) => {
+      const { error } = await supabase
+        .from("organization_members")
+        .update({ role: role as "admin" | "manager" | "agent" })
+        .eq("id", memberId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["team-members"] });
+    },
+  });
+}
