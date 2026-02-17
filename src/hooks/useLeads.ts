@@ -15,12 +15,12 @@ export function useLeads(filters?: {
   dateFrom?: string;
   dateTo?: string;
 }) {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["leads", filters, accessiblePageIds],
     queryFn: async () => {
-      if (accessiblePageIds !== null && accessiblePageIds.length === 0) return [] as Lead[];
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) return [] as Lead[];
 
       let query = supabase
         .from("leads")
@@ -28,7 +28,7 @@ export function useLeads(filters?: {
         .order("created_at", { ascending: false });
 
       // Filter by accessible pages for non-admins
-      if (accessiblePageIds !== null && !filters?.pageId) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && !filters?.pageId) {
         query = query.in("page_id", accessiblePageIds);
       }
 
@@ -52,21 +52,22 @@ export function useLeads(filters?: {
       if (error) throw error;
       return data as Lead[];
     },
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 
 export function useLeadStats() {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["lead-stats", accessiblePageIds],
     queryFn: async () => {
-      if (accessiblePageIds !== null && accessiblePageIds.length === 0) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) {
         return { total: 0, new: 0, hot: 0, follow_up: 0, closed: 0 };
       }
 
       let query = supabase.from("leads").select("status, page_id");
-      if (accessiblePageIds !== null) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined) {
         query = query.in("page_id", accessiblePageIds);
       }
 
@@ -83,6 +84,7 @@ export function useLeadStats() {
 
       return stats;
     },
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 

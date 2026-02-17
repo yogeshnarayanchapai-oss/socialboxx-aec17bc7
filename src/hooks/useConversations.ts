@@ -16,13 +16,13 @@ export function useConversations(filters?: {
   dateFrom?: string;
   dateTo?: string;
 }) {
-  const { accessiblePageIds } = useUserAccess();
+  const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
   return useQuery({
     queryKey: ["conversations", filters, accessiblePageIds],
     queryFn: async () => {
       // Non-admin with no page access
-      if (accessiblePageIds !== null && accessiblePageIds.length === 0) return [] as Conversation[];
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) return [] as Conversation[];
 
       let query = supabase
         .from("conversations")
@@ -31,7 +31,7 @@ export function useConversations(filters?: {
         .order("last_message_at", { ascending: false });
 
       // Filter by accessible pages for non-admins
-      if (accessiblePageIds !== null && !filters?.pageId) {
+      if (accessiblePageIds !== null && accessiblePageIds !== undefined && !filters?.pageId) {
         query = query.in("page_id", accessiblePageIds);
       }
 
@@ -61,6 +61,7 @@ export function useConversations(filters?: {
       if (error) throw error;
       return data as Conversation[];
     },
+    enabled: !isAccessLoading && accessiblePageIds !== undefined,
   });
 }
 
