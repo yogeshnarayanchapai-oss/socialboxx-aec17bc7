@@ -109,26 +109,26 @@ export default function Leads() {
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
 
-  // Find duplicate leads - same name with multiple different numbers
+  // Find duplicate leads - same name AND same phone number
   const duplicateLeads = useMemo(() => {
     if (!showDuplicates || leads.length === 0) return null;
     
-    // Group by normalized name
-    const nameMap = new Map<string, Lead[]>();
+    // Group by normalized name + phone combo
+    const comboMap = new Map<string, Lead[]>();
     leads.forEach(lead => {
       const name = lead.full_name?.trim().toLowerCase();
-      if (name && name.length >= 2 && lead.phone) {
-        const existing = nameMap.get(name) || [];
+      const phone = lead.phone?.replace(/\D/g, '');
+      if (name && name.length >= 2 && phone && phone.length >= 5) {
+        const key = `${name}::${phone}`;
+        const existing = comboMap.get(key) || [];
         existing.push(lead);
-        nameMap.set(name, existing);
+        comboMap.set(key, existing);
       }
     });
     
     const duplicates: Lead[][] = [];
-    nameMap.forEach(group => {
-      // Check if same name has different phone numbers
-      const uniquePhones = new Set(group.map(l => l.phone?.replace(/\D/g, '')).filter(Boolean));
-      if (uniquePhones.size > 1 || group.length > 1) {
+    comboMap.forEach(group => {
+      if (group.length > 1) {
         duplicates.push(group);
       }
     });
@@ -401,7 +401,7 @@ export default function Leads() {
               duplicateLeads.map((group, gi) => (
                 <Card key={gi}>
                   <CardContent className="p-3">
-                    <p className="text-xs font-medium text-warning mb-2">👤 {group[0].full_name} - {group.length} entries, {new Set(group.map(l => l.phone?.replace(/\D/g, '')).filter(Boolean)).size} different numbers</p>
+                    <p className="text-xs font-medium text-warning mb-2">👤 {group[0].full_name} - {group.length} duplicate entries (same name & number)</p>
                         <div className="space-y-1">
                       {group.map(lead => (
                         <div key={lead.id} className="flex items-center justify-between text-xs p-2 rounded bg-muted/50">
