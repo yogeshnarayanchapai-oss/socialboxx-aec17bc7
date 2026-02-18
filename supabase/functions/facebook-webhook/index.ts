@@ -105,6 +105,9 @@ function isEmojiOrNonsense(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length === 0) return true;
   
+  // Stickers are emoji/nonsense
+  if (trimmed === '[Sticker]') return true;
+  
   const withoutEmoji = trimmed.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu, '').trim();
   
   if (withoutEmoji.length === 0) return true;
@@ -581,11 +584,16 @@ serve(async (req) => {
           const attachmentType = message.attachments?.[0]?.type || null;
           
           if (!messageContent && message.attachments && message.attachments.length > 0) {
-            // Extract URL from attachment for link shares
-            const shareUrl = message.attachments[0]?.payload?.url || message.attachments[0]?.url;
-            if (attachmentType === 'fallback' || attachmentType === 'share') {
+            const att = message.attachments[0];
+            const shareUrl = att?.payload?.url || att?.url;
+            
+            if (attachmentType === 'sticker') {
+              // Facebook sticker/emoji (like thumbs up) - store as sticker
+              messageContent = '[Sticker]';
+              console.log("Sticker message detected, sticker_id:", att?.payload?.sticker_id);
+            } else if (attachmentType === 'fallback' || attachmentType === 'share') {
               // Link share - extract the title/URL
-              const title = message.attachments[0]?.title || '';
+              const title = att?.title || '';
               messageContent = title ? `[Customer shared a link: ${title}]` : '[Customer shared a link]';
             } else if (shareUrl) {
               messageContent = `[Customer sent an attachment: ${shareUrl}]`;
@@ -596,9 +604,10 @@ serve(async (req) => {
           }
 
           // Determine if attachment is a real media file or just a link share
+          const isSticker = attachmentType === 'sticker';
           const isLinkShare = attachmentType === 'fallback' || attachmentType === 'share';
-          const actualMediaUrl = isLinkShare ? null : attachmentUrl;
-          const actualMessageType = message.attachments && !isLinkShare ? "media" : "text";
+          const actualMediaUrl = (isLinkShare) ? null : attachmentUrl;
+          const actualMessageType = isSticker ? "sticker" : (message.attachments && !isLinkShare ? "media" : "text");
 
           // Store the message
           await supabase.from("messages").insert({

@@ -668,6 +668,7 @@ export default function Inbox() {
                           {(() => {
                             const preview = conv.last_message_preview || "No messages";
                             // Clean attachment URLs from preview
+                            if (preview === '[Sticker]') return "😊 Sticker";
                             if (preview.match(/^\[Customer sent an attachment:/)) return "📎 Attachment";
                             if (preview.match(/^\[Customer shared a link/)) return "🔗 Link shared";
                             if (preview.match(/^\[Customer sent a \w+ attachment\]/)) return "📎 Media";
@@ -771,7 +772,15 @@ export default function Inbox() {
                     <>
                       {messages.map((msg) => {
                         // Parse content to detect attachment markers and clean display
-                        const renderContent = (content: string | null) => {
+                        const renderContent = (content: string | null, mediaUrl?: string | null, messageType?: string) => {
+                          if (!content && !mediaUrl) return null;
+                          // Sticker - render the sticker image directly
+                          if (content === '[Sticker]' || messageType === 'sticker') {
+                            if (mediaUrl) {
+                              return <img src={mediaUrl} alt="Sticker" className="w-20 h-20 object-contain" />;
+                            }
+                            return <p className="text-2xl">👍</p>;
+                          }
                           if (!content) return null;
                           // Detect "[Customer sent an attachment: URL]" pattern
                           const attachMatch = content.match(/^\[Customer sent an attachment: (https?:\/\/\S+)\]$/);
@@ -800,8 +809,8 @@ export default function Inbox() {
                               : msg.sender_type === "page" ? "message-outgoing" : "message-incoming"
                           )}>
                             {msg.is_internal_note && <p className="text-xs font-medium text-warning mb-1">📝 Note</p>}
-                            {renderContent(msg.content)}
-                            {msg.media_url && (
+                            {renderContent(msg.content, msg.media_url, msg.message_type)}
+                            {msg.media_url && msg.message_type !== 'sticker' && msg.content !== '[Sticker]' && (
                               msg.media_url.match(/\.(mp3|wav|ogg|m4a|aac)$/i) ? (
                                 <audio controls src={msg.media_url} className="mt-2 max-w-full" />
                               ) : (
