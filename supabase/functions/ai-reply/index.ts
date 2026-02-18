@@ -95,6 +95,9 @@ Default Guidelines (these can be OVERRIDDEN by Page Instructions below):
 - If the customer sent multiple messages, address ALL of them in ONE combined reply
 - If the customer sent an image/photo, analyze it carefully and respond about what you see in it.
 - If there's an image but no text, describe what you see and ask how you can help regarding that product/item.
+- If the customer sent a link or shared a URL, acknowledge it and respond according to your business instructions - do NOT just say generic "link ki lagi dhanyabad". Instead, respond naturally based on the context.
+- If the customer sent a sticker or emoji (like thumbs up, heart, etc.), respond naturally - a simple acknowledgment or continue the conversation contextually. Don't overthink stickers.
+- If the customer sent an audio/video attachment, acknowledge it and respond helpfully based on your business context.
 
 ${mediaAssets && Array.isArray(mediaAssets) && mediaAssets.length > 0 ? `
 AVAILABLE MEDIA ASSETS - VERY IMPORTANT:
