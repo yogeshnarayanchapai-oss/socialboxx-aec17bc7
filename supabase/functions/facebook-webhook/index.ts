@@ -1011,25 +1011,25 @@ serve(async (req) => {
                             }
                           }
                         } else {
-                          // sendAutoReply FAILED — release lock so conversation isn't stuck forever
-                          console.error("sendAutoReply failed, releasing ai_processing lock");
-                          await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
+                          // sendAutoReply FAILED — mark as ai_failed
+                          console.error("sendAutoReply failed, marking as ai_failed");
+                          await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId);
                         }
                       } else {
                         // No reply generated, release lock
-                        await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
+                        await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId);
                       }
                     } else {
                       console.error("AI reply function error:", aiResponse.status);
-                      // Release lock on error
-                      await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
+                      // Mark as ai_failed on error (balance, timeout, etc.)
+                      await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId);
                     }
                   }
                 }
               } catch (aiError) {
                 console.error("AI reply error:", aiError);
-                // Release lock on ANY error
-                await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId).then(() => {});
+                // Mark as ai_failed on ANY error
+                await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId).then(() => {});
               }
             } // end: skip older batch messages
             }
