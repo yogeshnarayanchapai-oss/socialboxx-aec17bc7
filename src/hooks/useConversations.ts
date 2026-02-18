@@ -6,6 +6,7 @@ import { useUserAccess } from "@/hooks/useUserAccess";
 
 export type Conversation = Tables<"conversations"> & {
   connected_pages?: { page_name: string };
+  ai_fail_reason?: string | null;
 };
 export type Message = Tables<"messages">;
 

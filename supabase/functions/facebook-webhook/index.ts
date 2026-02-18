@@ -859,6 +859,7 @@ serve(async (req) => {
                             status: "replied",
                             last_message_preview: suggestedReply.substring(0, 100),
                             last_message_at: new Date().toISOString(),
+                            ai_fail_reason: null,
                           }).eq("id", conversationId);
 
                           // AI-based lead creation / update
@@ -1010,26 +1011,33 @@ serve(async (req) => {
                               }).eq("id", conversationId);
                             }
                           }
-                        } else {
+                    } else {
                           // sendAutoReply FAILED — mark as ai_failed
                           console.error("sendAutoReply failed, marking as ai_failed");
-                          await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId);
+                          await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "Facebook send failed" }).eq("id", conversationId);
                         }
                       } else {
                         // No reply generated, release lock
-                        await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId);
+                        await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "No AI reply generated" }).eq("id", conversationId);
                       }
                     } else {
                       console.error("AI reply function error:", aiResponse.status);
-                      // Mark as ai_failed on error (balance, timeout, etc.)
-                      await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId);
+                      // Parse error reason from response
+                      let failReason = "AI service error";
+                      try {
+                        const errBody = await aiResponse.json();
+                        if (aiResponse.status === 402) failReason = "Credits depleted";
+                        else if (aiResponse.status === 429) failReason = "Rate limit exceeded";
+                        else if (errBody?.error) failReason = errBody.error.substring(0, 100);
+                      } catch {}
+                      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conversationId);
                     }
                   }
                 }
               } catch (aiError) {
                 console.error("AI reply error:", aiError);
-                // Mark as ai_failed on ANY error
-                await supabase.from("conversations").update({ status: "ai_failed" }).eq("id", conversationId).then(() => {});
+                const reason = aiError instanceof Error ? aiError.message.substring(0, 100) : "Unknown error";
+                await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: reason }).eq("id", conversationId).then(() => {});
               }
             } // end: skip older batch messages
             }
