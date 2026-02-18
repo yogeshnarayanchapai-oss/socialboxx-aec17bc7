@@ -583,14 +583,19 @@ serve(async (req) => {
           const attachmentUrl = message.attachments?.[0]?.payload?.url || null;
           const attachmentType = message.attachments?.[0]?.type || null;
           
+          // Detect sticker: Facebook sends likes/stickers as type "image" with sticker_id, or type "sticker"
+          const isSticker = attachmentType === 'sticker' || 
+            !!message.sticker_id || 
+            !!message.attachments?.[0]?.payload?.sticker_id;
+
           if (!messageContent && message.attachments && message.attachments.length > 0) {
             const att = message.attachments[0];
             const shareUrl = att?.payload?.url || att?.url;
             
-            if (attachmentType === 'sticker') {
+            if (isSticker) {
               // Facebook sticker/emoji (like thumbs up) - store as sticker
               messageContent = '[Sticker]';
-              console.log("Sticker message detected, sticker_id:", att?.payload?.sticker_id);
+              console.log("Sticker message detected, sticker_id:", att?.payload?.sticker_id || message.sticker_id);
             } else if (attachmentType === 'fallback' || attachmentType === 'share') {
               // Link share - extract the title/URL
               const title = att?.title || '';
@@ -604,7 +609,6 @@ serve(async (req) => {
           }
 
           // Determine if attachment is a real media file or just a link share
-          const isSticker = attachmentType === 'sticker';
           const isLinkShare = attachmentType === 'fallback' || attachmentType === 'share';
           const actualMediaUrl = (isLinkShare) ? null : attachmentUrl;
           const actualMessageType = isSticker ? "sticker" : (message.attachments && !isLinkShare ? "media" : "text");
