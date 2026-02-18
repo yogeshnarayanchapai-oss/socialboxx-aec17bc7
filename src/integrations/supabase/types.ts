@@ -295,6 +295,7 @@ export type Database = {
       }
       conversations: {
         Row: {
+          ai_fail_reason: string | null
           ai_followup_next_at: string | null
           ai_followup_step: number | null
           assigned_to: string | null
@@ -316,6 +317,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ai_fail_reason?: string | null
           ai_followup_next_at?: string | null
           ai_followup_step?: number | null
           assigned_to?: string | null
@@ -337,6 +339,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ai_fail_reason?: string | null
           ai_followup_next_at?: string | null
           ai_followup_step?: number | null
           assigned_to?: string | null

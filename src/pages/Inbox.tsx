@@ -665,8 +665,20 @@ export default function Inbox() {
                           {conv.connected_pages?.page_name || "Unknown Page"}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {conv.last_message_preview || "No messages"}
+                          {(() => {
+                            const preview = conv.last_message_preview || "No messages";
+                            // Clean attachment URLs from preview
+                            if (preview.match(/^\[Customer sent an attachment:/)) return "📎 Attachment";
+                            if (preview.match(/^\[Customer shared a link/)) return "🔗 Link shared";
+                            if (preview.match(/^\[Customer sent a \w+ attachment\]/)) return "📎 Media";
+                            return preview;
+                          })()}
                         </p>
+                        {conv.status === "ai_failed" && (conv as any).ai_fail_reason && (
+                          <p className="mt-0.5 truncate text-xs text-destructive">
+                            ⚠️ {(conv as any).ai_fail_reason}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         {conv.status === "unreplied" && (
@@ -757,7 +769,29 @@ export default function Inbox() {
                     <div className="text-center text-muted-foreground py-8">No messages in this conversation</div>
                   ) : (
                     <>
-                      {messages.map((msg) => (
+                      {messages.map((msg) => {
+                        // Parse content to detect attachment markers and clean display
+                        const renderContent = (content: string | null) => {
+                          if (!content) return null;
+                          // Detect "[Customer sent an attachment: URL]" pattern
+                          const attachMatch = content.match(/^\[Customer sent an attachment: (https?:\/\/\S+)\]$/);
+                          if (attachMatch) {
+                            return <p className="text-sm text-muted-foreground italic">📎 Customer sent an attachment</p>;
+                          }
+                          // Detect "[Customer shared a link: ...]" pattern
+                          const linkMatch = content.match(/^\[Customer shared a link(?:: (.+))?\]$/);
+                          if (linkMatch) {
+                            return <p className="text-sm text-muted-foreground italic">🔗 {linkMatch[1] || "Customer shared a link"}</p>;
+                          }
+                          // Detect "[Customer sent a ... attachment]" pattern
+                          const mediaMatch = content.match(/^\[Customer sent a (\w+) attachment\]$/);
+                          if (mediaMatch) {
+                            return <p className="text-sm text-muted-foreground italic">📎 Customer sent a {mediaMatch[1]} attachment</p>;
+                          }
+                          return <p className="text-sm whitespace-pre-wrap">{content}</p>;
+                        };
+
+                        return (
                         <div key={msg.id} className={cn("flex", msg.sender_type === "page" ? "justify-end" : "justify-start")}>
                           <div className={cn(
                             "message-bubble max-w-[85%] sm:max-w-[70%]",
@@ -766,7 +800,7 @@ export default function Inbox() {
                               : msg.sender_type === "page" ? "message-outgoing" : "message-incoming"
                           )}>
                             {msg.is_internal_note && <p className="text-xs font-medium text-warning mb-1">📝 Note</p>}
-                            <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                            {renderContent(msg.content)}
                             {msg.media_url && (
                               msg.media_url.match(/\.(mp3|wav|ogg|m4a|aac)$/i) ? (
                                 <audio controls src={msg.media_url} className="mt-2 max-w-full" />
@@ -779,7 +813,8 @@ export default function Inbox() {
                             </p>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                       <div ref={messagesEndRef} />
                     </>
                   )}
