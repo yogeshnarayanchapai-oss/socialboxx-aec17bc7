@@ -88,7 +88,7 @@ import { supabase } from "@/integrations/supabase/client";
 const filterOptions = [
   { value: "all", label: "All" },
   { value: "unreplied", label: "Unreplied" },
-  { value: "replied", label: "Replied" },
+  { value: "ai_failed", label: "AI Failed" },
   { value: "lead", label: "Leads" },
   { value: "follow-up", label: "Follow-up" },
 ];
@@ -473,11 +473,11 @@ export default function Inbox() {
       }
 
       if (totalProcessed > 0) {
-        toast.success(`${totalProcessed} unreplied conversations replied!`);
+        toast.success(`${totalProcessed} AI failed conversations retried!`);
       } else if (totalFailed > 0) {
-        toast.error(`${totalFailed} replies failed`);
+        toast.error(`${totalFailed} retries failed`);
       } else {
-        toast.info("No unreplied conversations to retry");
+        toast.info("No AI failed conversations to retry");
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to retry");
@@ -532,16 +532,18 @@ export default function Inbox() {
                     {opt.label}
                   </button>
                 ))}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 text-[10px] px-2 flex-shrink-0 gap-1"
-                  onClick={handleRetryUnreplied}
-                  disabled={retryingUnreplied}
-                >
-                  {retryingUnreplied ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
-                  Retry All
-                </Button>
+                {filter === "ai_failed" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2 flex-shrink-0 gap-1"
+                    onClick={handleRetryUnreplied}
+                    disabled={retryingUnreplied}
+                  >
+                    {retryingUnreplied ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+                    Retry All
+                  </Button>
+                )}
                 {filter === "unreplied" && conversations.length > 0 && (
                   <Button
                     variant="outline"

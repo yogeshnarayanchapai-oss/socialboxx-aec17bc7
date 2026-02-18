@@ -40,18 +40,18 @@ serve(async (req) => {
     const functionStartTime = Date.now();
     const MAX_FUNCTION_TIME_MS = 120000; // 120s safety limit (edge fn has 150s)
 
-    // Get all unreplied conversations for this page (also pick up stuck ai_processing ones)
+    // Get all ai_failed and stuck ai_processing conversations for this page
     const { data: unrepliedConvs, error: convError } = await supabase
       .from("conversations")
       .select("id, participant_id, participant_name, tags, status, last_message_at")
       .eq("page_id", pageId)
       .is("deleted_at", null)
-      .in("status", ["unreplied", "ai_processing"])
+      .in("status", ["ai_failed", "ai_processing"])
       .order("last_message_at", { ascending: true });
 
     if (convError) throw convError;
     if (!unrepliedConvs || unrepliedConvs.length === 0) {
-      return new Response(JSON.stringify({ processed: 0, message: "No unreplied conversations found" }), {
+      return new Response(JSON.stringify({ processed: 0, message: "No AI failed conversations found" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -133,8 +133,7 @@ serve(async (req) => {
         if (!aiResponse.ok) {
           console.error(`AI reply failed for conv ${conv.id}:`, aiResponse.status);
           failed++;
-          // Reset stuck status
-          await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conv.id);
+          // Keep as ai_failed
           continue;
         }
 
@@ -257,8 +256,6 @@ serve(async (req) => {
       } catch (convErr) {
         console.error(`Error processing conv ${conv.id}:`, convErr);
         failed++;
-        // Reset stuck status
-        await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conv.id);
       }
     }
 

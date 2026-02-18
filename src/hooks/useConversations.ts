@@ -43,6 +43,8 @@ export function useConversations(filters?: {
           query = query.contains("tags", ["lead-created"]);
         } else if (filters.status === "follow-up") {
           query = query.or("auto_followup_step.gte.1,ai_followup_step.gte.1");
+        } else if (filters.status === "ai_failed") {
+          query = query.in("status", ["ai_failed", "ai_processing"]);
         } else {
           query = query.eq("status", filters.status);
         }
