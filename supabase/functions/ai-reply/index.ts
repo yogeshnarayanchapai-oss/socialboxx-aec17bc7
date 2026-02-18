@@ -187,8 +187,8 @@ ${conversationHistory || 'First message from customer.'}`;
 
     // Gemini models first (cheaper & faster), OpenAI only as last resort
     const models = [
-      { name: "google/gemini-3-flash-preview", tokenParam: "max_tokens" },
       { name: "google/gemini-2.5-flash-lite", tokenParam: "max_tokens" },
+      { name: "google/gemini-3-flash-preview", tokenParam: "max_tokens" },
       { name: "google/gemini-2.5-flash", tokenParam: "max_tokens" },
       { name: "openai/gpt-5-mini", tokenParam: "max_completion_tokens" },
     ];
