@@ -2,40 +2,69 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserAccess } from "@/hooks/useUserAccess";
 
-export function useDashboardStats() {
+export type DashboardDateFilter = "today" | "yesterday" | "7d" | "custom";
+
+export function getDateRange(filter: DashboardDateFilter, customFrom?: string, customTo?: string) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  switch (filter) {
+    case "today":
+      return { from: today.toISOString(), to: now.toISOString() };
+    case "yesterday": {
+      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+      return { from: yesterday.toISOString(), to: today.toISOString() };
+    }
+    case "7d": {
+      const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return { from: sevenDaysAgo.toISOString(), to: now.toISOString() };
+    }
+    case "custom":
+      return {
+        from: customFrom || today.toISOString(),
+        to: customTo || now.toISOString(),
+      };
+    default:
+      return { from: today.toISOString(), to: now.toISOString() };
+  }
+}
+
+export function useDashboardStats(dateFilter: DashboardDateFilter = "today", customFrom?: string, customTo?: string) {
   const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
+  const { from, to } = getDateRange(dateFilter, customFrom, customTo);
 
   return useQuery({
-    queryKey: ["dashboard-stats", accessiblePageIds],
+    queryKey: ["dashboard-stats", accessiblePageIds, dateFilter, from, to],
     queryFn: async () => {
       if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) {
         return {
-          totalMessages7d: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
-          replyRate: "0%", avgResponseTime: "N/A", todayFollowupTotal: 0,
+          totalMessages: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
+          replyRate: "0%", todayFollowupTotal: 0,
           todayFollowupAI: 0, todayFollowupAutomation: 0,
         };
       }
 
       const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       let convQuery = supabase
         .from("conversations")
         .select("id, status, last_message_at, created_at, page_id")
-        .is("deleted_at", null);
+        .is("deleted_at", null)
+        .gte("last_message_at", from)
+        .lte("last_message_at", to);
       if (accessiblePageIds !== null && accessiblePageIds !== undefined) convQuery = convQuery.in("page_id", accessiblePageIds);
 
-      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id");
+      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id")
+        .gte("created_at", from).lte("created_at", to);
       if (accessiblePageIds !== null && accessiblePageIds !== undefined) leadsQuery = leadsQuery.in("page_id", accessiblePageIds);
 
       let followupQuery = supabase
         .from("followup_logs")
         .select("id, followup_type, page_id")
-        .gte("sent_at", today.toISOString());
+        .gte("sent_at", from).lte("sent_at", to);
       if (accessiblePageIds !== null && accessiblePageIds !== undefined) followupQuery = followupQuery.in("page_id", accessiblePageIds);
 
-      const [{ data: conversations }, { data: leads }, { data: todayFollowups }] = await Promise.all([
+      const [{ data: conversations }, { data: leads }, { data: followups }] = await Promise.all([
         convQuery, leadsQuery, followupQuery,
       ]);
 
@@ -45,16 +74,17 @@ export function useDashboardStats() {
         const { data: messages } = await supabase
           .from("messages")
           .select("id, sender_type, created_at")
-          .gte("created_at", sevenDaysAgo.toISOString())
+          .gte("created_at", from)
+          .lte("created_at", to)
           .in("conversation_id", convIds.slice(0, 500));
         messagesData = messages ?? [];
       }
 
-      const todayFollowupTotal = todayFollowups?.length || 0;
-      const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
-      const todayFollowupAutomation = todayFollowups?.filter(f => f.followup_type === "automation").length || 0;
+      const todayFollowupTotal = followups?.length || 0;
+      const todayFollowupAI = followups?.filter(f => f.followup_type === "ai").length || 0;
+      const todayFollowupAutomation = followups?.filter(f => f.followup_type === "automation").length || 0;
 
-      const totalMessages7d = messagesData.length;
+      const totalMessages = messagesData.length;
       const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
       const leadsPending = leads?.filter(l => l.status === "new" || l.status === "hot").length || 0;
       const followUpsDue = leads?.filter(l => {
@@ -67,12 +97,11 @@ export function useDashboardStats() {
       const replyRate = incomingMessages > 0 ? Math.round((outgoingMessages / incomingMessages) * 100) : 0;
 
       return {
-        totalMessages7d,
+        totalMessages,
         unrepliedCount,
         leadsPending,
         followUpsDue,
         replyRate: `${Math.min(replyRate, 100)}%`,
-        avgResponseTime: "4.2m",
         todayFollowupTotal,
         todayFollowupAI,
         todayFollowupAutomation,
@@ -107,11 +136,12 @@ export function useRecentConversations(limit = 5) {
   });
 }
 
-export function usePagePerformance() {
+export function usePagePerformance(dateFilter: DashboardDateFilter = "today", customFrom?: string, customTo?: string) {
   const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
+  const { from, to } = getDateRange(dateFilter, customFrom, customTo);
 
   return useQuery({
-    queryKey: ["page-performance", accessiblePageIds],
+    queryKey: ["page-performance", accessiblePageIds, dateFilter, from, to],
     queryFn: async () => {
       let query = supabase
         .from("connected_pages")
@@ -128,25 +158,36 @@ export function usePagePerformance() {
 
       const performance = await Promise.all(
         pages.map(async (page) => {
-          const { count: messageCount } = await supabase
-            .from("messages")
-            .select("id", { count: "exact", head: true })
-            .eq("conversation_id", page.id);
+          // Get conversations for this page
+          const { data: convs } = await supabase
+            .from("conversations")
+            .select("id")
+            .eq("page_id", page.id)
+            .is("deleted_at", null);
 
-          const { count: leadCount } = await supabase
-            .from("leads")
-            .select("id", { count: "exact", head: true })
-            .eq("page_id", page.id);
+          const convIds = convs?.map(c => c.id) || [];
+          let messageCount = 0;
+
+          if (convIds.length > 0) {
+            // Count messages within date range for this page's conversations
+            const { count } = await supabase
+              .from("messages")
+              .select("id", { count: "exact", head: true })
+              .in("conversation_id", convIds.slice(0, 500))
+              .gte("created_at", from)
+              .lte("created_at", to);
+            messageCount = count || 0;
+          }
 
           return {
             name: page.page_name,
-            messages: messageCount || 0,
-            leads: leadCount || 0,
-            rate: "95%",
+            messages: messageCount,
           };
         })
       );
 
+      // Sort by messages descending
+      performance.sort((a, b) => b.messages - a.messages);
       return performance;
     },
     enabled: !isAccessLoading && accessiblePageIds !== undefined,
