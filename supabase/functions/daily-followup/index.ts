@@ -33,7 +33,7 @@ serve(async (req) => {
     // Get all pages with AI follow-up enabled
     const { data: pages, error: pagesError } = await supabase
       .from("connected_pages")
-      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_followup_settings, product_name, product_description")
+      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_followup_settings, product_name, product_description, organization_id")
       .eq("ai_enabled", true)
       .eq("connection_status", "active");
 
@@ -50,12 +50,12 @@ serve(async (req) => {
         continue;
       }
 
-      console.log(`Processing follow-ups for page: ${page.page_name}`);
+      console.log(`Processing AI follow-ups for page: ${page.page_name}, ${followupSettings.steps.length} steps configured`);
 
       // Get conversations due for follow-up
       const { data: dueConversations, error: convError } = await supabase
         .from("conversations")
-        .select("id, participant_id, participant_name, ai_followup_step, tags, last_message_at")
+        .select("id, participant_id, participant_name, ai_followup_step, tags, last_message_at, status")
         .eq("page_id", page.id)
         .not("ai_followup_step", "is", null)
         .lte("ai_followup_next_at", now.toISOString())
@@ -65,6 +65,8 @@ serve(async (req) => {
         console.error("Error fetching conversations:", convError);
         continue;
       }
+
+      console.log(`Found ${(dueConversations || []).length} due conversations for page: ${page.page_name}`);
 
       for (const conv of dueConversations || []) {
         const currentStep = conv.ai_followup_step || 0;
@@ -80,9 +82,19 @@ serve(async (req) => {
           continue;
         }
 
+        // Skip if conversation is completed/closed
+        if (conv.status === "completed") {
+          console.log(`Skipping conv ${conv.id} - conversation completed`);
+          await supabase.from("conversations").update({
+            ai_followup_step: null,
+            ai_followup_next_at: null,
+          }).eq("id", conv.id);
+          continue;
+        }
+
         // Skip if all steps exhausted
         if (currentStep >= followupSettings.steps.length) {
-          console.log(`Skipping conv ${conv.id} - all follow-up steps done`);
+          console.log(`Skipping conv ${conv.id} - all ${followupSettings.steps.length} follow-up steps done`);
           await supabase.from("conversations").update({
             ai_followup_step: null,
             ai_followup_next_at: null,
@@ -100,11 +112,11 @@ serve(async (req) => {
           .single();
 
         if (existingLog) {
-          console.log(`AI follow-up step ${currentStep + 1} already sent for conv ${conv.id}`);
+          console.log(`AI follow-up step ${currentStep + 1} already sent for conv ${conv.id}, advancing`);
           const nextStep = currentStep + 1;
           const nextStepConfig = followupSettings.steps[nextStep];
           await supabase.from("conversations").update({
-            ai_followup_step: nextStep,
+            ai_followup_step: nextStepConfig ? nextStep : null,
             ai_followup_next_at: nextStepConfig
               ? new Date(Date.now() + nextStepConfig.delay_hours * 60 * 60 * 1000).toISOString()
               : null,
@@ -113,13 +125,18 @@ serve(async (req) => {
         }
 
         const step = followupSettings.steps[currentStep];
-        console.log(`Sending follow-up #${currentStep + 1} for conv ${conv.id}: hint="${step.message_hint}"`);
+        console.log(`Generating AI follow-up #${currentStep + 1} for conv ${conv.id}: hint="${step.message_hint}"`);
+
+        let followupMessage = "";
+        let aiFailed = false;
+        let aiFailReason = "";
 
         try {
-          // Generate AI follow-up message — hint is ONLY guidance, NOT the actual message
-          let followupMessage = "";
-
-          if (LOVABLE_API_KEY) {
+          if (!LOVABLE_API_KEY) {
+            aiFailed = true;
+            aiFailReason = "LOVABLE_API_KEY not configured";
+          } else {
+            // Get conversation history
             const { data: recentMsgs } = await supabase
               .from("messages")
               .select("content, sender_type")
@@ -131,11 +148,14 @@ serve(async (req) => {
               .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
               .join('\n');
 
-            // Try multiple models for reliability
+            // Try multiple models with retry
             const models = [
-              { name: "google/gemini-2.5-flash-lite", tokenParam: "max_tokens" },
-              { name: "google/gemini-2.5-flash", tokenParam: "max_tokens" },
+              { name: "google/gemini-2.5-flash-lite", tokenParam: "max_tokens", temp: 0.7 },
+              { name: "google/gemini-2.5-flash", tokenParam: "max_tokens", temp: 0.7 },
+              { name: "openai/gpt-5-mini", tokenParam: "max_completion_tokens", temp: 0.6 },
             ];
+
+            let lastModelError = "";
 
             for (const model of models) {
               try {
@@ -154,6 +174,7 @@ serve(async (req) => {
 ${page.ai_description ? `Business info: ${page.ai_description}` : ''}
 ${page.product_name ? `Product: ${page.product_name}` : ''}
 ${page.product_description ? `Product details: ${page.product_description}` : ''}
+${page.ai_instructions ? `\nPage Owner Instructions (HIGHEST PRIORITY):\n${page.ai_instructions}` : ''}
 
 LANGUAGE RULE: Match the customer's language from the conversation (Nepali देवनागरी, Roman Nepali, or English).
 
@@ -184,7 +205,7 @@ Rules:
                       },
                     ],
                     [model.tokenParam]: 200,
-                    temperature: 0.7,
+                    temperature: model.temp,
                   }),
                 });
 
@@ -195,25 +216,58 @@ Rules:
                     followupMessage = generated;
                     console.log(`Follow-up generated with model: ${model.name}`);
                     break;
+                  } else {
+                    lastModelError = `Model ${model.name} returned empty/short response`;
                   }
                 } else {
-                  console.warn(`Follow-up model ${model.name} failed (${aiResponse.status})`);
+                  const status = aiResponse.status;
+                  const errText = await aiResponse.text();
+                  lastModelError = `Model ${model.name} failed (${status}): ${errText.substring(0, 100)}`;
+                  console.warn(lastModelError);
+
+                  // Don't retry on payment/rate limit errors
+                  if (status === 402) {
+                    aiFailed = true;
+                    aiFailReason = "AI credits depleted";
+                    break;
+                  }
+                  if (status === 429) {
+                    aiFailed = true;
+                    aiFailReason = "AI rate limit exceeded";
+                    break;
+                  }
                 }
               } catch (err) {
-                console.warn(`Follow-up model ${model.name} error:`, err);
+                lastModelError = `Model ${model.name} error: ${err instanceof Error ? err.message : String(err)}`;
+                console.warn(lastModelError);
               }
             }
-          }
 
-          // If AI completely failed, create a simple generic follow-up (NEVER send the raw hint)
-          if (!followupMessage) {
-            console.warn("AI follow-up generation failed, using generic message");
-            followupMessage = conv.participant_name 
-              ? `नमस्ते ${conv.participant_name}! कस्तो छ? केही सहयोग चाहिन्छ भने भन्नुहोस् 😊`
-              : `नमस्ते! केही सहयोग चाहिन्छ भने भन्नुहोस् 😊`;
+            // If all models failed
+            if (!followupMessage && !aiFailed) {
+              aiFailed = true;
+              aiFailReason = `AI generation failed: ${lastModelError}`;
+            }
           }
+        } catch (error) {
+          aiFailed = true;
+          aiFailReason = `Follow-up error: ${error instanceof Error ? error.message : String(error)}`;
+          console.error(`Error generating followup for conv ${conv.id}:`, error);
+        }
 
-          // Send via Facebook
+        // If AI failed, mark conversation as ai_failed with reason
+        if (aiFailed || !followupMessage) {
+          console.error(`AI followup failed for conv ${conv.id}: ${aiFailReason}`);
+          await supabase.from("conversations").update({
+            status: "ai_failed",
+            ai_fail_reason: `Followup #${currentStep + 1} failed: ${aiFailReason}`.substring(0, 200),
+          }).eq("id", conv.id);
+          results.push({ convId: conv.id, page: page.page_name, step: currentStep + 1, status: "ai_failed", reason: aiFailReason });
+          continue;
+        }
+
+        // Send via Facebook
+        try {
           const sendResponse = await fetch(
             `https://graph.facebook.com/v19.0/me/messages`,
             {
@@ -241,7 +295,7 @@ Rules:
             await supabase.from("followup_logs").insert({
               conversation_id: conv.id,
               page_id: page.id,
-              organization_id: (await supabase.from("connected_pages").select("organization_id").eq("id", page.id).single()).data?.organization_id,
+              organization_id: page.organization_id,
               followup_type: "ai",
               step_number: currentStep + 1,
               message_text: followupMessage,
@@ -269,34 +323,51 @@ Rules:
             // Update conversation: move to next step
             const nextStep = currentStep + 1;
             const nextStepConfig = followupSettings.steps[nextStep];
-            
+
             await supabase.from("conversations").update({
-              ai_followup_step: nextStep,
+              ai_followup_step: nextStepConfig ? nextStep : null,
               ai_followup_next_at: nextStepConfig
                 ? new Date(Date.now() + nextStepConfig.delay_hours * 60 * 60 * 1000).toISOString()
                 : null,
               last_message_preview: followupMessage.substring(0, 100),
               last_message_at: new Date().toISOString(),
+              status: "replied",
+              ai_fail_reason: null,
             }).eq("id", conv.id);
 
             results.push({ convId: conv.id, page: page.page_name, step: currentStep + 1, status: "sent" });
             console.log(`Follow-up #${currentStep + 1} sent for conv ${conv.id}`);
           } else {
             const err = await sendResponse.json();
-            console.error("Facebook send error:", err);
-            results.push({ convId: conv.id, step: currentStep + 1, status: "error", error: err.error?.message });
+            const errMsg = err.error?.message || JSON.stringify(err).substring(0, 100);
+            console.error("Facebook send error:", errMsg);
+            
+            // Mark as ai_failed with Facebook error reason
+            await supabase.from("conversations").update({
+              status: "ai_failed",
+              ai_fail_reason: `Followup #${currentStep + 1} Facebook send failed: ${errMsg}`.substring(0, 200),
+            }).eq("id", conv.id);
+            
+            results.push({ convId: conv.id, step: currentStep + 1, status: "fb_error", error: errMsg });
           }
-        } catch (error) {
-          console.error(`Error processing conv ${conv.id}:`, error);
-          results.push({ convId: conv.id, step: currentStep + 1, status: "error", error: String(error) });
+        } catch (sendError) {
+          const reason = sendError instanceof Error ? sendError.message : String(sendError);
+          console.error(`Send error for conv ${conv.id}:`, reason);
+          
+          await supabase.from("conversations").update({
+            status: "ai_failed",
+            ai_fail_reason: `Followup #${currentStep + 1} send error: ${reason}`.substring(0, 200),
+          }).eq("id", conv.id);
+          
+          results.push({ convId: conv.id, step: currentStep + 1, status: "error", error: reason });
         }
 
-        // Human-like delay between messages
-        const delay = Math.random() * 10000 + 5000;
-        await new Promise(resolve => setTimeout(resolve, delay));
+        // Short delay between messages (1-2s) to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, Math.random() * 1000 + 1000));
       }
     }
 
+    console.log(`AI follow-up processing complete. Processed: ${results.length}`);
     return new Response(
       JSON.stringify({ success: true, processed: results.length, results }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
