@@ -1,182 +1,85 @@
 
 
-# SaaS Multi-Tenant Conversion Plan
+# AI Follow-up System Fix Plan
 
-## Overview
-System lai single-tenant bata multi-tenant SaaS model ma convert garnu parcha. Customer signup garda pending status ma bascha, platform admin le approve garepaxi matra system use garna milcha. Each customer le aafno organization banaucha, team add garcha, ra aafna pages ko matra data hercha.
+## Problems Identified
 
-## Current Problems
-- Ahile sabai user le sabai data dekhincha (no data isolation)
-- Signup garda sidhai admin role dincha sabailai
-- Organization/company concept chhaina
-- Team management org-level ma chhaina
+1. **Follow-up resets on customer reply** (Line 693-700 in `facebook-webhook/index.ts`): When a customer replies, the code resets `ai_followup_step` back to 0 and reschedules from step 1. This means if follow-up #2 was already sent and the customer replies, the system starts over from follow-up #1 again.
 
----
+2. **Follow-up does not persist after AI failure**: When AI generation or Facebook send fails, the `ai_followup_step` and `ai_followup_next_at` are NOT preserved -- the followup tag ("FOLLOW-UP") is never added, so there's no visual indicator.
 
-## Phase 1: Database Schema Changes
+3. **Hint field is a single-line `<Input>`** (Line 1023 in `PageAutomationDialog.tsx`): Should be a `<Textarea>` so users can write long, detailed hints.
 
-### 1.1 New `organizations` Table
-- `id` (uuid, primary key)
-- `name` (text) - Company/Organization name
-- `owner_id` (uuid, references auth.users)
-- `status` (text: 'pending', 'approved', 'rejected') - default 'pending'
-- `approved_by` (uuid, nullable)
-- `approved_at` (timestamp, nullable)
-- `created_at`, `updated_at`
+4. **Lead conversion does not add "FOLLOW-UP" tag before pausing**: When followup is active, conversations should have a "FOLLOW-UP" tag for visibility.
 
-### 1.2 New `organization_members` Table
-- `id` (uuid, primary key)
-- `organization_id` (uuid, FK to organizations)
-- `user_id` (uuid, FK to auth.users)
-- `role` (app_role: admin/manager/agent)
-- `invited_by` (uuid, nullable)
-- `created_at`
-- Unique constraint on (organization_id, user_id)
+## Solution
 
-### 1.3 Add `organization_id` Column to Existing Tables
-These tables get a new `organization_id` column (uuid, nullable initially, then required):
-- `connected_pages`
-- `conversations`
-- `leads`
-- `messages` (through conversation relation)
-- `followup_logs`
-- `automation_rules`
-- `app_settings`
-- `reply_templates`
+### 1. Stop resetting follow-up on customer reply
 
-### 1.4 New Database Functions
-```text
-get_user_org_id(user_id) -> returns organization_id
-  - Security definer function
-  - Used in all RLS policies
+**File: `supabase/functions/facebook-webhook/index.ts`** (Lines 693-701)
 
-is_platform_admin(user_id) -> boolean
-  - Checks if user is the platform super admin
-  - Used for approve/reject functionality
-```
+Change the logic so that when a customer replies:
+- Do NOT reset `ai_followup_step` back to 0
+- Instead, keep the current step and just reschedule the next follow-up timer from NOW + the current step's delay
+- This ensures the follow-up sequence continues forward, not restart
 
-### 1.5 Update `handle_new_user` Trigger
-- Create organization with status 'pending'
-- Add user to organization_members as 'admin' (org admin)
-- Create profile
-- Do NOT add to old user_roles table (migrate to org_members)
+### 2. Add "FOLLOW-UP" tag when AI follow-up is active
 
-### 1.6 RLS Policy Updates (All Tables)
-Every table's RLS policy changes to:
-- SELECT: user can only see rows where `organization_id = get_user_org_id(auth.uid())`
-- INSERT/UPDATE/DELETE: same org check + role check
-- Platform admin can see organizations table for approval
+**File: `supabase/functions/facebook-webhook/index.ts`**
+
+When AI follow-up is first initialized (after AI reply, lines 1016-1025), add "FOLLOW-UP" tag to conversation tags if not already present.
+
+### 3. Preserve follow-up scheduling on AI failure
+
+**File: `supabase/functions/daily-followup/index.ts`** (Lines 259-267)
+
+When AI follow-up fails:
+- Still mark `status: "ai_failed"` with reason
+- But keep `ai_followup_step` and `ai_followup_next_at` so it can retry next cycle
+- Add "FOLLOW-UP" tag to the conversation
+
+### 4. Extend hint field to Textarea
+
+**File: `src/components/pages/PageAutomationDialog.tsx`** (Line 1023)
+
+Change `<Input>` to `<Textarea>` with auto-resize capability so users can write detailed hints of any length.
+
+### 5. Pause follow-up only on lead conversion
+
+No change needed here -- the existing code at lines 1007-1011 already nullifies follow-up on lead creation. Just need to make sure it also removes the "FOLLOW-UP" tag and this is already handled.
 
 ---
 
-## Phase 2: Auth Flow Changes
+## Technical Details
 
-### 2.1 Signup Flow Update (`Auth.tsx`)
-- Add "Company Name" field to signup form
-- After signup, show message: "Account created! Admin le approve garepaxi login garna milcha"
-
-### 2.2 Pending Approval Screen
-- New component: `PendingApproval.tsx`
-- Shows when user logs in but org status is 'pending'
-- Message: "Tapainko account review ma cha. Approve vayepaxi email aaucha"
-- Sign out button
-
-### 2.3 Rejected Screen
-- Shows if org status is 'rejected'
-- Message with contact info
-
-### 2.4 ProtectedRoute Update
-- After auth check, also check org status
-- pending -> show PendingApproval
-- rejected -> show Rejected
-- approved -> allow access
-
----
-
-## Phase 3: Platform Admin Panel
-
-### 3.1 New Admin Route `/admin`
-- Only visible to platform super admin
-- Shows list of all organizations with status
-- Approve / Reject buttons
-- View organization details (owner email, signup date)
-
-### 3.2 Admin Sidebar Item
-- Show "Admin" nav item only for platform admin
-- Shield icon
-
----
-
-## Phase 4: Team Management
-
-### 4.1 Update Settings > Team Tab
-- Show current org members
-- Invite new member (by email)
-- Set role (admin/manager/agent)
-- Remove member
-- Only org admin can manage team
-
-### 4.2 Team Invite Flow
-- Org admin enters email + role
-- System creates auth user invitation or just adds to org_members
-- New user signs up -> gets added to existing org instead of creating new one
-- Alternative: simple approach - admin creates account, shares credentials initially
-
----
-
-## Phase 5: Data Isolation (Query Updates)
-
-### 5.1 Hook Updates
-All data hooks need org-scoped queries (RLS handles this automatically once org_id is set):
-- `useConnectedPages` - already filtered by RLS
-- `useConversations` - filtered by RLS
-- `useLeads` - filtered by RLS
-- `useDashboard` - filtered by RLS
-
-### 5.2 Edge Functions Update
-- `facebook-connect`: Set organization_id when connecting page
-- `facebook-webhook`: Look up org from page_id
-- `ai-reply`: No change needed (uses conversation context)
-- `facebook-messages`: No change needed (uses page context)
-
----
-
-## Phase 6: Future Subscription Ready
-
-### 6.1 Organization Table Fields (pre-built)
-- `plan` (text: 'free', 'starter', 'pro') - default 'free'
-- `max_pages` (integer) - default 3
-- `max_team_members` (integer) - default 5
-- These limits checked in frontend but enforced in RLS/edge functions later
-- Stripe integration added later when needed
-
----
-
-## Implementation Order
+### facebook-webhook/index.ts Changes
 
 ```text
-Step 1: Database migrations (organizations, org_members, add org_id columns)
-Step 2: Database functions (get_user_org_id, is_platform_admin)
-Step 3: Update handle_new_user trigger
-Step 4: Update all RLS policies
-Step 5: Update Auth.tsx (company name field, pending flow)
-Step 6: Create PendingApproval component
-Step 7: Update ProtectedRoute
-Step 8: Create Admin panel (approve/reject)
-Step 9: Update Team management in Settings
-Step 10: Update edge functions (set org_id)
-Step 11: Add admin nav item
-Step 12: Migrate existing data (set org_id for current records)
+Lines 693-701: Replace "reset follow-up timer" logic
+  BEFORE: Always resets to step 0
+  AFTER:  Keep current step, reschedule from now + current step's delay
+          Only reset if ai_followup_step is null (not yet started)
+
+Lines 1016-1025: After AI reply, when starting followup tracking
+  ADD: Include "FOLLOW-UP" tag in conversation tags
 ```
 
----
+### daily-followup/index.ts Changes
 
-## Technical Notes
+```text
+Lines 259-267: On AI failure
+  BEFORE: Sets status to ai_failed, stops there (no next schedule)
+  AFTER:  Sets status to ai_failed with reason,
+          BUT keeps ai_followup_step and reschedules ai_followup_next_at
+          for retry in 1 hour, so it tries again next cycle.
+          Adds "FOLLOW-UP" tag.
+```
 
-- Platform super admin identification: store as a config or check specific user_id
-- `get_user_org_id` function is critical - all RLS depends on it
-- Existing data migration: current user's records get assigned to their new org
-- `organization_members` replaces `user_roles` for per-org role management
-- `user_roles` table kept for backward compatibility but platform-level admin check
-- Email notification on approval can be added later via edge function
+### PageAutomationDialog.tsx Changes
+
+```text
+Line 1023: Change <Input> to <Textarea>
+  Add: rows={3}, auto-expanding with min-height
+  This allows long detailed hints like the ones shown in the screenshot
+```
 
