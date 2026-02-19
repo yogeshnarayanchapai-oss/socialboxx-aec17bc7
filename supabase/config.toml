@@ -2,3 +2,12 @@ project_id = "jsepesypdjxkdotqphxo"
 
 [functions.retry-unreplied]
 verify_jwt = false
+
+[functions.daily-followup]
+verify_jwt = false
+
+[functions.automation-followup]
+verify_jwt = false
+
+[functions.facebook-webhook]
+verify_jwt = false
