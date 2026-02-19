@@ -237,7 +237,7 @@ export default function Reports() {
               </div>
             ) : (
               <div className="grid gap-4">
-                {pageStats.map((page) => (
+                {[...pageStats].sort((a, b) => b.rate - a.rate).map((page) => (
                   <Card key={page.name}>
                     <CardContent className="p-6">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
