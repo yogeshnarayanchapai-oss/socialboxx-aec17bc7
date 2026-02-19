@@ -1020,7 +1020,7 @@ export function PageAutomationDialog({
                             </Button>
                           </div>
                         </div>
-                        <Input
+                        <Textarea
                           value={step.message_hint}
                           onChange={(e) => {
                             const updated = [...aiFollowupSteps];
@@ -1028,7 +1028,8 @@ export function PageAutomationDialog({
                             setAiFollowupSteps(updated);
                           }}
                           placeholder="AI लाई के बारेमा message गर्ने hint दिनुहोस्..."
-                          className="text-xs"
+                          className="text-xs min-h-[60px] resize-y"
+                          rows={3}
                         />
                         <div className="space-y-2">
                           <div className="flex gap-2 items-center">
