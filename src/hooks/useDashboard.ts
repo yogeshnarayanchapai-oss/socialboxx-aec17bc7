@@ -156,35 +156,49 @@ export function usePagePerformance(dateFilter: DashboardDateFilter = "today", cu
       const { data: pages } = await query;
       if (!pages?.length) return [];
 
-      const performance = await Promise.all(
-        pages.map(async (page) => {
-          // Get conversations for this page
-          const { data: convs } = await supabase
-            .from("conversations")
-            .select("id")
-            .eq("page_id", page.id)
-            .is("deleted_at", null);
+      // Batch: get all conversations for all pages at once
+      const allPageIds = pages.map(p => p.id);
+      const { data: allConvs } = await supabase
+        .from("conversations")
+        .select("id, page_id")
+        .in("page_id", allPageIds)
+        .is("deleted_at", null);
 
-          const convIds = convs?.map(c => c.id) || [];
-          let messageCount = 0;
+      const convsByPage = new Map<string, string[]>();
+      (allConvs || []).forEach(c => {
+        const arr = convsByPage.get(c.page_id) || [];
+        arr.push(c.id);
+        convsByPage.set(c.page_id, arr);
+      });
 
-          if (convIds.length > 0) {
-            // Count messages within date range for this page's conversations
-            const { count } = await supabase
-              .from("messages")
-              .select("id", { count: "exact", head: true })
-              .in("conversation_id", convIds.slice(0, 500))
-              .gte("created_at", from)
-              .lte("created_at", to);
-            messageCount = count || 0;
+      // Batch: get all message counts at once
+      const allConvIds = (allConvs || []).map(c => c.id);
+      let messageCounts = new Map<string, number>();
+
+      if (allConvIds.length > 0) {
+        const { data: msgs } = await supabase
+          .from("messages")
+          .select("conversation_id")
+          .in("conversation_id", allConvIds.slice(0, 1000))
+          .gte("created_at", from)
+          .lte("created_at", to);
+
+        // Map conversation_id back to page_id
+        const convToPage = new Map<string, string>();
+        (allConvs || []).forEach(c => convToPage.set(c.id, c.page_id));
+
+        (msgs || []).forEach(m => {
+          const pageId = convToPage.get(m.conversation_id);
+          if (pageId) {
+            messageCounts.set(pageId, (messageCounts.get(pageId) || 0) + 1);
           }
+        });
+      }
 
-          return {
-            name: page.page_name,
-            messages: messageCount,
-          };
-        })
-      );
+      const performance = pages.map(page => ({
+        name: page.page_name,
+        messages: messageCounts.get(page.id) || 0,
+      }));
 
       // Sort by messages descending
       performance.sort((a, b) => b.messages - a.messages);
