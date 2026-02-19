@@ -690,14 +690,24 @@ serve(async (req) => {
               }
             }
             
-            // Customer replied - reset follow-up timer
+            // Customer replied - continue follow-up from current step (don't reset)
             const followupSettings = (page as any).ai_followup_settings;
             if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
-              const firstStep = followupSettings.steps[0];
-              await supabase.from("conversations").update({
-                ai_followup_step: 0,
-                ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
-              }).eq("id", conversationId);
+              // Fetch current followup step to continue from where we left off
+              const { data: convData } = await supabase.from("conversations").select("ai_followup_step, tags").eq("id", conversationId).single();
+              const currentStep = convData?.ai_followup_step ?? 0;
+              const stepConfig = followupSettings.steps[currentStep];
+              if (stepConfig) {
+                // Reschedule from NOW + current step's delay (don't reset to step 0)
+                const updatedTags = convData?.tags || [];
+                if (!updatedTags.includes("FOLLOW-UP")) {
+                  updatedTags.push("FOLLOW-UP");
+                }
+                await supabase.from("conversations").update({
+                  ai_followup_next_at: new Date(Date.now() + stepConfig.delay_hours * 60 * 60 * 1000).toISOString(),
+                  tags: updatedTags,
+                }).eq("id", conversationId);
+              }
             }
             
             const isNonsenseOrEmoji = isEmojiOrNonsense(messageContent || "");
@@ -1018,9 +1028,14 @@ serve(async (req) => {
                             const followupSettings = (page as any).ai_followup_settings;
                             if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
                               const firstStep = followupSettings.steps[0];
+                              // Add FOLLOW-UP tag
+                              if (!conversationTags.includes("FOLLOW-UP")) {
+                                conversationTags = [...conversationTags, "FOLLOW-UP"];
+                              }
                               await supabase.from("conversations").update({
                                 ai_followup_step: 0,
                                 ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
+                                tags: conversationTags,
                               }).eq("id", conversationId);
                             }
                           }

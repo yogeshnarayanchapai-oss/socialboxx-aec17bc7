@@ -255,12 +255,20 @@ Rules:
           console.error(`Error generating followup for conv ${conv.id}:`, error);
         }
 
-        // If AI failed, mark conversation as ai_failed with reason
+        // If AI failed, mark as ai_failed but KEEP followup step/schedule for retry
         if (aiFailed || !followupMessage) {
           console.error(`AI followup failed for conv ${conv.id}: ${aiFailReason}`);
+          // Add FOLLOW-UP tag if not present
+          const currentTags: string[] = conv.tags || [];
+          if (!currentTags.includes("FOLLOW-UP")) {
+            currentTags.push("FOLLOW-UP");
+          }
+          // Keep ai_followup_step and reschedule retry in 1 hour
           await supabase.from("conversations").update({
             status: "ai_failed",
             ai_fail_reason: `Followup #${currentStep + 1} failed: ${aiFailReason}`.substring(0, 200),
+            ai_followup_next_at: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString(),
+            tags: currentTags,
           }).eq("id", conv.id);
           results.push({ convId: conv.id, page: page.page_name, step: currentStep + 1, status: "ai_failed", reason: aiFailReason });
           continue;
@@ -342,10 +350,14 @@ Rules:
             const errMsg = err.error?.message || JSON.stringify(err).substring(0, 100);
             console.error("Facebook send error:", errMsg);
             
-            // Mark as ai_failed with Facebook error reason
+            // Mark as ai_failed but keep followup step for retry
+            const fbFailTags: string[] = conv.tags || [];
+            if (!fbFailTags.includes("FOLLOW-UP")) fbFailTags.push("FOLLOW-UP");
             await supabase.from("conversations").update({
               status: "ai_failed",
               ai_fail_reason: `Followup #${currentStep + 1} Facebook send failed: ${errMsg}`.substring(0, 200),
+              ai_followup_next_at: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString(),
+              tags: fbFailTags,
             }).eq("id", conv.id);
             
             results.push({ convId: conv.id, step: currentStep + 1, status: "fb_error", error: errMsg });
@@ -354,9 +366,13 @@ Rules:
           const reason = sendError instanceof Error ? sendError.message : String(sendError);
           console.error(`Send error for conv ${conv.id}:`, reason);
           
+          const sendFailTags: string[] = conv.tags || [];
+          if (!sendFailTags.includes("FOLLOW-UP")) sendFailTags.push("FOLLOW-UP");
           await supabase.from("conversations").update({
             status: "ai_failed",
             ai_fail_reason: `Followup #${currentStep + 1} send error: ${reason}`.substring(0, 200),
+            ai_followup_next_at: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString(),
+            tags: sendFailTags,
           }).eq("id", conv.id);
           
           results.push({ convId: conv.id, step: currentStep + 1, status: "error", error: reason });
