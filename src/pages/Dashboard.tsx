@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   MessageSquare,
@@ -8,35 +7,25 @@ import {
   TrendingUp,
   Send,
   Loader2,
-  CalendarDays,
+  Bot,
+  Zap,
 } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { useDashboardStats, useRecentConversations, usePagePerformance } from "@/hooks/useDashboard";
-import type { DashboardDateFilter } from "@/hooks/useDashboard";
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [dateFilter, setDateFilter] = useState<DashboardDateFilter>("today");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
-
-  const { data: stats, isLoading: loadingStats } = useDashboardStats(dateFilter, customFrom, customTo);
+  const { data: stats, isLoading: loadingStats } = useDashboardStats();
   const { data: recentConversations = [], isLoading: loadingConversations } = useRecentConversations();
-  const { data: pagePerformance = [], isLoading: loadingPages } = usePagePerformance(dateFilter, customFrom, customTo);
-
-  const dateLabel = dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "7d" ? "Last 7 Days" : "Custom";
-
-  const maxMessages = Math.max(...pagePerformance.map(p => p.messages), 1);
+  const { data: pagePerformance = [], isLoading: loadingPages } = usePagePerformance();
 
   const metrics = [
     {
-      title: `Messages (${dateLabel})`,
-      value: stats?.totalMessages?.toLocaleString() || "0",
-      change: dateLabel,
+      title: "Messages (7d)",
+      value: stats?.totalMessages7d?.toLocaleString() || "0",
+      change: "Last 7 days",
       changeType: "neutral" as const,
       icon: MessageSquare,
       href: "/inbox",
@@ -50,15 +39,15 @@ export default function Dashboard() {
       href: "/inbox?filter=unreplied",
     },
     {
-      title: "Leads",
+      title: "Leads Pending",
       value: stats?.leadsPending?.toString() || "0",
-      change: `New & Hot (${dateLabel})`,
+      change: "New & Hot leads",
       changeType: "neutral" as const,
       icon: Users,
       href: "/leads",
     },
     {
-      title: "Follow-ups",
+      title: "Today Follow-ups",
       value: stats?.todayFollowupTotal?.toString() || "0",
       change: `AI: ${stats?.todayFollowupAI || 0} | Auto: ${stats?.todayFollowupAutomation || 0}`,
       changeType: "neutral" as const,
@@ -68,7 +57,7 @@ export default function Dashboard() {
     {
       title: "Reply Rate",
       value: stats?.replyRate || "0%",
-      change: dateLabel,
+      change: "Last 7 days",
       changeType: "positive" as const,
       icon: TrendingUp,
       href: "/reports",
@@ -97,33 +86,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen">
-      <PageHeader
-        title="Dashboard"
-        description="Overview of your inbox performance"
-        action={
-          <div className="flex items-center gap-2 flex-wrap">
-            <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as DashboardDateFilter)}>
-              <SelectTrigger className="w-[140px]">
-                <CalendarDays className="h-4 w-4 mr-1 text-muted-foreground" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="yesterday">Yesterday</SelectItem>
-                <SelectItem value="7d">Last 7 Days</SelectItem>
-                <SelectItem value="custom">Custom</SelectItem>
-              </SelectContent>
-            </Select>
-            {dateFilter === "custom" && (
-              <div className="flex items-center gap-1">
-                <Input type="date" className="w-[130px] text-xs" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
-                <span className="text-xs text-muted-foreground">to</span>
-                <Input type="date" className="w-[130px] text-xs" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
-              </div>
-            )}
-          </div>
-        }
-      />
+      <PageHeader title="Dashboard" description="Overview of your inbox performance" />
 
       <div className="p-4 md:p-6">
         {loadingStats ? (
@@ -193,10 +156,10 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-medium text-sm truncate">{page.name}</p>
-                          <span className="text-xs text-muted-foreground flex-shrink-0">{page.messages.toLocaleString()} msgs</span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">{page.messages} msgs</span>
                         </div>
                         <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${(page.messages / maxMessages) * 100}%` }} />
+                          <div className="h-full bg-primary rounded-full transition-all" style={{ width: page.rate }} />
                         </div>
                       </div>
                     </div>
