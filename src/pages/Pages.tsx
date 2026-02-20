@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap, FolderPlus, FolderOpen, X } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap, FolderPlus, FolderOpen, X, ChevronRight } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -360,16 +361,19 @@ export default function Pages() {
           <div className="space-y-6">
             {/* Grouped pages */}
             {groupedPages.filter(g => g.pages.length > 0).map(group => (
-              <div key={group.id}>
-                <div className="flex items-center gap-2 mb-3">
+              <Collapsible key={group.id}>
+                <CollapsibleTrigger className="flex items-center gap-2 mb-3 w-full text-left group cursor-pointer">
+                  <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
                   <FolderOpen className="h-4 w-4 text-muted-foreground" />
                   <h3 className="text-sm font-semibold text-muted-foreground">{group.name}</h3>
-                  <span className="text-xs text-muted-foreground">({group.pages.length})</span>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.pages.map(renderPageCard)}
-                </div>
-              </div>
+                  <span className="text-xs text-muted-foreground">({group.pages.length} pages)</span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.pages.map(renderPageCard)}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             ))}
             
             {/* Ungrouped pages */}
