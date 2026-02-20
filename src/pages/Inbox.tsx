@@ -461,7 +461,14 @@ export default function Inbox() {
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
               body: JSON.stringify({ pageId: page.id }),
             }
-          ).then(r => r.ok ? r.json() : null)
+          ).then(async r => {
+            const body = await r.json().catch(() => null);
+            if (!r.ok) {
+              console.error(`Retry failed for page ${page.page_name}:`, body);
+              return null;
+            }
+            return body;
+          })
         )
       );
 

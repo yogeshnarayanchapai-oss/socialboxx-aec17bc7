@@ -131,9 +131,19 @@ serve(async (req) => {
         });
 
         if (!aiResponse.ok) {
-          console.error(`AI reply failed for conv ${conv.id}:`, aiResponse.status);
+          let failReason = "AI service error";
+          try {
+            const errBody = await aiResponse.json();
+            if (aiResponse.status === 402) failReason = "Credits depleted";
+            else if (aiResponse.status === 429) failReason = "Rate limit exceeded";
+            else if (errBody?.error) failReason = typeof errBody.error === 'string' ? errBody.error.substring(0, 200) : JSON.stringify(errBody.error).substring(0, 200);
+          } catch {}
+          console.error(`AI reply failed for conv ${conv.id}: ${failReason}`);
+          await supabase.from("conversations").update({ 
+            status: "ai_failed", 
+            ai_fail_reason: failReason 
+          }).eq("id", conv.id);
           failed++;
-          // Keep as ai_failed
           continue;
         }
 
@@ -159,7 +169,12 @@ serve(async (req) => {
 
         if (!sendResponse.ok) {
           const err = await sendResponse.json();
+          const errMsg = `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
           console.error(`Facebook send failed for conv ${conv.id}:`, JSON.stringify(err));
+          await supabase.from("conversations").update({ 
+            status: "ai_failed", 
+            ai_fail_reason: errMsg 
+          }).eq("id", conv.id);
           failed++;
           continue;
         }
@@ -195,9 +210,10 @@ serve(async (req) => {
           created_at: new Date().toISOString(),
         });
 
-        // Update conversation status
+        // Update conversation status - clear ai_fail_reason on success
         await supabase.from("conversations").update({
           status: "replied",
+          ai_fail_reason: null,
           last_message_preview: suggestedReply.substring(0, 100),
           last_message_at: new Date().toISOString(),
         }).eq("id", conv.id);
@@ -255,6 +271,11 @@ serve(async (req) => {
         }
       } catch (convErr) {
         console.error(`Error processing conv ${conv.id}:`, convErr);
+        const reason = convErr instanceof Error ? convErr.message.substring(0, 150) : "Unknown retry error";
+        await supabase.from("conversations").update({ 
+          status: "ai_failed", 
+          ai_fail_reason: reason 
+        }).eq("id", conv.id);
         failed++;
       }
     }

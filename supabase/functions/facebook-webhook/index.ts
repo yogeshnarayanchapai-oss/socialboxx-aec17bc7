@@ -715,6 +715,8 @@ serve(async (req) => {
             
             if (hasLeadTag && isNonsenseOrEmoji) {
               console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
+              // Mark as replied so it doesn't sit in unreplied with no reason
+              await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
             } else {
               // Skip AI processing if this is NOT the latest message for this sender in this webhook batch
               // This prevents sequential debounce sleeps from causing 504 timeouts
