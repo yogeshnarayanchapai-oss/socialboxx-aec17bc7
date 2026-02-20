@@ -73,6 +73,9 @@ interface PageAutomationDialogProps {
     ai_followup_settings?: Json;
     ai_comment_reply_enabled?: boolean;
     ai_media_assets?: Json;
+    first_msg_template_enabled?: boolean;
+    first_msg_template?: Json;
+    group_id?: string | null;
   } | null;
 }
 
@@ -128,6 +131,13 @@ export function PageAutomationDialog({
   const [uploadingAiMedia, setUploadingAiMedia] = useState(false);
   const [aiVideoUrl, setAiVideoUrl] = useState("");
   const [aiVideoLabel, setAiVideoLabel] = useState("");
+  
+  // First Message Template state
+  const [templateEnabled, setTemplateEnabled] = useState(false);
+  const [templateMessages, setTemplateMessages] = useState<ReplyMessage[]>([{ text: "", media: null }]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const templateMediaRef = useRef<HTMLInputElement>(null);
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
   const [newKeyword, setNewKeyword] = useState("");
   const [newReply, setNewReply] = useState("");
   const [newMediaType, setNewMediaType] = useState<"image" | "video" | "link" | "audio" | null>(null);
@@ -227,6 +237,15 @@ export function PageAutomationDialog({
       
       setProductName((page as any).product_name || "");
       setProductDescription((page as any).product_description || "");
+      
+      // First Message Template
+      setTemplateEnabled((page as any).first_msg_template_enabled || false);
+      const tmpl = (page as any).first_msg_template;
+      if (tmpl && Array.isArray(tmpl.messages) && tmpl.messages.length > 0) {
+        setTemplateMessages(tmpl.messages.map((m: any) => ({ text: m.text || "", media: m.media || null })));
+      } else {
+        setTemplateMessages([{ text: "", media: null }]);
+      }
     }
   }, [page, open]);
 
@@ -526,9 +545,10 @@ export function PageAutomationDialog({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="automation">Automation</TabsTrigger>
             <TabsTrigger value="ai">AI</TabsTrigger>
+            <TabsTrigger value="template">Template</TabsTrigger>
             <TabsTrigger value="product">Product</TabsTrigger>
           </TabsList>
 
@@ -1090,6 +1110,142 @@ export function PageAutomationDialog({
               <Button onClick={handleSaveAI} disabled={savingAI}>
                 {savingAI && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Save AI Settings
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="template" className="mt-4">
+            <div className="space-y-6">
+              <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${templateEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'}`}>
+                <div>
+                  <Label className="text-base font-medium">First Message Template</Label>
+                  <p className="text-sm text-muted-foreground">ON भएमा first msg मा AI call नगरी template पठाउँछ, 2nd msg बाट AI call हुन्छ</p>
+                </div>
+                <Switch checked={templateEnabled} onCheckedChange={setTemplateEnabled} />
+              </div>
+
+              {templateEnabled && (
+                <div className="space-y-4">
+                  <p className="text-xs text-muted-foreground">Fixed messages, photos, audio, video links थप्नुहोस्। यी messages first msg मा auto-send हुन्छन्।</p>
+                  
+                  {templateMessages.map((tmplMsg, idx) => (
+                    <div key={idx} className="space-y-2 rounded-lg border p-3 bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-muted-foreground">Message #{idx + 1}</span>
+                        <div className="flex gap-1">
+                          {templateMessages.length > 1 && (
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setTemplateMessages(prev => prev.filter((_, i) => i !== idx))}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                      <Textarea
+                        value={tmplMsg.text}
+                        onChange={(e) => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, text: e.target.value } : m))}
+                        placeholder="Message text..."
+                        rows={3}
+                      />
+                      
+                      {tmplMsg.media && (
+                        <div className="flex items-center gap-2 p-2 bg-background rounded-lg">
+                          {tmplMsg.media.type === 'image' && <img src={tmplMsg.media.url} alt="" className="h-12 w-12 object-cover rounded" />}
+                          <span className="text-xs text-muted-foreground flex-1 truncate">{tmplMsg.media.type}: {tmplMsg.media.url.substring(0, 40)}...</span>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: null } : m))}><X className="h-3 w-3" /></Button>
+                        </div>
+                      )}
+                      
+                      <input ref={idx === 0 ? templateMediaRef : undefined} type="file" accept="image/*,audio/*" className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]; if (!file) return;
+                          setUploadingTemplate(true);
+                          const url = await uploadImage(file);
+                          if (url) {
+                            const mediaType = file.type.startsWith('audio') ? 'audio' : 'image';
+                            setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { type: mediaType as any, url } } : m));
+                          }
+                          setUploadingTemplate(false);
+                        }} />
+                      
+                      <div className="flex gap-2 flex-wrap">
+                        <Button type="button" variant={tmplMsg.media?.type === 'image' ? "default" : "outline"} size="sm" className="h-8"
+                          onClick={() => {
+                            const input = document.createElement('input');
+                            input.type = 'file'; input.accept = 'image/*';
+                            input.onchange = async (ev: any) => {
+                              const file = ev.target.files?.[0]; if (!file) return;
+                              setUploadingTemplate(true);
+                              const url = await uploadImage(file);
+                              if (url) setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { type: 'image', url } } : m));
+                              setUploadingTemplate(false);
+                            };
+                            input.click();
+                          }}
+                          disabled={uploadingTemplate}>
+                          {uploadingTemplate ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}Image
+                        </Button>
+                        <Button type="button" variant={tmplMsg.media?.type === 'audio' ? "default" : "outline"} size="sm" className="h-8"
+                          onClick={() => {
+                            const input = document.createElement('input');
+                            input.type = 'file'; input.accept = 'audio/*';
+                            input.onchange = async (ev: any) => {
+                              const file = ev.target.files?.[0]; if (!file) return;
+                              setUploadingTemplate(true);
+                              const url = await uploadImage(file);
+                              if (url) setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { type: 'audio', url } } : m));
+                              setUploadingTemplate(false);
+                            };
+                            input.click();
+                          }}
+                          disabled={uploadingTemplate}>
+                          <FileAudio className="h-3 w-3 mr-1" />Audio
+                        </Button>
+                        <Button type="button" variant={tmplMsg.media?.type === 'video' ? "default" : "outline"} size="sm" className="h-8"
+                          onClick={() => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: tmplMsg.media?.type === 'video' ? null : { type: 'video', url: '' } } : m))}>
+                          <Video className="h-3 w-3 mr-1" />Video
+                        </Button>
+                      </div>
+                      
+                      {tmplMsg.media && (tmplMsg.media.type === 'video') && (
+                        <Input
+                          placeholder="Video URL..."
+                          value={tmplMsg.media.url}
+                          onChange={(e) => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { ...tmplMsg.media!, url: e.target.value } } : m))}
+                        />
+                      )}
+                    </div>
+                  ))}
+                  
+                  {templateMessages.length < 5 && (
+                    <Button type="button" variant="outline" size="sm" className="w-full"
+                      onClick={() => setTemplateMessages(prev => [...prev, { text: "", media: null }])}>
+                      <Plus className="mr-2 h-4 w-4" />Message थप्नुहोस्
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+              <Button onClick={async () => {
+                if (!page) return;
+                setSavingTemplate(true);
+                try {
+                  const { error } = await supabase.from("connected_pages").update({
+                    first_msg_template_enabled: templateEnabled,
+                    first_msg_template: { messages: templateMessages },
+                  } as any).eq("id", page.id);
+                  if (error) throw error;
+                  queryClient.invalidateQueries({ queryKey: ["connected-pages"] });
+                  toast.success("Template settings save भयो!");
+                  onOpenChange(false);
+                } catch (error) {
+                  toast.error("Template save गर्न सकिएन");
+                } finally { setSavingTemplate(false); }
+              }} disabled={savingTemplate}>
+                {savingTemplate && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Save Template
               </Button>
             </div>
           </TabsContent>

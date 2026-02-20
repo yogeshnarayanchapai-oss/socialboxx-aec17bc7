@@ -348,7 +348,7 @@ serve(async (req) => {
 
         const { data: page, error: pageError } = await supabase
           .from("connected_pages")
-          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id, ai_debounce_seconds, ai_media_assets")
+          .select("id, page_id, page_name, page_access_token, automation_enabled, ai_enabled, ai_description, ai_instructions, ai_comment_hint, auto_reply_first_message, auto_reply_followup, auto_reply_keywords, product_name, ai_followup_settings, ai_comment_reply_enabled, auto_followup_messages, organization_id, ai_debounce_seconds, ai_media_assets, first_msg_template_enabled, first_msg_template")
           .eq("page_id", pageId)
           .eq("connection_status", "active")
           .single();
@@ -670,8 +670,53 @@ serve(async (req) => {
 
           // Phone-based lead detection REMOVED — now handled by AI in lead_action
 
-          // AI reply logic
-          if (page.ai_enabled && !page.automation_enabled) {
+          // First Message Template: if enabled and this is the first message, send template instead of AI
+          if (page.ai_enabled && !page.automation_enabled && isFirstMessage && (page as any).first_msg_template_enabled) {
+            console.log("First msg template enabled, sending template instead of AI");
+            const tmpl = (page as any).first_msg_template;
+            const tmplMessages = tmpl?.messages || [];
+            
+            for (const tmplMsg of tmplMessages) {
+              if (tmplMsg.text || tmplMsg.media) {
+                const sent = await sendAutoReply(page.page_access_token, senderId, tmplMsg.text || "", tmplMsg.media || null);
+                if (sent && sent !== "permanent_fail") {
+                  await supabase.from("messages").insert({
+                    conversation_id: conversationId,
+                    content: tmplMsg.text || "[Template media]",
+                    sender_type: "page",
+                    message_type: tmplMsg.media ? "media" : "text",
+                    media_url: tmplMsg.media?.url || null,
+                    created_at: new Date().toISOString(),
+                  });
+                } else if (sent === "permanent_fail") {
+                  await supabase.from("conversations").update({ status: "replied", last_message_preview: "⚠️ User unavailable on Facebook" }).eq("id", conversationId);
+                  break;
+                }
+              }
+            }
+            
+            // Mark as replied
+            const lastTmplText = tmplMessages[tmplMessages.length - 1]?.text || "[Template sent]";
+            await supabase.from("conversations").update({
+              status: "replied",
+              last_message_preview: lastTmplText.substring(0, 100),
+              last_message_at: new Date().toISOString(),
+            }).eq("id", conversationId);
+            
+            // Start follow-up tracking
+            const followupSettings = (page as any).ai_followup_settings;
+            if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
+              const firstStep = followupSettings.steps[0];
+              const tags = conversationTags.includes("FOLLOW-UP") ? conversationTags : [...conversationTags, "FOLLOW-UP"];
+              await supabase.from("conversations").update({
+                ai_followup_step: 0,
+                ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
+                tags,
+              }).eq("id", conversationId);
+            }
+          }
+          // AI reply logic (skip if template was sent for first message)
+          else if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
 
             // Check if this is a lead conversation with a long gap (15+ days)
