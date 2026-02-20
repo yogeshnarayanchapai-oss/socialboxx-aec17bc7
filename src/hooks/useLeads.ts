@@ -6,6 +6,7 @@ import { useUserAccess } from "@/hooks/useUserAccess";
 export type Lead = Tables<"leads"> & {
   connected_pages?: { page_name: string };
   source?: string;
+  api_synced: boolean;
 };
 
 export function useLeads(filters?: {
