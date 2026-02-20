@@ -449,10 +449,10 @@ export default function Inbox() {
   const handleRetryUnreplied = async () => {
     if (pages.length === 0) { toast.error("No pages connected."); return; }
     
-    // First, count AI failed conversations breakdown
+    // Fetch all AI failed conversations with page_id for categorization
     const { data: failedConvs } = await supabase
       .from("conversations")
-      .select("id, ai_fail_reason, ai_followup_step, status")
+      .select("id, ai_fail_reason, ai_followup_step, status, page_id")
       .in("status", ["ai_failed", "ai_processing"])
       .is("deleted_at", null);
     
@@ -473,41 +473,51 @@ export default function Inbox() {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Not authenticated"); return; }
+      if (!session) { toast.error("Not authenticated"); setRetryDialogOpen(false); return; }
 
       let totalProcessed = 0;
       let totalFailed = 0;
 
-      // Process pages sequentially for progress tracking
-      for (const page of pages) {
+      // Process each conversation 1-by-1 with 5s delay
+      for (let i = 0; i < failedConvs.length; i++) {
+        const conv = failedConvs[i];
         try {
           const r = await fetch(
             `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-              body: JSON.stringify({ pageId: page.id }),
+              body: JSON.stringify({ conversationId: conv.id }),
             }
           );
           const body = await r.json().catch(() => null);
           if (r.ok && body) {
             totalProcessed += body.processed || 0;
             totalFailed += body.failed || 0;
-            setRetryProgress(prev => ({
-              ...prev,
-              processed: totalProcessed,
-              failed: totalFailed,
-              noErrors: totalFailed === 0,
-            }));
+          } else {
+            totalFailed++;
           }
         } catch (e) {
-          console.error(`Retry failed for page ${page.page_name}:`, e);
+          console.error(`Retry failed for conv ${conv.id}:`, e);
+          totalFailed++;
+        }
+
+        setRetryProgress(prev => ({
+          ...prev,
+          processed: totalProcessed + totalFailed,
+          failed: totalFailed,
+          noErrors: totalFailed === 0,
+        }));
+
+        // 5 second delay between each conversation (except last)
+        if (i < failedConvs.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
       }
 
       setRetryProgress(prev => ({
         ...prev,
-        processed: totalProcessed,
+        processed: totalProcessed + totalFailed,
         failed: totalFailed,
         completed: true,
         noErrors: totalFailed === 0,
