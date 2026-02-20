@@ -99,7 +99,7 @@ export default function Leads() {
   });
   const stats = useMemo(() => ({
     total: leads.length,
-    new: leads.filter(l => l.status === "new").length,
+    new: leads.filter(l => l.status === "new" && !(l as any).api_synced).length,
     hot: leads.filter(l => l.status === "hot").length,
     follow_up: leads.filter(l => l.status === "follow_up").length,
     closed: leads.filter(l => l.status === "closed").length,

@@ -43,7 +43,7 @@ serve(async (req) => {
     // Get all ai_failed and stuck ai_processing conversations for this page
     const { data: unrepliedConvs, error: convError } = await supabase
       .from("conversations")
-      .select("id, participant_id, participant_name, tags, status, last_message_at")
+      .select("id, participant_id, participant_name, tags, status, last_message_at, ai_fail_reason, ai_followup_step")
       .eq("page_id", pageId)
       .is("deleted_at", null)
       .in("status", ["ai_failed", "ai_processing"])
@@ -104,6 +104,32 @@ serve(async (req) => {
         }
 
         if (unrepliedCustomerMessages.length === 0) {
+          // Check if this is a follow-up failure - handle differently
+          const isFollowupFail = (conv as any).ai_fail_reason?.includes("Followup") || (conv as any).ai_fail_reason?.includes("followup");
+          if (isFollowupFail) {
+            const failReason = (conv as any).ai_fail_reason || "";
+            // Check for permanent FB errors (#551 blocked, #10 24h window expired)
+            const isPermanent = failReason.includes("#551") || failReason.includes("(#10)") || failReason.includes("#10,");
+            if (isPermanent) {
+              await supabase.from("conversations").update({
+                status: "replied",
+                ai_fail_reason: null,
+                last_message_preview: "⚠️ User unavailable on Facebook",
+              }).eq("id", conv.id);
+              console.log(`Follow-up permanent fail for conv ${conv.id}, marked as unavailable`);
+            } else {
+              // Reset follow-up schedule to NOW so daily-followup cron retries immediately
+              await supabase.from("conversations").update({
+                status: "replied",
+                ai_fail_reason: null,
+                ai_followup_next_at: new Date().toISOString(),
+              }).eq("id", conv.id);
+              console.log(`Follow-up retry scheduled for conv ${conv.id}`);
+            }
+            processed++;
+            continue;
+          }
+          
           skipped++;
           // Reset stuck ai_processing
           if (conv.status === "ai_processing") {

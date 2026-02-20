@@ -212,6 +212,9 @@ export type Database = {
           connected_by: string | null
           connection_status: string
           created_at: string
+          first_msg_template: Json | null
+          first_msg_template_enabled: boolean | null
+          group_id: string | null
           id: string
           organization_id: string
           page_access_token: string
@@ -242,6 +245,9 @@ export type Database = {
           connected_by?: string | null
           connection_status?: string
           created_at?: string
+          first_msg_template?: Json | null
+          first_msg_template_enabled?: boolean | null
+          group_id?: string | null
           id?: string
           organization_id: string
           page_access_token: string
@@ -272,6 +278,9 @@ export type Database = {
           connected_by?: string | null
           connection_status?: string
           created_at?: string
+          first_msg_template?: Json | null
+          first_msg_template_enabled?: boolean | null
+          group_id?: string | null
           id?: string
           organization_id?: string
           page_access_token?: string
@@ -284,6 +293,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "connected_pages_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "page_groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "connected_pages_organization_id_fkey"
             columns: ["organization_id"]
@@ -437,6 +453,7 @@ export type Database = {
       }
       leads: {
         Row: {
+          api_synced: boolean
           assigned_to: string | null
           conversation_id: string | null
           created_at: string
@@ -455,6 +472,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          api_synced?: boolean
           assigned_to?: string | null
           conversation_id?: string | null
           created_at?: string
@@ -473,6 +491,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          api_synced?: boolean
           assigned_to?: string | null
           conversation_id?: string | null
           created_at?: string
@@ -638,6 +657,27 @@ export type Database = {
           rejected_reason?: string | null
           status?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      page_groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          organization_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          organization_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          organization_id?: string
         }
         Relationships: []
       }

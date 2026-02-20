@@ -125,6 +125,12 @@ serve(async (req) => {
       const { data, error } = await query;
       if (error) throw error;
 
+      // Mark fetched leads as api_synced so "New" count excludes them
+      if (data && data.length > 0) {
+        const ids = data.map((l: any) => l.id);
+        await supabase.from("leads").update({ api_synced: true }).in("id", ids);
+      }
+
       return new Response(JSON.stringify({ success: true, leads: data, count: data?.length || 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
