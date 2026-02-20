@@ -85,13 +85,19 @@ serve(async (req) => {
             if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
             if (latestMessages[i].media_url) {
               const mediaUrl = latestMessages[i].media_url!.toLowerCase();
-              const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) ||
-                latestMessages[i].message_type === "image" ||
-                (!mediaUrl.includes(".mp4") && !mediaUrl.includes(".mp3") && !mediaUrl.includes(".wav") && !mediaUrl.includes(".ogg") && !mediaUrl.includes(".m4a") && !mediaUrl.includes("audioclip") && !mediaUrl.includes("videoclip"));
-              if (isImage) {
-                unrepliedImageUrls.push(latestMessages[i].media_url!);
+              // Filter out Facebook reel/link URLs - these are NOT images and crash AI models
+              const isFacebookLink = mediaUrl.includes("facebook.com/reel") || mediaUrl.includes("l.facebook.com/l.php") || mediaUrl.includes("fb.watch");
+              if (isFacebookLink) {
+                unrepliedCustomerMessages.push("[Customer shared a Facebook link/reel]");
               } else {
-                unrepliedCustomerMessages.push("[Customer sent an audio/video message]");
+                const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) ||
+                  latestMessages[i].message_type === "image" ||
+                  (!mediaUrl.includes(".mp4") && !mediaUrl.includes(".mp3") && !mediaUrl.includes(".wav") && !mediaUrl.includes(".ogg") && !mediaUrl.includes(".m4a") && !mediaUrl.includes("audioclip") && !mediaUrl.includes("videoclip"));
+                if (isImage) {
+                  unrepliedImageUrls.push(latestMessages[i].media_url!);
+                } else {
+                  unrepliedCustomerMessages.push("[Customer sent an audio/video message]");
+                }
               }
             }
           } else break;
@@ -169,11 +175,17 @@ serve(async (req) => {
 
         if (!sendResponse.ok) {
           const err = await sendResponse.json();
-          const errMsg = `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
+          const fbErrorCode = err?.error?.code;
+          // #551 = person unavailable (blocked/deactivated) - permanent failure, don't retry
+          const isPermanent = fbErrorCode === 551 || fbErrorCode === 10;
+          const errMsg = isPermanent 
+            ? "User unavailable on Facebook (blocked or deactivated)" 
+            : `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
           console.error(`Facebook send failed for conv ${conv.id}:`, JSON.stringify(err));
           await supabase.from("conversations").update({ 
-            status: "ai_failed", 
-            ai_fail_reason: errMsg 
+            status: isPermanent ? "replied" : "ai_failed", 
+            ai_fail_reason: isPermanent ? null : errMsg,
+            ...(isPermanent ? { last_message_preview: "⚠️ User unavailable on Facebook" } : {}),
           }).eq("id", conv.id);
           failed++;
           continue;

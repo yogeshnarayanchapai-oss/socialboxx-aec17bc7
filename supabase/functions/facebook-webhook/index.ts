@@ -160,7 +160,13 @@ async function sendAutoReply(
         }),
       });
       if (!textResponse.ok) {
-        console.error("Auto-reply text failed:", await textResponse.json());
+        const errBody = await textResponse.json();
+        const fbCode = errBody?.error?.code;
+        console.error("Auto-reply text failed:", errBody);
+        // #551 = person unavailable (blocked/deactivated) - permanent, don't retry
+        if (fbCode === 551 || fbCode === 10) {
+          return "permanent_fail";
+        }
         return false;
       }
     }
@@ -799,8 +805,8 @@ serve(async (req) => {
                       // Only include actual image URLs (not audio/video/links) to avoid AI "unsupported format" errors
                       if (latestMessages[i].media_url) {
                         const mediaUrl = latestMessages[i].media_url!.toLowerCase();
-                        // Exclude link shares (facebook.com/l.php, youtu.be, etc.) - they are NOT images
-                        const isLinkUrl = mediaUrl.includes('l.facebook.com/l.php') || mediaUrl.includes('youtu.be') || mediaUrl.includes('youtube.com') || mediaUrl.includes('fb.me');
+                        // Exclude link shares and reels - they are NOT images and crash AI models
+                        const isLinkUrl = mediaUrl.includes('l.facebook.com/l.php') || mediaUrl.includes('facebook.com/reel') || mediaUrl.includes('fb.watch') || mediaUrl.includes('youtu.be') || mediaUrl.includes('youtube.com') || mediaUrl.includes('fb.me');
                         const isImage = !isLinkUrl && (
                           /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) || 
                           latestMessages[i].message_type === 'image' ||
@@ -1041,7 +1047,11 @@ serve(async (req) => {
                               }).eq("id", conversationId);
                             }
                           }
-                    } else {
+                    } else if (sent === "permanent_fail") {
+                          // User blocked/deactivated - mark as replied so it doesn't keep retrying
+                          console.log("Facebook user unavailable (permanent), marking as replied");
+                          await supabase.from("conversations").update({ status: "replied", last_message_preview: "⚠️ User unavailable on Facebook" }).eq("id", conversationId);
+                        } else {
                           // sendAutoReply FAILED — mark as ai_failed
                           console.error("sendAutoReply failed, marking as ai_failed");
                           await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "Facebook send failed" }).eq("id", conversationId);
