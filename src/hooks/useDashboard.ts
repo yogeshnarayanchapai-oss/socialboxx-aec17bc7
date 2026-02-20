@@ -26,7 +26,7 @@ export function useDashboardStats() {
         .is("deleted_at", null);
       if (accessiblePageIds !== null && accessiblePageIds !== undefined) convQuery = convQuery.in("page_id", accessiblePageIds);
 
-      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id");
+      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id, api_synced");
       if (accessiblePageIds !== null && accessiblePageIds !== undefined) leadsQuery = leadsQuery.in("page_id", accessiblePageIds);
 
       let followupQuery = supabase
@@ -56,7 +56,7 @@ export function useDashboardStats() {
 
       const totalMessages7d = messagesData.length;
       const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
-      const leadsPending = leads?.filter(l => l.status === "new" || l.status === "hot").length || 0;
+      const leadsPending = leads?.filter((l: any) => l.api_synced === false).length || 0;
       const followUpsDue = leads?.filter(l => {
         if (!l.followup_due_date) return false;
         return new Date(l.followup_due_date) <= now && l.status !== "closed";
