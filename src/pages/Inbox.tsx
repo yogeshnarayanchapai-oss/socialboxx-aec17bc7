@@ -21,8 +21,11 @@ import {
   FileAudio,
   CalendarIcon,
   Filter,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { format, startOfDay, endOfDay, subDays } from "date-fns";
+import { Progress } from "@/components/ui/progress";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,6 +150,8 @@ export default function Inbox() {
   const [linkUrl, setLinkUrl] = useState("");
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [retryingUnreplied, setRetryingUnreplied] = useState(false);
+  const [retryDialogOpen, setRetryDialogOpen] = useState(false);
+  const [retryProgress, setRetryProgress] = useState({ total: 0, newMsgFail: 0, followupFail: 0, processed: 0, failed: 0, completed: false, noErrors: true });
   const isMobile = useIsMobile();
   const photoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
@@ -443,7 +448,29 @@ export default function Inbox() {
 
   const handleRetryUnreplied = async () => {
     if (pages.length === 0) { toast.error("No pages connected."); return; }
+    
+    // First, count AI failed conversations breakdown
+    const { data: failedConvs } = await supabase
+      .from("conversations")
+      .select("id, ai_fail_reason, ai_followup_step, status")
+      .in("status", ["ai_failed", "ai_processing"])
+      .is("deleted_at", null);
+    
+    if (!failedConvs || failedConvs.length === 0) {
+      toast.info("No AI failed conversations to retry");
+      return;
+    }
+
+    const newMsgFail = failedConvs.filter(c => {
+      const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
+      return !isFollowup;
+    }).length;
+    const followupFail = failedConvs.length - newMsgFail;
+
+    setRetryProgress({ total: failedConvs.length, newMsgFail, followupFail, processed: 0, failed: 0, completed: false, noErrors: true });
+    setRetryDialogOpen(true);
     setRetryingUnreplied(true);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { toast.error("Not authenticated"); return; }
@@ -451,43 +478,45 @@ export default function Inbox() {
       let totalProcessed = 0;
       let totalFailed = 0;
 
-      // Process all pages in parallel instead of sequentially
-      const results = await Promise.allSettled(
-        pages.map(page =>
-          fetch(
+      // Process pages sequentially for progress tracking
+      for (const page of pages) {
+        try {
+          const r = await fetch(
             `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
               body: JSON.stringify({ pageId: page.id }),
             }
-          ).then(async r => {
-            const body = await r.json().catch(() => null);
-            if (!r.ok) {
-              console.error(`Retry failed for page ${page.page_name}:`, body);
-              return null;
-            }
-            return body;
-          })
-        )
-      );
-
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value) {
-          totalProcessed += r.value.processed || 0;
-          totalFailed += r.value.failed || 0;
+          );
+          const body = await r.json().catch(() => null);
+          if (r.ok && body) {
+            totalProcessed += body.processed || 0;
+            totalFailed += body.failed || 0;
+            setRetryProgress(prev => ({
+              ...prev,
+              processed: totalProcessed,
+              failed: totalFailed,
+              noErrors: totalFailed === 0,
+            }));
+          }
+        } catch (e) {
+          console.error(`Retry failed for page ${page.page_name}:`, e);
         }
       }
 
-      if (totalProcessed > 0) {
-        toast.success(`${totalProcessed} AI failed conversations retried!`);
-      } else if (totalFailed > 0) {
-        toast.error(`${totalFailed} retries failed`);
-      } else {
-        toast.info("No AI failed conversations to retry");
-      }
+      setRetryProgress(prev => ({
+        ...prev,
+        processed: totalProcessed,
+        failed: totalFailed,
+        completed: true,
+        noErrors: totalFailed === 0,
+      }));
+
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to retry");
+      setRetryDialogOpen(false);
     } finally {
       setRetryingUnreplied(false);
     }
@@ -942,6 +971,76 @@ export default function Inbox() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* AI Retry Progress Dialog */}
+      <Dialog open={retryDialogOpen} onOpenChange={(open) => { if (retryProgress.completed || !retryingUnreplied) setRetryDialogOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {retryProgress.completed ? (
+                retryProgress.noErrors ? <CheckCircle className="h-5 w-5 text-green-500" /> : <XCircle className="h-5 w-5 text-destructive" />
+              ) : (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              )}
+              AI Auto Reply
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Summary counts */}
+            <div className="flex gap-3 text-sm">
+              <div className="flex-1 rounded-md border border-border p-2 text-center">
+                <div className="text-lg font-bold text-foreground">{retryProgress.newMsgFail}</div>
+                <div className="text-[10px] text-muted-foreground">New Msg Failed</div>
+              </div>
+              <div className="flex-1 rounded-md border border-border p-2 text-center">
+                <div className="text-lg font-bold text-foreground">{retryProgress.followupFail}</div>
+                <div className="text-[10px] text-muted-foreground">Followup Failed</div>
+              </div>
+              <div className="flex-1 rounded-md border border-border p-2 text-center">
+                <div className="text-lg font-bold text-foreground">{retryProgress.total}</div>
+                <div className="text-[10px] text-muted-foreground">Total</div>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div className="space-y-2">
+              <Progress value={retryProgress.total > 0 ? (retryProgress.processed / retryProgress.total) * 100 : 0} className="h-2.5" />
+              <p className="text-center text-sm text-muted-foreground">
+                {retryProgress.completed
+                  ? `${retryProgress.processed} / ${retryProgress.total} completed`
+                  : `${retryProgress.processed} / ${retryProgress.total} processing...`
+                }
+              </p>
+            </div>
+
+            {/* Status */}
+            {retryProgress.completed ? (
+              <div className={cn(
+                "rounded-lg p-3 text-center text-sm font-medium",
+                retryProgress.noErrors
+                  ? "bg-green-500/10 text-green-600"
+                  : "bg-destructive/10 text-destructive"
+              )}>
+                {retryProgress.noErrors
+                  ? "✅ AI full working, no mistake"
+                  : `⚠️ ${retryProgress.failed} failed, ${retryProgress.processed} completed`
+                }
+              </div>
+            ) : (
+              <Button disabled className="w-full" variant="secondary">
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                AI Replying...
+              </Button>
+            )}
+
+            {retryProgress.completed && (
+              <Button className="w-full" onClick={() => { setRetryDialogOpen(false); queryClient.invalidateQueries({ queryKey: ["conversations"] }); }}>
+                Close
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
