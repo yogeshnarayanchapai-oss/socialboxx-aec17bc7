@@ -1,16 +1,20 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap, FolderPlus, FolderOpen, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
@@ -22,6 +26,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useConnectedPages } from "@/hooks/usePages";
@@ -29,6 +41,7 @@ import { FacebookConnectWizard } from "@/components/facebook/FacebookConnectWiza
 import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const platformItems = [
   { name: "Messenger", emoji: "💬", icon: MessageSquare, active: true },
@@ -40,8 +53,8 @@ const platformItems = [
 export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
   const disconnectPage = useDisconnectPage();
+  const queryClient = useQueryClient();
   
-  // Check URL params synchronously to avoid race condition with child hook cleaning them
   const hasOAuthCallback = () => {
     const params = new URLSearchParams(window.location.search);
     return params.has("fb_session") || params.has("fb_error");
@@ -52,15 +65,28 @@ export default function Pages() {
   const [deletePageId, setDeletePageId] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState<string | null>(null);
   const [selectedPlatform, setSelectedPlatform] = useState("Messenger");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [showNewGroupDialog, setShowNewGroupDialog] = useState(false);
+
+  // Fetch page groups
+  const { data: groups = [], refetch: refetchGroups } = useQuery({
+    queryKey: ["page-groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
 
   const handleDelete = async () => {
     if (!deletePageId) return;
     try {
       await disconnectPage.mutateAsync(deletePageId);
       toast.success("Page deleted successfully");
-    } catch (error) {
-      // Error handled in hook
-    }
+    } catch (error) {}
     setDeletePageId(null);
   };
 
@@ -80,11 +106,180 @@ export default function Pages() {
     setReconnecting(null);
   };
 
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: org } = await supabase
+        .from("organization_members")
+        .select("organization_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!org) return;
+      
+      const { error } = await supabase.from("page_groups").insert({
+        name: newGroupName.trim(),
+        organization_id: org.organization_id,
+      });
+      if (error) throw error;
+      toast.success("Group created!");
+      setNewGroupName("");
+      setShowNewGroupDialog(false);
+      refetchGroups();
+    } catch (err: any) {
+      toast.error(err.message || "Group create गर्न सकिएन");
+    }
+  };
+
+  const handleAssignGroup = async (pageId: string, groupId: string | null) => {
+    try {
+      const { error } = await supabase
+        .from("connected_pages")
+        .update({ group_id: groupId } as any)
+        .eq("id", pageId);
+      if (error) throw error;
+      toast.success(groupId ? "Group मा add भयो!" : "Group बाट remove भयो!");
+      refetch();
+    } catch {
+      toast.error("Group update गर्न सकिएन");
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string) => {
+    try {
+      // Remove pages from group first
+      await supabase.from("connected_pages").update({ group_id: null } as any).eq("group_id", groupId);
+      const { error } = await supabase.from("page_groups").delete().eq("id", groupId);
+      if (error) throw error;
+      toast.success("Group deleted!");
+      refetchGroups();
+      refetch();
+    } catch {
+      toast.error("Group delete गर्न सकिएन");
+    }
+  };
+
   const getStatusVariant = (status: string): "active" | "warning" | "error" => {
     if (status === "active") return "active";
     if (status === "token_expired") return "warning";
     return "error";
   };
+
+  // Group pages
+  const ungroupedPages = pages.filter(p => !p.group_id);
+  const groupedPages = groups.map(g => ({
+    ...g,
+    pages: pages.filter(p => p.group_id === g.id),
+  }));
+
+  const renderPageCard = (page: typeof pages[0]) => (
+    <Card key={page.id} className="animate-fade-in">
+      <CardContent className="p-4 md:p-6">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
+              {page.page_picture_url ? (
+                <img src={page.page_picture_url} alt={page.page_name} className="h-12 w-12 rounded-full object-cover" />
+              ) : (
+                <Facebook className="h-6 w-6 text-primary" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-semibold truncate">{page.page_name}</h3>
+              <p className="text-xs text-muted-foreground truncate">ID: {page.page_id}</p>
+            </div>
+          </div>
+          
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="flex-shrink-0">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setAutomationPage(page)}>
+                <Settings2 className="mr-2 h-4 w-4" />
+                Page Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {/* Group management */}
+              {groups.length > 0 && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    {page.group_id ? "Change Group" : "Add to Group"}
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {groups.map(g => (
+                      <DropdownMenuItem key={g.id} onClick={() => handleAssignGroup(page.id, g.id)}>
+                        {g.name} {page.group_id === g.id && "✓"}
+                      </DropdownMenuItem>
+                    ))}
+                    {page.group_id && (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => handleAssignGroup(page.id, null)} className="text-destructive">
+                          <X className="mr-2 h-4 w-4" />Remove from Group
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => handleReconnect(page.id)} disabled={reconnecting === page.id}>
+                {reconnecting === page.id ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Reconnect
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => setDeletePageId(page.id)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+        
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <StatusBadge status={getStatusVariant(page.connection_status)}>
+            {page.connection_status === "token_expired" ? "Token Expired" : page.connection_status}
+          </StatusBadge>
+          {page.ai_enabled && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-info/10 px-2 py-0.5 text-[11px] font-medium text-info">
+              <Bot className="h-3 w-3" />AI
+            </span>
+          )}
+          {page.automation_enabled && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
+              <Zap className="h-3 w-3" />Auto
+            </span>
+          )}
+        </div>
+        <div className="mt-2">
+          <span className="text-xs text-muted-foreground">
+            Connected {new Date(page.created_at).toLocaleDateString()}
+          </span>
+        </div>
+
+        {page.connection_status === "token_expired" && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-xs">
+              Token expired. Click "Reconnect" to fix.
+            </AlertDescription>
+          </Alert>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   const renderMessengerContent = () => (
     <>
@@ -92,38 +287,58 @@ export default function Pages() {
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
         action={
-          <Button onClick={() => setIsWizardOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Connect New Page
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowNewGroupDialog(true)}>
+              <FolderPlus className="mr-2 h-4 w-4" />Group
+            </Button>
+            <Button onClick={() => setIsWizardOpen(true)}>
+              <Plus className="mr-2 h-4 w-4" />Connect New Page
+            </Button>
+          </div>
         }
       />
 
-      <FacebookConnectWizard
-        open={isWizardOpen}
-        onOpenChange={setIsWizardOpen}
-        onSuccess={() => refetch()}
-      />
+      <FacebookConnectWizard open={isWizardOpen} onOpenChange={setIsWizardOpen} onSuccess={() => refetch()} />
+      <PageAutomationDialog open={!!automationPage} onOpenChange={(open) => !open && setAutomationPage(null)} page={automationPage} />
 
-      <PageAutomationDialog
-        open={!!automationPage}
-        onOpenChange={(open) => !open && setAutomationPage(null)}
-        page={automationPage}
-      />
+      {/* New Group Dialog */}
+      <Dialog open={showNewGroupDialog} onOpenChange={setShowNewGroupDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Create Page Group</DialogTitle>
+            <DialogDescription>Group बनाएर pages organize गर्नुहोस्</DialogDescription>
+          </DialogHeader>
+          <Input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Group name..." />
+          {/* Existing groups */}
+          {groups.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground font-medium">Existing Groups:</p>
+              {groups.map(g => (
+                <div key={g.id} className="flex items-center justify-between p-2 rounded border">
+                  <span className="text-sm">{g.name}</span>
+                  <Button variant="ghost" size="sm" className="h-7 text-destructive" onClick={() => handleDeleteGroup(g.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewGroupDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateGroup} disabled={!newGroupName.trim()}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={!!deletePageId} onOpenChange={(open) => !open && setDeletePageId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Page Connection?</AlertDialogTitle>
-            <AlertDialogDescription>
-              यो page connection permanently delete हुनेछ। यो action undo गर्न सकिँदैन।
-            </AlertDialogDescription>
+            <AlertDialogDescription>यो page connection permanently delete हुनेछ। यो action undo गर्न सकिँदैन।</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -142,91 +357,35 @@ export default function Pages() {
             onAction={() => setIsWizardOpen(true)}
           />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {pages.map((page) => (
-              <Card key={page.id} className="animate-fade-in">
-                <CardContent className="p-4 md:p-6">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-primary/10">
-                        {page.page_picture_url ? (
-                          <img src={page.page_picture_url} alt={page.page_name} className="h-12 w-12 rounded-full object-cover" />
-                        ) : (
-                          <Facebook className="h-6 w-6 text-primary" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold truncate">{page.page_name}</h3>
-                        <p className="text-xs text-muted-foreground truncate">ID: {page.page_id}</p>
-                      </div>
-                    </div>
-                    
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="flex-shrink-0">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setAutomationPage(page)}>
-                          <Settings2 className="mr-2 h-4 w-4" />
-                          Page Settings
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => handleReconnect(page.id)} disabled={reconnecting === page.id}>
-                          {reconnecting === page.id ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <RefreshCw className="mr-2 h-4 w-4" />
-                          )}
-                          Reconnect
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => setDeletePageId(page.id)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  
-                  <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <StatusBadge status={getStatusVariant(page.connection_status)}>
-                      {page.connection_status === "token_expired" ? "Token Expired" : page.connection_status}
-                    </StatusBadge>
-                    {page.ai_enabled && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-info/10 px-2 py-0.5 text-[11px] font-medium text-info">
-                        <Bot className="h-3 w-3" />
-                        AI
-                      </span>
-                    )}
-                    {page.automation_enabled && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning">
-                        <Zap className="h-3 w-3" />
-                        Auto
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2">
-                    <span className="text-xs text-muted-foreground">
-                      Connected {new Date(page.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-
-                  {page.connection_status === "token_expired" && (
-                    <Alert variant="destructive" className="mt-4">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription className="text-xs">
-                        Token expired. Click "Reconnect" to fix.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </CardContent>
-              </Card>
+          <div className="space-y-6">
+            {/* Grouped pages */}
+            {groupedPages.filter(g => g.pages.length > 0).map(group => (
+              <div key={group.id}>
+                <div className="flex items-center gap-2 mb-3">
+                  <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold text-muted-foreground">{group.name}</h3>
+                  <span className="text-xs text-muted-foreground">({group.pages.length})</span>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.pages.map(renderPageCard)}
+                </div>
+              </div>
             ))}
+            
+            {/* Ungrouped pages */}
+            {ungroupedPages.length > 0 && (
+              <div>
+                {groupedPages.some(g => g.pages.length > 0) && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <h3 className="text-sm font-semibold text-muted-foreground">Ungrouped</h3>
+                    <span className="text-xs text-muted-foreground">({ungroupedPages.length})</span>
+                  </div>
+                )}
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {ungroupedPages.map(renderPageCard)}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -248,7 +407,6 @@ export default function Pages() {
 
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      {/* Platform Sidebar - horizontal on mobile, vertical on desktop */}
       <div className="flex-shrink-0 border-b border-border bg-card/50 md:w-44 md:border-b-0 md:border-r">
         <div className="p-2 md:p-3">
           <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground md:text-xs">Platforms</h2>
@@ -280,7 +438,6 @@ export default function Pages() {
         </div>
       </div>
 
-      {/* Right Content */}
       <div className="flex-1 min-w-0">
         {selectedPlatform === "Messenger" ? renderMessengerContent() : renderComingSoon()}
       </div>

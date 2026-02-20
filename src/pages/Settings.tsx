@@ -171,9 +171,21 @@ function APITab() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("connected_pages")
-        .select("id, page_name")
+        .select("id, page_name, group_id")
         .eq("connection_status", "active")
         .order("page_name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: groups } = useQuery({
+    queryKey: ["page-groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("*")
+        .order("name");
       if (error) throw error;
       return data;
     },
@@ -188,7 +200,6 @@ function APITab() {
         .order("created_at", { ascending: false });
       if (error) throw error;
 
-      // Fetch linked pages for each integration
       const ids = (integrations || []).map(i => i.id);
       if (ids.length === 0) return [];
 
@@ -215,6 +226,18 @@ function APITab() {
     );
   };
 
+  const handleGroupClick = (groupId: string) => {
+    if (!pages) return;
+    const groupPageIds = pages.filter(p => p.group_id === groupId).map(p => p.id);
+    // If all group pages are already selected, deselect them
+    const allSelected = groupPageIds.every(id => selectedPages.includes(id));
+    if (allSelected) {
+      setSelectedPages(prev => prev.filter(id => !groupPageIds.includes(id)));
+    } else {
+      setSelectedPages(prev => [...new Set([...prev, ...groupPageIds])]);
+    }
+  };
+
   const generateCombinedKey = async () => {
     if (selectedPages.length === 0) {
       toast.error("कम्तिमा एउटा page select गर्नुहोस्");
@@ -233,7 +256,6 @@ function APITab() {
         .maybeSingle();
       if (!org) { toast.error("Organization not found"); return; }
 
-      // Create the API integration entry
       const { data: newKey, error: keyError } = await supabase
         .from("api_integrations")
         .insert({
@@ -248,7 +270,6 @@ function APITab() {
 
       if (keyError) throw keyError;
 
-      // Link selected pages
       const pageLinks = selectedPages.map(pageId => ({
         integration_id: newKey.id,
         page_id: pageId,
@@ -335,12 +356,34 @@ function APITab() {
             </div>
           </div>
 
-          {/* Page Selection & Generate */}
+          {/* Page Selection with Group Chips */}
           {pagesLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
           ) : (
             <div className="space-y-3">
               <Label className="text-sm font-medium">Pages Select गर्नुहोस्</Label>
+              
+              {/* Group quick-select chips */}
+              {groups && groups.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {groups.map(g => {
+                    const groupPageIds = (pages || []).filter(p => p.group_id === g.id).map(p => p.id);
+                    const allSelected = groupPageIds.length > 0 && groupPageIds.every(id => selectedPages.includes(id));
+                    return (
+                      <button
+                        key={g.id}
+                        onClick={() => handleGroupClick(g.id)}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors cursor-pointer ${
+                          allSelected ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted text-muted-foreground'
+                        }`}
+                      >
+                        📁 {g.name} ({groupPageIds.length})
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {pages?.map(page => (
                   <label
