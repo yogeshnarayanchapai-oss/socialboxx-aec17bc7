@@ -449,25 +449,49 @@ export default function Inbox() {
   const handleRetryUnreplied = async () => {
     if (pages.length === 0) { toast.error("No pages connected."); return; }
     
-    // Fetch all AI failed conversations with page_id for categorization
-    const { data: failedConvs } = await supabase
+    // Fetch all AI failed conversations
+    const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id")
       .in("status", ["ai_failed", "ai_processing"])
       .is("deleted_at", null);
     
-    if (!failedConvs || failedConvs.length === 0) {
+    if (!allFailedConvs || allFailedConvs.length === 0) {
       toast.info("No AI failed conversations to retry");
       return;
     }
 
-    const newMsgFail = failedConvs.filter(c => {
+    // Pre-filter: auto-remove "person not available" / "User unavailable" conversations
+    const personNotAvailable = allFailedConvs.filter(c => {
+      const reason = (c.ai_fail_reason || "").toLowerCase();
+      return reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)");
+    });
+    const retryableConvs = allFailedConvs.filter(c => {
+      const reason = (c.ai_fail_reason || "").toLowerCase();
+      return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
+    });
+
+    // Mark "person not available" as replied silently
+    if (personNotAvailable.length > 0) {
+      await supabase
+        .from("conversations")
+        .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
+        .in("id", personNotAvailable.map(c => c.id));
+    }
+
+    if (retryableConvs.length === 0) {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      toast.success(`${personNotAvailable.length} unavailable users cleared. No retryable conversations.`);
+      return;
+    }
+
+    const newMsgFail = retryableConvs.filter(c => {
       const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
       return !isFollowup;
     }).length;
-    const followupFail = failedConvs.length - newMsgFail;
+    const followupFail = retryableConvs.length - newMsgFail;
 
-    setRetryProgress({ total: failedConvs.length, newMsgFail, followupFail, processed: 0, failed: 0, completed: false, noErrors: true });
+    setRetryProgress({ total: retryableConvs.length, newMsgFail, followupFail, processed: 0, failed: 0, completed: false, noErrors: true });
     setRetryDialogOpen(true);
     setRetryingUnreplied(true);
 
@@ -478,9 +502,9 @@ export default function Inbox() {
       let totalProcessed = 0;
       let totalFailed = 0;
 
-      // Process each conversation 1-by-1 with 5s delay
-      for (let i = 0; i < failedConvs.length; i++) {
-        const conv = failedConvs[i];
+      // Process each conversation 1-by-1 with 2s delay for speed
+      for (let i = 0; i < retryableConvs.length; i++) {
+        const conv = retryableConvs[i];
         try {
           const r = await fetch(
             `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
@@ -504,26 +528,32 @@ export default function Inbox() {
 
         setRetryProgress(prev => ({
           ...prev,
-          processed: totalProcessed + totalFailed,
+          processed: i + 1,
           failed: totalFailed,
           noErrors: totalFailed === 0,
         }));
 
-        // 5 second delay between each conversation (except last)
-        if (i < failedConvs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 5000));
+        // Refresh conversation list after each processed item so replies show immediately
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+
+        // 2 second delay between each conversation (except last)
+        if (i < retryableConvs.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
 
       setRetryProgress(prev => ({
         ...prev,
-        processed: totalProcessed + totalFailed,
+        processed: retryableConvs.length,
         failed: totalFailed,
         completed: true,
         noErrors: totalFailed === 0,
       }));
 
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      if (personNotAvailable.length > 0) {
+        toast.info(`${personNotAvailable.length} unavailable users auto-cleared`);
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to retry");
       setRetryDialogOpen(false);
