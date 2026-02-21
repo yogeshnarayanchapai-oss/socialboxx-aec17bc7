@@ -1,4 +1,6 @@
 import { useState, Fragment, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { FileText, ChevronDown, ChevronUp, Users } from "lucide-react";
 import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package, Download, CalendarIcon, Filter } from "lucide-react";
@@ -65,6 +67,7 @@ export default function Leads() {
   const [customDateFrom, setCustomDateFrom] = useState<Date>();
   const [customDateTo, setCustomDateTo] = useState<Date>();
   const [pageFilter, setPageFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
@@ -91,12 +94,34 @@ export default function Leads() {
 
   const dateRange = getDateRange();
 
-  const { data: leads = [], isLoading } = useLeads({
+  const { data: pages = [] } = useConnectedPages();
+  const { data: pageGroups = [] } = useQuery({
+    queryKey: ["page-groups"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("page_groups").select("*").order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Filter pages by selected group
+  const filteredPageIds = useMemo(() => {
+    if (groupFilter === "all") return null;
+    return pages.filter(p => p.group_id === groupFilter).map(p => p.id);
+  }, [groupFilter, pages]);
+
+  const { data: allLeads = [], isLoading } = useLeads({
     status: statusFilter,
     search: searchQuery,
     pageId: pageFilter !== "all" ? pageFilter : undefined,
     ...dateRange,
   });
+
+  // Apply group filter client-side
+  const leads = useMemo(() => {
+    if (!filteredPageIds) return allLeads;
+    return allLeads.filter(l => l.page_id && filteredPageIds.includes(l.page_id));
+  }, [allLeads, filteredPageIds]);
   const stats = useMemo(() => ({
     total: leads.length,
     new: leads.filter(l => l.api_synced === false).length,
@@ -104,7 +129,7 @@ export default function Leads() {
     follow_up: leads.filter(l => l.status === "follow_up").length,
     closed: leads.filter(l => l.status === "closed").length,
   }), [leads]);
-  const { data: pages = [] } = useConnectedPages();
+
   const createLead = useCreateLead();
   const updateLead = useUpdateLead();
   const deleteLead = useDeleteLead();
@@ -334,6 +359,20 @@ export default function Leads() {
                 <SelectItem value="all">All Pages</SelectItem>
                 {pages.map((p) => (
                   <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {pageGroups.length > 0 && (
+            <Select value={groupFilter} onValueChange={(v) => { setGroupFilter(v); if (v !== "all") setPageFilter("all"); }}>
+              <SelectTrigger className="w-full sm:w-40">
+                <Package className="h-3.5 w-3.5 mr-1" />
+                <SelectValue placeholder="Group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Groups</SelectItem>
+                {pageGroups.map((g) => (
+                  <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
