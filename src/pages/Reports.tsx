@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Download, MessageSquare, Users, TrendingUp, Loader2 } from "lucide-react";
+import { Download, MessageSquare, Users, TrendingUp, Loader2, Package } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -110,6 +110,34 @@ export default function Reports() {
     enabled: pages.length > 0,
   });
 
+  // Per-product stats
+  const { data: productStats = [], isLoading: loadingProducts } = useQuery({
+    queryKey: ["report-by-product", dateRange],
+    queryFn: async () => {
+      let query = supabase.from("leads").select("product, status, api_synced");
+      if (from) {
+        query = query.gte("created_at", from).lte("created_at", to);
+      }
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const map = new Map<string, { total: number; new: number; hot: number; closed: number }>();
+      (data || []).forEach((lead) => {
+        const product = lead.product?.trim() || "Unknown";
+        if (!map.has(product)) map.set(product, { total: 0, new: 0, hot: 0, closed: 0 });
+        const entry = map.get(product)!;
+        entry.total++;
+        if (lead.api_synced === false) entry.new++;
+        if (lead.status === "hot") entry.hot++;
+        if (lead.status === "closed") entry.closed++;
+      });
+
+      return Array.from(map.entries())
+        .map(([name, stats]) => ({ name, ...stats }))
+        .sort((a, b) => b.total - a.total);
+    },
+  });
+
   const dateLabel = {
     today: "Today",
     yesterday: "Yesterday",
@@ -148,6 +176,7 @@ export default function Reports() {
           <TabsList>
             <TabsTrigger value="overall">Overall</TabsTrigger>
             <TabsTrigger value="bypage">By Page</TabsTrigger>
+            <TabsTrigger value="byproduct">By Product</TabsTrigger>
           </TabsList>
 
           {/* Overall Tab */}
@@ -266,6 +295,50 @@ export default function Reports() {
                           className="h-full rounded-full bg-success transition-all"
                           style={{ width: `${Math.min(page.rate, 100)}%` }}
                         />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* By Product Tab */}
+          <TabsContent value="byproduct" className="space-y-6">
+            {loadingProducts ? (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              </div>
+            ) : productStats.length === 0 ? (
+              <div className="flex items-center justify-center py-20 text-muted-foreground">
+                No product data found
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {productStats.map((product) => (
+                  <Card key={product.name}>
+                    <CardContent className="p-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Package className="h-5 w-5 text-primary" />
+                        <h3 className="font-semibold text-lg">{product.name}</h3>
+                      </div>
+                      <div className="grid grid-cols-4 gap-4 text-center">
+                        <div>
+                          <p className="text-2xl font-bold">{product.total}</p>
+                          <p className="text-xs text-muted-foreground">Total</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-info">{product.new}</p>
+                          <p className="text-xs text-muted-foreground">New</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-warning">{product.hot}</p>
+                          <p className="text-xs text-muted-foreground">Hot</p>
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-success">{product.closed}</p>
+                          <p className="text-xs text-muted-foreground">Closed</p>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
