@@ -136,6 +136,11 @@ You MUST first confirm their number by saying something like: "तपाईं�
 Then address their new message normally.
 ` : ''}
 
+COMPLAINT DETECTION - CRITICAL:
+- Detect if the customer is making a COMPLAINT. Examples: product not working, defective item, wants refund/return, unsatisfied with service/product, damaged goods, wrong item received, poor quality.
+- Set "is_complaint" to true ONLY when the customer is genuinely complaining about a product/service issue.
+- Normal questions, inquiries, or price negotiations are NOT complaints.
+
 RESPONSE FORMAT - VERY IMPORTANT:
 You MUST respond in this EXACT JSON format:
 {
@@ -146,6 +151,7 @@ You MUST respond in this EXACT JSON format:
     "invalid_number": true/false,
     "reason": "why this is/isn't a valid lead"
   },
+  "is_complaint": true/false,
   "send_media": [0, 1] or []
 }
 
@@ -261,6 +267,7 @@ ${conversationHistory || 'First message from customer.'}`;
     let suggestedReply = "";
     let leadAction = { should_create: false, phone: null as string | null, invalid_number: false, reason: "" };
     let sendMediaIndices: number[] = [];
+    let isComplaint = false;
     
     console.log("Raw AI response length:", rawContent.length, "content:", rawContent.substring(0, 500));
     
@@ -304,6 +311,11 @@ ${conversationHistory || 'First message from customer.'}`;
         };
       }
       console.log("Parsed lead_action:", JSON.stringify(leadAction));
+      
+      // Extract complaint flag
+      if (parsed.is_complaint === true) {
+        isComplaint = true;
+      }
       
       // Extract send_media indices
       if (parsed.send_media && Array.isArray(parsed.send_media)) {
@@ -356,6 +368,7 @@ ${conversationHistory || 'First message from customer.'}`;
         success: true, 
         suggestedReply: suggestedReply.trim(),
         leadAction,
+        isComplaint,
         mediaToSend,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

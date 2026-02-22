@@ -907,8 +907,9 @@ serve(async (req) => {
                       const aiData = await aiResponse.json();
                       const suggestedReply = aiData.suggestedReply;
                       const leadAction = aiData.leadAction;
+                      const isComplaint = aiData.isComplaint === true;
                       
-                      console.log("AI response - leadAction:", JSON.stringify(leadAction), "hasReply:", !!suggestedReply);
+                      console.log("AI response - leadAction:", JSON.stringify(leadAction), "isComplaint:", isComplaint, "hasReply:", !!suggestedReply);
 
                       if (suggestedReply) {
                         // Check if AI wants to send media
@@ -937,6 +938,14 @@ serve(async (req) => {
                             last_message_at: new Date().toISOString(),
                             ai_fail_reason: null,
                           }).eq("id", conversationId);
+
+                          // Tag as COMPLAIN if AI detected complaint
+                          if (isComplaint && !conversationTags.includes("COMPLAIN")) {
+                            conversationTags = [...conversationTags, "COMPLAIN"];
+                            await supabase.from("conversations").update({
+                              tags: conversationTags,
+                            }).eq("id", conversationId);
+                          }
 
                           // AI-based lead creation / update
                           if (leadAction?.should_create && leadAction.phone && !leadAction.invalid_number) {
