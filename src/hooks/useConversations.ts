@@ -46,6 +46,8 @@ export function useConversations(filters?: {
           query = query.or("auto_followup_step.gte.1,ai_followup_step.gte.1");
         } else if (filters.status === "ai_failed") {
           query = query.in("status", ["ai_failed", "ai_processing"]);
+        } else if (filters.status === "complain") {
+          query = query.contains("tags", ["COMPLAIN"]);
         } else {
           query = query.eq("status", filters.status);
         }

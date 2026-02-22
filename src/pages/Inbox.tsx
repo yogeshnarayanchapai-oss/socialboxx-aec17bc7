@@ -94,17 +94,18 @@ const filterOptions = [
   { value: "ai_failed", label: "AI Failed" },
   { value: "lead", label: "Leads" },
   { value: "follow-up", label: "Follow-up" },
+  { value: "complain", label: "Complain" },
 ];
 
-type ConversationTag = "new" | "follow-up" | "lead";
+type ConversationTag = "new" | "follow-up" | "lead" | "complain";
 
 function getFollowupStep(conv: Conversation): number {
   return Math.max(conv.auto_followup_step || 0, conv.ai_followup_step || 0);
 }
 
 function getConversationTag(conv: Conversation): ConversationTag {
+  if (conv.tags?.includes("COMPLAIN")) return "complain";
   if (conv.tags?.includes("lead-created")) return "lead";
-  // Only show follow-up after at least one followup has been sent (step >= 1)
   if ((conv.auto_followup_step !== null && conv.auto_followup_step >= 1) || 
       (conv.ai_followup_step !== null && conv.ai_followup_step >= 1)) return "follow-up";
   if (conv.status === "unreplied") return "new";
@@ -113,6 +114,8 @@ function getConversationTag(conv: Conversation): ConversationTag {
 
 function getTagBadge(tag: ConversationTag, followupStep?: number) {
   switch (tag) {
+    case "complain":
+      return { label: "COMPLAIN", className: "bg-red-600 hover:bg-red-600 text-white" };
     case "lead":
       return { label: "LEAD", className: "bg-green-600 hover:bg-green-600 text-white" };
     case "follow-up":
@@ -124,6 +127,7 @@ function getTagBadge(tag: ConversationTag, followupStep?: number) {
 
 function getConversationBg(tag: ConversationTag) {
   switch (tag) {
+    case "complain": return "bg-red-500/5 hover:bg-red-500/10";
     case "lead": return "bg-green-500/5 hover:bg-green-500/10";
     case "follow-up": return "bg-orange-500/5 hover:bg-orange-500/10";
     case "new": return "hover:bg-muted/50";
