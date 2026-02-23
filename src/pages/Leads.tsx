@@ -1,4 +1,4 @@
-import { useState, Fragment, useMemo } from "react";
+import { useState, Fragment, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -62,6 +62,7 @@ const statusConfig: Record<string, { label: string; type: "success" | "warning" 
 export default function Leads() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState(searchParams.get("status") || "all");
   const [dateFilter, setDateFilter] = useState("today");
@@ -74,6 +75,12 @@ export default function Leads() {
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const isMobile = useIsMobile();
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQuery(searchInput), 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const getDateRange = () => {
     const now = new Date();
@@ -323,8 +330,8 @@ export default function Leads() {
             <Input
               placeholder="Search by name or phone..."
               className="pl-9"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>

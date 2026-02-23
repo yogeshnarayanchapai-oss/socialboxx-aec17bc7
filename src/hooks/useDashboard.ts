@@ -42,12 +42,17 @@ export function useDashboardStats() {
       const convIds = conversations?.map(c => c.id) ?? [];
       let messagesData: any[] = [];
       if (convIds.length > 0) {
-        const { data: messages } = await supabase
-          .from("messages")
-          .select("id, sender_type, created_at")
-          .gte("created_at", sevenDaysAgo.toISOString())
-          .in("conversation_id", convIds.slice(0, 500));
-        messagesData = messages ?? [];
+        // Fetch messages in batches to avoid hitting the IN clause limit
+        const batchSize = 200;
+        for (let i = 0; i < convIds.length; i += batchSize) {
+          const batch = convIds.slice(i, i + batchSize);
+          const { data: messages } = await supabase
+            .from("messages")
+            .select("id, sender_type, created_at")
+            .gte("created_at", sevenDaysAgo.toISOString())
+            .in("conversation_id", batch);
+          if (messages) messagesData.push(...messages);
+        }
       }
 
       const todayFollowupTotal = todayFollowups?.length || 0;
@@ -126,26 +131,31 @@ export function usePagePerformance() {
       const { data: pages } = await query;
       if (!pages?.length) return [];
 
-      const performance = await Promise.all(
-        pages.map(async (page) => {
-          const { count: messageCount } = await supabase
-            .from("messages")
-            .select("id", { count: "exact", head: true })
-            .eq("conversation_id", page.id);
+      // Get all conversations for these pages to count messages properly
+      const pageIds = pages.map(p => p.id);
+      
+      const [{ data: convs }, { data: allLeads }] = await Promise.all([
+        supabase.from("conversations").select("id, page_id").in("page_id", pageIds).is("deleted_at", null),
+        supabase.from("leads").select("id, page_id").in("page_id", pageIds),
+      ]);
 
-          const { count: leadCount } = await supabase
-            .from("leads")
-            .select("id", { count: "exact", head: true })
-            .eq("page_id", page.id);
+      // Count conversations per page (as a proxy for message volume)
+      const convCountByPage = new Map<string, number>();
+      const leadCountByPage = new Map<string, number>();
+      
+      (convs || []).forEach(c => {
+        convCountByPage.set(c.page_id, (convCountByPage.get(c.page_id) || 0) + 1);
+      });
+      (allLeads || []).forEach(l => {
+        if (l.page_id) leadCountByPage.set(l.page_id, (leadCountByPage.get(l.page_id) || 0) + 1);
+      });
 
-          return {
-            name: page.page_name,
-            messages: messageCount || 0,
-            leads: leadCount || 0,
-            rate: "95%",
-          };
-        })
-      );
+      const performance = pages.map(page => ({
+        name: page.page_name,
+        messages: convCountByPage.get(page.id) || 0,
+        leads: leadCountByPage.get(page.id) || 0,
+        rate: "95%",
+      }));
 
       return performance;
     },
