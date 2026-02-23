@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ import { useTeamMembers, useInviteTeamMember, useRemoveTeamMember, useUpdatePage
 import { useConnectedPages } from "@/hooks/usePages";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrganization } from "@/hooks/useOrganization";
+import { supabase } from "@/integrations/supabase/client";
 
 export function TeamManagementTab() {
   const { user } = useAuth();
@@ -38,17 +40,31 @@ export function TeamManagementTab() {
   const updateAccess = useUpdatePageAccess();
   const updateRole = useUpdateMemberRole();
 
+  const { data: groups } = useQuery({
+    queryKey: ["page-groups-team"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("page_groups")
+        .select("*")
+        .order("name");
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [invitePassword, setInvitePassword] = useState("");
   const [inviteRole, setInviteRole] = useState("agent");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [invitePageAccess, setInvitePageAccess] = useState<Record<string, string>>({});
+  const [inviteScopes, setInviteScopes] = useState<{ type: string; groupId?: string; level: string }[]>([]);
 
   // Edit member state
   const [editMember, setEditMember] = useState<string | null>(null);
   const [editRole, setEditRole] = useState("");
   const [editPageAccess, setEditPageAccess] = useState<Record<string, string>>({});
+  const [editScopes, setEditScopes] = useState<{ type: string; groupId?: string; level: string }[]>([]);
 
   const currentEditMember = members?.find((m) => m.user_id === editMember);
 
@@ -59,6 +75,78 @@ export function TeamManagementTab() {
     setter(newAccess);
   };
 
+  const handleGroupSelect = (
+    groupId: string,
+    level: string,
+    pageAccess: Record<string, string>,
+    setPageAccess: (val: Record<string, string>) => void,
+    scopes: { type: string; groupId?: string; level: string }[],
+    setScopes: (val: { type: string; groupId?: string; level: string }[]) => void,
+  ) => {
+    if (!pages) return;
+    const groupPages = pages.filter(p => p.group_id === groupId);
+    const existing = scopes.find(s => s.type === "group" && s.groupId === groupId);
+    
+    if (existing && existing.level === level) {
+      // Deselect: remove scope and uncheck group pages
+      setScopes(scopes.filter(s => !(s.type === "group" && s.groupId === groupId)));
+      const newAccess = { ...pageAccess };
+      groupPages.forEach(p => { newAccess[p.id] = "none"; });
+      setPageAccess(newAccess);
+    } else {
+      // Select: add/update scope and check group pages
+      const newScopes = scopes.filter(s => !(s.type === "group" && s.groupId === groupId));
+      newScopes.push({ type: "group", groupId, level });
+      setScopes(newScopes);
+      const newAccess = { ...pageAccess };
+      groupPages.forEach(p => { newAccess[p.id] = level; });
+      setPageAccess(newAccess);
+    }
+  };
+
+  const handleUngroupedSelect = (
+    level: string,
+    pageAccess: Record<string, string>,
+    setPageAccess: (val: Record<string, string>) => void,
+    scopes: { type: string; groupId?: string; level: string }[],
+    setScopes: (val: { type: string; groupId?: string; level: string }[]) => void,
+  ) => {
+    if (!pages) return;
+    const ungrouped = pages.filter(p => !p.group_id);
+    const existing = scopes.find(s => s.type === "ungrouped");
+    
+    if (existing && existing.level === level) {
+      setScopes(scopes.filter(s => s.type !== "ungrouped"));
+      const newAccess = { ...pageAccess };
+      ungrouped.forEach(p => { newAccess[p.id] = "none"; });
+      setPageAccess(newAccess);
+    } else {
+      const newScopes = scopes.filter(s => s.type !== "ungrouped");
+      newScopes.push({ type: "ungrouped", level });
+      setScopes(newScopes);
+      const newAccess = { ...pageAccess };
+      ungrouped.forEach(p => { newAccess[p.id] = level; });
+      setPageAccess(newAccess);
+    }
+  };
+
+  const saveScopes = async (userId: string, scopes: { type: string; groupId?: string; level: string }[]) => {
+    if (!orgId) return;
+    // Delete old scopes
+    await supabase.from("team_access_scopes").delete().eq("user_id", userId).eq("organization_id", orgId);
+    // Insert new scopes
+    if (scopes.length > 0) {
+      const rows = scopes.map(s => ({
+        user_id: userId,
+        organization_id: orgId,
+        scope_type: s.type,
+        group_id: s.type === "group" ? s.groupId : null,
+        access_level: s.level,
+      }));
+      await supabase.from("team_access_scopes").insert(rows);
+    }
+  };
+
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !invitePassword.trim() || !orgId) return;
     if (invitePassword.length < 6) {
@@ -66,7 +154,7 @@ export function TeamManagementTab() {
       return;
     }
     try {
-      await inviteMember.mutateAsync({
+      const userId = await inviteMember.mutateAsync({
         email: inviteEmail.trim(),
         password: invitePassword.trim(),
         organizationId: orgId,
@@ -74,11 +162,16 @@ export function TeamManagementTab() {
         name: inviteName.trim() || undefined,
         pageAccess: invitePageAccess,
       });
+      // Save scopes for auto-update
+      if (userId && inviteScopes.length > 0) {
+        await saveScopes(userId, inviteScopes);
+      }
       toast.success("Team member added!");
       setInviteEmail("");
       setInviteName("");
       setInvitePassword("");
       setInvitePageAccess({});
+      setInviteScopes([]);
       setInviteDialogOpen(false);
     } catch (error: any) {
       toast.error(error.message || "Failed to invite member");
@@ -87,6 +180,11 @@ export function TeamManagementTab() {
 
   const handleRemove = async (memberId: string) => {
     try {
+      // Also remove scopes
+      const member = members?.find(m => m.id === memberId);
+      if (member && orgId) {
+        await supabase.from("team_access_scopes").delete().eq("user_id", member.user_id).eq("organization_id", orgId);
+      }
       await removeMember.mutateAsync(memberId);
       toast.success("Team member removed");
     } catch {
@@ -94,38 +192,50 @@ export function TeamManagementTab() {
     }
   };
 
-  const openEditDialog = (member: typeof members extends (infer T)[] | undefined ? T : never) => {
-    if (!member) return;
+  const openEditDialog = async (member: typeof members extends (infer T)[] | undefined ? T : never) => {
+    if (!member || !orgId) return;
     setEditMember(member.user_id);
     setEditRole(member.role);
     const access: Record<string, string> = {};
     member.page_access.forEach(a => { access[a.page_id] = a.access_level; });
     setEditPageAccess(access);
+    
+    // Load existing scopes
+    const { data: scopeData } = await supabase
+      .from("team_access_scopes")
+      .select("scope_type, group_id, access_level")
+      .eq("user_id", member.user_id)
+      .eq("organization_id", orgId);
+    
+    setEditScopes((scopeData || []).map(s => ({
+      type: s.scope_type,
+      groupId: s.group_id || undefined,
+      level: s.access_level,
+    })));
   };
 
   const handleSaveEdit = async () => {
     if (!editMember || !orgId || !currentEditMember) return;
     try {
-      // Update role
       if (editRole !== currentEditMember.role) {
         await updateRole.mutateAsync({ memberId: currentEditMember.id, role: editRole });
       }
-      // Update page access - remove old, add new
       const oldAccess = new Set(currentEditMember.page_access.map(a => a.page_id));
       const newAccessKeys = new Set(Object.keys(editPageAccess).filter(k => editPageAccess[k] !== "none"));
 
-      // Remove pages no longer in access
       for (const pageId of oldAccess) {
         if (!newAccessKeys.has(pageId)) {
           await updateAccess.mutateAsync({ userId: editMember, organizationId: orgId, pageId, accessLevel: null });
         }
       }
-      // Add/update pages
       for (const [pageId, level] of Object.entries(editPageAccess)) {
         if (level !== "none") {
           await updateAccess.mutateAsync({ userId: editMember, organizationId: orgId, pageId, accessLevel: level });
         }
       }
+
+      // Save scopes
+      await saveScopes(editMember, editScopes);
 
       toast.success("Member updated!");
       setEditMember(null);
@@ -137,17 +247,104 @@ export function TeamManagementTab() {
   const renderPageAccessSection = (
     pageAccess: Record<string, string>,
     setPageAccess: (val: Record<string, string>) => void,
+    scopes: { type: string; groupId?: string; level: string }[],
+    setScopes: (val: { type: string; groupId?: string; level: string }[]) => void,
   ) => {
     if (!pages || pages.length === 0) return null;
 
     const allSelected = pages.every(p => pageAccess[p.id] && pageAccess[p.id] !== "none");
     const noneSelected = pages.every(p => !pageAccess[p.id] || pageAccess[p.id] === "none");
+    const ungroupedPages = pages.filter(p => !p.group_id);
+    const ungroupedScope = scopes.find(s => s.type === "ungrouped");
 
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         <Label className="text-sm font-medium">Page Access</Label>
-        <p className="text-xs text-muted-foreground">कुन page मा कस्तो access दिने?</p>
-        <div className="flex gap-2 mb-2">
+        <p className="text-xs text-muted-foreground">Group/Ungrouped select गर्नुहोस् — future मा page add हुँदा auto access मिल्छ</p>
+        
+        {/* Group & Ungrouped quick-select chips */}
+        {((groups && groups.length > 0) || ungroupedPages.length > 0) && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Quick Select:</p>
+            <div className="flex flex-wrap gap-2">
+              {groups?.map(g => {
+                const groupPageIds = pages.filter(p => p.group_id === g.id).map(p => p.id);
+                const scope = scopes.find(s => s.type === "group" && s.groupId === g.id);
+                if (groupPageIds.length === 0) return null;
+                return (
+                  <div key={g.id} className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleGroupSelect(g.id, "edit", pageAccess, setPageAccess, scopes, setScopes)}
+                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors cursor-pointer ${
+                        scope ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted text-muted-foreground'
+                      }`}
+                    >
+                      📁 {g.name} ({groupPageIds.length})
+                      {scope && <span className="text-[10px] opacity-70">({scope.level})</span>}
+                    </button>
+                    {scope && (
+                      <Select
+                        value={scope.level}
+                        onValueChange={(val) => {
+                          handleGroupSelect(g.id, val, pageAccess, setPageAccess,
+                            scopes.filter(s => !(s.type === "group" && s.groupId === g.id)),
+                            setScopes
+                          );
+                        }}
+                      >
+                        <SelectTrigger className="h-7 w-[70px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="view">View</SelectItem>
+                          <SelectItem value="edit">Edit</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                );
+              })}
+              {ungroupedPages.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleUngroupedSelect("edit", pageAccess, setPageAccess, scopes, setScopes)}
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors cursor-pointer ${
+                      ungroupedScope ? 'border-amber-500 bg-amber-500/10 text-amber-700' : 'border-border hover:bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    📄 Ungrouped ({ungroupedPages.length})
+                    {ungroupedScope && <span className="text-[10px] opacity-70">({ungroupedScope.level})</span>}
+                  </button>
+                  {ungroupedScope && (
+                    <Select
+                      value={ungroupedScope.level}
+                      onValueChange={(val) => {
+                        handleUngroupedSelect(val, pageAccess, setPageAccess,
+                          scopes.filter(s => s.type !== "ungrouped"),
+                          setScopes
+                        );
+                      }}
+                    >
+                      <SelectTrigger className="h-7 w-[70px] text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="view">View</SelectItem>
+                        <SelectItem value="edit">Edit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground">⚡ Group/Ungrouped select गरेमा future मा page add/remove हुँदा access auto update हुन्छ</p>
+          </div>
+        )}
+
+        {/* Manual select buttons */}
+        <div className="flex gap-2">
           <Button
             type="button"
             variant={allSelected ? "default" : "outline"}
@@ -172,12 +369,14 @@ export function TeamManagementTab() {
               variant="ghost"
               size="sm"
               className="text-xs h-7"
-              onClick={() => handleSelectAll("none", setPageAccess)}
+              onClick={() => { handleSelectAll("none", setPageAccess); setScopes([]); }}
             >
               Clear All
             </Button>
           )}
         </div>
+
+        {/* Individual page list */}
         <div className="space-y-2 rounded-lg border p-3">
           {pages.map((page) => (
             <div key={page.id} className="flex items-center justify-between gap-2">
@@ -197,6 +396,11 @@ export function TeamManagementTab() {
                   <div className="h-7 w-7 rounded-full bg-muted flex-shrink-0" />
                 )}
                 <span className="text-sm truncate">{page.page_name}</span>
+                {page.group_id && groups && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                    {groups.find(g => g.id === page.group_id)?.name}
+                  </span>
+                )}
               </div>
               {pageAccess[page.id] && pageAccess[page.id] !== "none" && (
                 <Select
@@ -241,7 +445,7 @@ export function TeamManagementTab() {
           </div>
           <Dialog open={inviteDialogOpen} onOpenChange={(open) => {
             setInviteDialogOpen(open);
-            if (!open) { setInvitePageAccess({}); setInviteName(""); setInvitePassword(""); }
+            if (!open) { setInvitePageAccess({}); setInviteName(""); setInvitePassword(""); setInviteScopes([]); }
           }}>
             <DialogTrigger asChild>
               <Button size="sm">
@@ -280,7 +484,7 @@ export function TeamManagementTab() {
                     </SelectContent>
                   </Select>
                 </div>
-                {renderPageAccessSection(invitePageAccess, setInvitePageAccess)}
+                {renderPageAccessSection(invitePageAccess, setInvitePageAccess, inviteScopes, setInviteScopes)}
               </div>
               <DialogFooter>
                 <Button onClick={handleInvite} disabled={inviteMember.isPending || !inviteEmail.trim() || !invitePassword.trim()}>
@@ -358,7 +562,7 @@ export function TeamManagementTab() {
                 </SelectContent>
               </Select>
             </div>
-            {renderPageAccessSection(editPageAccess, setEditPageAccess)}
+            {renderPageAccessSection(editPageAccess, setEditPageAccess, editScopes, setEditScopes)}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditMember(null)}>Cancel</Button>
