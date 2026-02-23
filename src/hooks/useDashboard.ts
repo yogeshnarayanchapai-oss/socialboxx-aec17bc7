@@ -56,7 +56,7 @@ export function useDashboardStats() {
 
       const totalMessages7d = messagesData.length;
       const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
-      const leadsPending = leads?.filter((l: any) => l.api_synced === false).length || 0;
+      const leadsPending = leads?.filter((l: any) => l.status === "new").length || 0;
       const followUpsDue = leads?.filter(l => {
         if (!l.followup_due_date) return false;
         return new Date(l.followup_due_date) <= now && l.status !== "closed";

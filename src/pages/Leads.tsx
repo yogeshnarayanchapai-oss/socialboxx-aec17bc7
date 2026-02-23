@@ -51,8 +51,9 @@ import { useLeads, useLeadStats, useCreateLead, useUpdateLead, useDeleteLead, ty
 import { useConnectedPages } from "@/hooks/usePages";
 import { useIsMobile } from "@/hooks/use-mobile";
 
-const statusConfig: Record<string, { label: string; type: "success" | "warning" | "info" | "pending" | "error" }> = {
+const statusConfig: Record<string, { label: string; type: "success" | "warning" | "info" | "pending" | "error" | "active" }> = {
   new: { label: "New", type: "info" },
+  pulled: { label: "Pulled", type: "active" },
   hot: { label: "Hot", type: "warning" },
   follow_up: { label: "Follow-up", type: "pending" },
   closed: { label: "Closed", type: "success" },
@@ -124,7 +125,8 @@ export default function Leads() {
   }, [allLeads, filteredPageIds]);
   const stats = useMemo(() => ({
     total: leads.length,
-    new: leads.filter(l => l.api_synced === false).length,
+    new: leads.filter(l => l.status === "new").length,
+    pulled: leads.filter(l => l.status === "pulled").length,
     hot: leads.filter(l => l.status === "hot").length,
     follow_up: leads.filter(l => l.status === "follow_up").length,
     closed: leads.filter(l => l.status === "closed").length,
@@ -332,6 +334,7 @@ export default function Leads() {
             <SelectContent>
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="new">New</SelectItem>
+              <SelectItem value="pulled">Pulled</SelectItem>
               <SelectItem value="hot">Hot</SelectItem>
               <SelectItem value="follow_up">Follow-up</SelectItem>
               <SelectItem value="closed">Closed</SelectItem>
@@ -407,10 +410,11 @@ export default function Leads() {
         )}
 
         {/* Stats Cards */}
-        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
           {[
             { label: "Total Leads", value: stats?.total || 0, color: "text-foreground" },
             { label: "New", value: stats?.new || 0, color: "text-info" },
+            { label: "Pulled", value: stats?.pulled || 0, color: "text-success" },
             { label: "Hot", value: stats?.hot || 0, color: "text-warning" },
             { label: "Follow-up", value: stats?.follow_up || 0, color: "text-primary" },
           ].map((stat) => (
