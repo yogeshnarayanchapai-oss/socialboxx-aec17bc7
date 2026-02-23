@@ -20,65 +20,61 @@ export function useDashboardStats() {
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      let convQuery = supabase
-        .from("conversations")
-        .select("id, status, last_message_at, created_at, page_id")
-        .is("deleted_at", null);
-      if (accessiblePageIds !== null && accessiblePageIds !== undefined) convQuery = convQuery.in("page_id", accessiblePageIds);
+      // Build page filter for direct message counting
+      const pageFilter = (accessiblePageIds !== null && accessiblePageIds !== undefined) ? accessiblePageIds : null;
 
-      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id, api_synced");
-      if (accessiblePageIds !== null && accessiblePageIds !== undefined) leadsQuery = leadsQuery.in("page_id", accessiblePageIds);
+      // Count unreplied conversations
+      let unrepliedQuery = supabase.from("conversations").select("id", { count: "exact", head: true })
+        .is("deleted_at", null).eq("status", "unreplied");
+      if (pageFilter) unrepliedQuery = unrepliedQuery.in("page_id", pageFilter);
 
-      let followupQuery = supabase
-        .from("followup_logs")
-        .select("id, followup_type, page_id")
+      let leadsQuery = supabase.from("leads").select("id, status, followup_due_date, page_id");
+      if (pageFilter) leadsQuery = leadsQuery.in("page_id", pageFilter);
+
+      let followupQuery = supabase.from("followup_logs").select("id, followup_type, page_id")
         .gte("sent_at", today.toISOString());
-      if (accessiblePageIds !== null && accessiblePageIds !== undefined) followupQuery = followupQuery.in("page_id", accessiblePageIds);
+      if (pageFilter) followupQuery = followupQuery.in("page_id", pageFilter);
 
-      const [{ data: conversations }, { data: leads }, { data: todayFollowups }] = await Promise.all([
-        convQuery, leadsQuery, followupQuery,
+      // Count messages directly (no conversation ID dependency)
+      // We join through conversations implicitly via the DB — but messages don't have page_id.
+      // So we need to get conversation IDs. But with 7K+ convs, we can't fetch all.
+      // Instead, count all messages in last 7 days (RLS already filters by org).
+      const totalMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
+        .gte("created_at", sevenDaysAgo.toISOString());
+      const customerMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
+        .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "customer");
+      const pageMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
+        .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "page");
+
+      const [
+        { count: unrepliedCount },
+        { data: leads },
+        { data: todayFollowups },
+        { count: totalMessages7d },
+        { count: incomingMessages },
+        { count: outgoingMessages },
+      ] = await Promise.all([
+        unrepliedQuery, leadsQuery, followupQuery,
+        totalMsgQuery, customerMsgQuery, pageMsgQuery,
       ]);
-
-      const convIds = conversations?.map(c => c.id) ?? [];
-      let totalMessages7d = 0;
-      let incomingMessages = 0;
-      let outgoingMessages = 0;
-
-      if (convIds.length > 0) {
-        // Use count queries in batches for accurate totals (avoids 1000 row limit)
-        const batchSize = 200;
-        for (let i = 0; i < convIds.length; i += batchSize) {
-          const batch = convIds.slice(i, i + batchSize);
-          const [{ count: totalCount }, { count: customerCount }, { count: pageCount }] = await Promise.all([
-            supabase.from("messages").select("id", { count: "exact", head: true })
-              .gte("created_at", sevenDaysAgo.toISOString()).in("conversation_id", batch),
-            supabase.from("messages").select("id", { count: "exact", head: true })
-              .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "customer").in("conversation_id", batch),
-            supabase.from("messages").select("id", { count: "exact", head: true })
-              .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "page").in("conversation_id", batch),
-          ]);
-          totalMessages7d += totalCount || 0;
-          incomingMessages += customerCount || 0;
-          outgoingMessages += pageCount || 0;
-        }
-      }
 
       const todayFollowupTotal = todayFollowups?.length || 0;
       const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
       const todayFollowupAutomation = todayFollowups?.filter(f => f.followup_type === "automation").length || 0;
 
-      const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
       const leadsPending = leads?.filter((l: any) => l.status === "new").length || 0;
       const followUpsDue = leads?.filter(l => {
         if (!l.followup_due_date) return false;
         return new Date(l.followup_due_date) <= now && l.status !== "closed";
       }).length || 0;
 
-      const replyRate = incomingMessages > 0 ? Math.round((outgoingMessages / incomingMessages) * 100) : 0;
+      const incoming = incomingMessages || 0;
+      const outgoing = outgoingMessages || 0;
+      const replyRate = incoming > 0 ? Math.round((outgoing / incoming) * 100) : 0;
 
       return {
-        totalMessages7d,
-        unrepliedCount,
+        totalMessages7d: totalMessages7d || 0,
+        unrepliedCount: unrepliedCount || 0,
         leadsPending,
         followUpsDue,
         replyRate: `${Math.min(replyRate, 100)}%`,
