@@ -255,13 +255,7 @@ export default function Leads() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  const showTableLoading = isLoading;
 
   return (
     <div className="min-h-screen">
@@ -417,6 +411,12 @@ export default function Leads() {
         )}
 
         {/* Stats Cards */}
+        <div className={cn("transition-opacity", showTableLoading && "opacity-50 pointer-events-none")}>
+        {showTableLoading && (
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        )}
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
           {[
             { label: "Total Leads", value: stats?.total || 0, color: "text-foreground" },
@@ -719,6 +719,7 @@ export default function Leads() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
