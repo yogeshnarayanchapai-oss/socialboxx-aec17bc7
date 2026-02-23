@@ -165,6 +165,8 @@ function APITab() {
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
   const [selectedPages, setSelectedPages] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
+  const [scopeType, setScopeType] = useState<"group" | "ungrouped" | "custom">("group");
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
   
   const { data: pages, isLoading: pagesLoading } = useQuery({
     queryKey: ["connected-pages-api"],
@@ -226,20 +228,18 @@ function APITab() {
     );
   };
 
-  const handleGroupClick = (groupId: string) => {
-    if (!pages) return;
-    const groupPageIds = pages.filter(p => p.group_id === groupId).map(p => p.id);
-    // If all group pages are already selected, deselect them
-    const allSelected = groupPageIds.every(id => selectedPages.includes(id));
-    if (allSelected) {
-      setSelectedPages(prev => prev.filter(id => !groupPageIds.includes(id)));
-    } else {
-      setSelectedPages(prev => [...new Set([...prev, ...groupPageIds])]);
-    }
-  };
+  const ungroupedPages = pages?.filter(p => !p.group_id) || [];
 
-  const generateCombinedKey = async () => {
-    if (selectedPages.length === 0) {
+  const generateKey = async () => {
+    if (scopeType === "group" && !selectedGroupId) {
+      toast.error("Group select गर्नुहोस्");
+      return;
+    }
+    if (scopeType === "ungrouped" && ungroupedPages.length === 0) {
+      toast.error("Ungrouped page छैन");
+      return;
+    }
+    if (scopeType === "custom" && selectedPages.length === 0) {
       toast.error("कम्तिमा एउटा page select गर्नुहोस्");
       return;
     }
@@ -256,33 +256,47 @@ function APITab() {
         .maybeSingle();
       if (!org) { toast.error("Organization not found"); return; }
 
+      let label = "";
+      if (scopeType === "group") {
+        const groupName = groups?.find(g => g.id === selectedGroupId)?.name || "Group";
+        label = `📁 ${groupName} (Group)`;
+      } else if (scopeType === "ungrouped") {
+        label = `📄 Ungrouped Pages`;
+      } else {
+        label = selectedPages.length === 1
+          ? pages?.find(p => p.id === selectedPages[0])?.page_name || "Custom"
+          : `${selectedPages.length} Pages (Custom)`;
+      }
+
       const { data: newKey, error: keyError } = await supabase
         .from("api_integrations")
         .insert({
           organization_id: org.organization_id,
           is_active: true,
-          label: selectedPages.length === 1 
-            ? pages?.find(p => p.id === selectedPages[0])?.page_name 
-            : `${selectedPages.length} Pages Combined`,
+          label,
+          scope_type: scopeType,
+          group_id: scopeType === "group" ? selectedGroupId : null,
         })
         .select()
         .single();
 
       if (keyError) throw keyError;
 
-      const pageLinks = selectedPages.map(pageId => ({
-        integration_id: newKey.id,
-        page_id: pageId,
-      }));
-
-      const { error: linkError } = await supabase
-        .from("api_integration_pages")
-        .insert(pageLinks);
-
-      if (linkError) throw linkError;
+      // For custom scope, link specific pages
+      if (scopeType === "custom" && selectedPages.length > 0) {
+        const pageLinks = selectedPages.map(pageId => ({
+          integration_id: newKey.id,
+          page_id: pageId,
+        }));
+        const { error: linkError } = await supabase
+          .from("api_integration_pages")
+          .insert(pageLinks);
+        if (linkError) throw linkError;
+      }
 
       toast.success("API Key generated!");
       setSelectedPages([]);
+      setSelectedGroupId("");
       refetchKeys();
     } catch (err: any) {
       toast.error(err.message || "Failed to generate API key");
@@ -316,6 +330,16 @@ function APITab() {
     toast.success("Copied!");
   };
 
+  const getScopeLabel = (key: any) => {
+    const st = key.scope_type || "custom";
+    if (st === "group") {
+      const groupName = groups?.find((g: any) => g.id === key.group_id)?.name;
+      return `📁 Group: ${groupName || "Unknown"}`;
+    }
+    if (st === "ungrouped") return "📄 Ungrouped";
+    return "🔧 Custom";
+  };
+
   const leadsEndpoint = `${baseUrl}/functions/v1/leads-api`;
 
   return (
@@ -328,7 +352,7 @@ function APITab() {
             </div>
             <div>
               <CardTitle>API Integration</CardTitle>
-              <CardDescription>Page select गरेर combined API Key generate गर्नुहोस्</CardDescription>
+              <CardDescription>Group / Ungrouped / Custom API Key generate गर्नुहोस्</CardDescription>
             </div>
           </div>
         </CardHeader>
@@ -338,10 +362,9 @@ function APITab() {
           <div className="rounded-lg border border-dashed border-primary/30 bg-primary/5 p-4 space-y-2">
             <p className="text-sm font-medium">कसरी काम गर्छ?</p>
             <ol className="list-decimal list-inside text-sm text-muted-foreground space-y-1">
-              <li>जुन-जुन page को lead चाहिन्छ ती select गर्नुहोस्</li>
-              <li><strong>Generate API Key</strong> थिच्नुहोस् — एउटा combined key बन्छ</li>
-              <li>Third-party मा key र URL paste गर्नुहोस् — select गरिएका page को lead मात्र आउँछ</li>
-              <li>फरक page group को लागि अर्को API Key बनाउन सकिन्छ</li>
+              <li><strong>Group:</strong> Group select गर्नुहोस् — group मा page add/remove हुँदा auto update हुन्छ</li>
+              <li><strong>Ungrouped:</strong> कुनै group मा नभएका page हरूको lead आउँछ</li>
+              <li><strong>Custom:</strong> manually page select गरेर key बनाउनुहोस्</li>
             </ol>
           </div>
 
@@ -356,62 +379,115 @@ function APITab() {
             </div>
           </div>
 
-          {/* Page Selection with Group Chips */}
+          {/* Scope Type Selection */}
           {pagesLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
           ) : (
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Pages Select गर्नुहोस्</Label>
-              
-              {/* Group quick-select chips */}
-              {groups && groups.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {groups.map(g => {
-                    const groupPageIds = (pages || []).filter(p => p.group_id === g.id).map(p => p.id);
-                    const allSelected = groupPageIds.length > 0 && groupPageIds.every(id => selectedPages.includes(id));
-                    return (
-                      <button
-                        key={g.id}
-                        onClick={() => handleGroupClick(g.id)}
-                        className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium border transition-colors cursor-pointer ${
-                          allSelected ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-muted text-muted-foreground'
-                        }`}
-                      >
-                        📁 {g.name} ({groupPageIds.length})
-                      </button>
-                    );
-                  })}
+              <Label className="text-sm font-medium">API Scope Type</Label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: "group" as const, label: "📁 Group", desc: "Group को सबै page" },
+                  { value: "ungrouped" as const, label: "📄 Ungrouped", desc: "Group मा नभएका" },
+                  { value: "custom" as const, label: "🔧 Custom", desc: "Manual select" },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setScopeType(opt.value); setSelectedPages([]); setSelectedGroupId(""); }}
+                    className={`flex flex-col items-start rounded-lg border p-3 text-left transition-colors cursor-pointer ${
+                      scopeType === opt.value ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                    }`}
+                  >
+                    <span className="text-sm font-medium">{opt.label}</span>
+                    <span className="text-xs text-muted-foreground">{opt.desc}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Group Selection */}
+              {scopeType === "group" && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Group Select गर्नुहोस्</Label>
+                  <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Group छान्नुहोस्..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groups?.map(g => {
+                        const count = (pages || []).filter(p => p.group_id === g.id).length;
+                        return (
+                          <SelectItem key={g.id} value={g.id}>
+                            📁 {g.name} ({count} pages)
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                  {selectedGroupId && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {(pages || []).filter(p => p.group_id === selectedGroupId).map(p => (
+                        <span key={p.id} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">{p.page_name}</span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    ⚡ Group मा page add/remove हुँदा API auto update हुन्छ
+                  </p>
                 </div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {pages?.map(page => (
-                  <label
-                    key={page.id}
-                    className={`flex items-center gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${
-                      selectedPages.includes(page.id) ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedPages.includes(page.id)}
-                      onChange={() => togglePageSelection(page.id)}
-                      className="rounded"
-                    />
-                    <span className="text-sm font-medium">{page.page_name}</span>
-                  </label>
-                ))}
-              </div>
-              {(!pages || pages.length === 0) && (
-                <p className="text-sm text-muted-foreground">कुनै active page छैन। पहिले Pages section मा page connect गर्नुहोस्।</p>
+              {/* Ungrouped info */}
+              {scopeType === "ungrouped" && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    कुनै group मा add नभएका page हरू ({ungroupedPages.length}):
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ungroupedPages.map(p => (
+                      <span key={p.id} className="text-xs bg-muted px-2 py-1 rounded-full">{p.page_name}</span>
+                    ))}
+                  </div>
+                  {ungroupedPages.length === 0 && (
+                    <p className="text-xs text-amber-600">सबै page group मा छन्, ungrouped page छैन।</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    ⚡ Page group बाट remove हुँदा auto ungrouped API मा आउँछ
+                  </p>
+                </div>
               )}
+
+              {/* Custom page selection */}
+              {scopeType === "custom" && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Pages Select गर्नुहोस्</Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {pages?.map(page => (
+                      <label
+                        key={page.id}
+                        className={`flex items-center gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${
+                          selectedPages.includes(page.id) ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPages.includes(page.id)}
+                          onChange={() => togglePageSelection(page.id)}
+                          className="rounded"
+                        />
+                        <span className="text-sm font-medium">{page.page_name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <Button 
-                onClick={generateCombinedKey} 
-                disabled={selectedPages.length === 0 || creating}
+                onClick={generateKey} 
+                disabled={creating || (scopeType === "group" && !selectedGroupId) || (scopeType === "ungrouped" && ungroupedPages.length === 0) || (scopeType === "custom" && selectedPages.length === 0)}
                 className="w-full sm:w-auto"
               >
                 {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Generate API Key ({selectedPages.length} page{selectedPages.length !== 1 ? 's' : ''})
+                Generate API Key
               </Button>
             </div>
           )}
@@ -429,6 +505,13 @@ function APITab() {
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium text-sm">{key.label || 'API Key'}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          (key as any).scope_type === 'group' ? 'bg-blue-100 text-blue-700' :
+                          (key as any).scope_type === 'ungrouped' ? 'bg-amber-100 text-amber-700' :
+                          'bg-purple-100 text-purple-700'
+                        }`}>
+                          {getScopeLabel(key)}
+                        </span>
                         <span className={`text-xs px-2 py-0.5 rounded-full ${key.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {key.is_active ? 'Active' : 'Disabled'}
                         </span>
@@ -447,14 +530,16 @@ function APITab() {
                       </div>
                     </div>
 
-                    {/* Linked Pages */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {key.linked_pages?.map((lp: any) => (
-                        <span key={lp.page_id} className="text-xs bg-muted px-2 py-1 rounded-full">
-                          {lp.page_name}
-                        </span>
-                      ))}
-                    </div>
+                    {/* Linked Pages - only show for custom */}
+                    {((key as any).scope_type === "custom" || !(key as any).scope_type) && key.linked_pages?.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {key.linked_pages?.map((lp: any) => (
+                          <span key={lp.page_id} className="text-xs bg-muted px-2 py-1 rounded-full">
+                            {lp.page_name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* API Key display */}
                     <div className="flex items-center gap-2">

@@ -17,7 +17,7 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     let orgId: string;
-    let allowedPageIds: string[] = []; // Combined key can have multiple pages
+    let allowedPageIds: string[] = [];
 
     // Check for X-API-Key header first, then fallback to Bearer token as API key
     let apiKey = req.headers.get("X-API-Key") || req.headers.get("x-api-key");
@@ -27,7 +27,6 @@ serve(async (req) => {
       const authHeader = req.headers.get("Authorization");
       if (authHeader?.startsWith("Bearer ")) {
         const token = authHeader.replace("Bearer ", "");
-        // Check if this token is an API key (not a JWT - JWTs have 3 dot-separated parts)
         if (token.split(".").length !== 3) {
           apiKey = token;
         }
@@ -37,7 +36,7 @@ serve(async (req) => {
     if (apiKey) {
       const { data: integration, error: intError } = await supabase
         .from("api_integrations")
-        .select("id, organization_id, is_active")
+        .select("id, organization_id, is_active, scope_type, group_id")
         .eq("api_key", apiKey)
         .single();
 
@@ -55,13 +54,36 @@ serve(async (req) => {
 
       orgId = integration.organization_id;
 
-      // Get all pages linked to this key from junction table
-      const { data: linkedPages } = await supabase
-        .from("api_integration_pages")
-        .select("page_id")
-        .eq("integration_id", integration.id);
+      // Resolve pages based on scope_type
+      if (integration.scope_type === "group" && integration.group_id) {
+        // Group scope: dynamically get all pages in this group
+        const { data: groupPages } = await supabase
+          .from("connected_pages")
+          .select("id")
+          .eq("group_id", integration.group_id)
+          .eq("organization_id", orgId)
+          .eq("connection_status", "active");
 
-      allowedPageIds = (linkedPages || []).map(p => p.page_id);
+        allowedPageIds = (groupPages || []).map(p => p.id);
+      } else if (integration.scope_type === "ungrouped") {
+        // Ungrouped scope: dynamically get all pages NOT in any group
+        const { data: ungroupedPages } = await supabase
+          .from("connected_pages")
+          .select("id")
+          .is("group_id", null)
+          .eq("organization_id", orgId)
+          .eq("connection_status", "active");
+
+        allowedPageIds = (ungroupedPages || []).map(p => p.id);
+      } else {
+        // Custom scope: use junction table (legacy behavior)
+        const { data: linkedPages } = await supabase
+          .from("api_integration_pages")
+          .select("page_id")
+          .eq("integration_id", integration.id);
+
+        allowedPageIds = (linkedPages || []).map(p => p.page_id);
+      }
 
       if (allowedPageIds.length === 0) {
         return new Response(JSON.stringify({ error: "No pages linked to this API key" }), {
@@ -151,7 +173,6 @@ serve(async (req) => {
       let finalPageId: string;
 
       if (allowedPageIds.length > 0) {
-        // API key auth: use provided page_id if it's in allowed list, else use first allowed
         if (page_id && allowedPageIds.includes(page_id)) {
           finalPageId = page_id;
         } else if (allowedPageIds.length === 1) {
@@ -164,11 +185,9 @@ serve(async (req) => {
             status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } else {
-          // Default to first page if only key has multiple pages and no page_id given
           finalPageId = allowedPageIds[0];
         }
       } else if (page_id) {
-        // JWT auth: validate page_id belongs to org
         const { data: page } = await supabase
           .from("connected_pages")
           .select("id")

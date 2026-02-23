@@ -54,34 +54,47 @@ export type Database = {
         Row: {
           api_key: string
           created_at: string | null
+          group_id: string | null
           id: string
           is_active: boolean | null
           label: string | null
           organization_id: string
           page_id: string | null
+          scope_type: string
           updated_at: string | null
         }
         Insert: {
           api_key?: string
           created_at?: string | null
+          group_id?: string | null
           id?: string
           is_active?: boolean | null
           label?: string | null
           organization_id: string
           page_id?: string | null
+          scope_type?: string
           updated_at?: string | null
         }
         Update: {
           api_key?: string
           created_at?: string | null
+          group_id?: string | null
           id?: string
           is_active?: boolean | null
           label?: string | null
           organization_id?: string
           page_id?: string | null
+          scope_type?: string
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "api_integrations_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "page_groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "api_integrations_page_id_fkey"
             columns: ["page_id"]
