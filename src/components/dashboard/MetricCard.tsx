@@ -3,7 +3,9 @@ import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
 function formatCount(value: string | number): string {
-  const num = typeof value === "string" ? parseFloat(value) : value;
+  // If value is a string with a suffix like "78%", return as-is
+  if (typeof value === "string" && /[^0-9.,\s-]/.test(value)) return value;
+  const num = typeof value === "string" ? parseFloat(value.replace(/,/g, "")) : value;
   if (isNaN(num)) return String(value);
   if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + "M";
   if (num >= 1_000) return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + "K";

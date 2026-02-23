@@ -24,7 +24,7 @@ export default function Dashboard() {
   const metrics = [
     {
       title: "Messages (7d)",
-      value: stats?.totalMessages7d?.toLocaleString() || "0",
+      value: stats?.totalMessages7d || 0,
       change: "Last 7 days",
       changeType: "neutral" as const,
       icon: MessageSquare,
@@ -32,7 +32,7 @@ export default function Dashboard() {
     },
     {
       title: "Unreplied",
-      value: stats?.unrepliedCount?.toString() || "0",
+      value: stats?.unrepliedCount || 0,
       change: stats?.unrepliedCount && stats.unrepliedCount > 0 ? "Needs attention" : "All caught up",
       changeType: (stats?.unrepliedCount || 0) > 0 ? "negative" as const : "positive" as const,
       icon: AlertCircle,
@@ -40,7 +40,7 @@ export default function Dashboard() {
     },
     {
       title: "Leads Pending",
-      value: stats?.leadsPending?.toString() || "0",
+      value: stats?.leadsPending || 0,
       change: "New & Hot leads",
       changeType: "neutral" as const,
       icon: Users,
@@ -48,7 +48,7 @@ export default function Dashboard() {
     },
     {
       title: "Today Follow-ups",
-      value: stats?.todayFollowupTotal?.toString() || "0",
+      value: stats?.todayFollowupTotal || 0,
       change: `AI: ${stats?.todayFollowupAI || 0} | Auto: ${stats?.todayFollowupAutomation || 0}`,
       changeType: "neutral" as const,
       icon: Send,
