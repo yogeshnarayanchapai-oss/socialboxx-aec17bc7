@@ -789,6 +789,51 @@ export type Database = {
           },
         ]
       }
+      team_access_scopes: {
+        Row: {
+          access_level: string
+          created_at: string
+          group_id: string | null
+          id: string
+          organization_id: string
+          scope_type: string
+          user_id: string
+        }
+        Insert: {
+          access_level?: string
+          created_at?: string
+          group_id?: string | null
+          id?: string
+          organization_id: string
+          scope_type: string
+          user_id: string
+        }
+        Update: {
+          access_level?: string
+          created_at?: string
+          group_id?: string | null
+          id?: string
+          organization_id?: string
+          scope_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_access_scopes_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "page_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_access_scopes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       team_page_access: {
         Row: {
           access_level: string
