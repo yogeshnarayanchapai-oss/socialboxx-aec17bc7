@@ -2,6 +2,14 @@ import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 
+function formatCount(value: string | number): string {
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (isNaN(num)) return String(value);
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(num % 1_000_000 === 0 ? 0 : 1) + "M";
+  if (num >= 1_000) return (num / 1_000).toFixed(num % 1_000 === 0 ? 0 : 1) + "K";
+  return String(num);
+}
+
 interface MetricCardProps {
   title: string;
   value: string | number;
@@ -30,7 +38,7 @@ export function MetricCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</p>
-          <p className="mt-1 sm:mt-2 text-xl sm:text-3xl font-bold tracking-tight">{value}</p>
+          <p className="mt-1 sm:mt-2 text-xl sm:text-3xl font-bold tracking-tight">{formatCount(value)}</p>
           {change && (
             <p
               className={cn(
