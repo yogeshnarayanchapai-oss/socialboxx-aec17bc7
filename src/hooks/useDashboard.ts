@@ -40,18 +40,26 @@ export function useDashboardStats() {
       ]);
 
       const convIds = conversations?.map(c => c.id) ?? [];
-      let messagesData: any[] = [];
+      let totalMessages7d = 0;
+      let incomingMessages = 0;
+      let outgoingMessages = 0;
+
       if (convIds.length > 0) {
-        // Fetch messages in batches to avoid hitting the IN clause limit
+        // Use count queries in batches for accurate totals (avoids 1000 row limit)
         const batchSize = 200;
         for (let i = 0; i < convIds.length; i += batchSize) {
           const batch = convIds.slice(i, i + batchSize);
-          const { data: messages } = await supabase
-            .from("messages")
-            .select("id, sender_type, created_at")
-            .gte("created_at", sevenDaysAgo.toISOString())
-            .in("conversation_id", batch);
-          if (messages) messagesData.push(...messages);
+          const [{ count: totalCount }, { count: customerCount }, { count: pageCount }] = await Promise.all([
+            supabase.from("messages").select("id", { count: "exact", head: true })
+              .gte("created_at", sevenDaysAgo.toISOString()).in("conversation_id", batch),
+            supabase.from("messages").select("id", { count: "exact", head: true })
+              .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "customer").in("conversation_id", batch),
+            supabase.from("messages").select("id", { count: "exact", head: true })
+              .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "page").in("conversation_id", batch),
+          ]);
+          totalMessages7d += totalCount || 0;
+          incomingMessages += customerCount || 0;
+          outgoingMessages += pageCount || 0;
         }
       }
 
@@ -59,7 +67,6 @@ export function useDashboardStats() {
       const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
       const todayFollowupAutomation = todayFollowups?.filter(f => f.followup_type === "automation").length || 0;
 
-      const totalMessages7d = messagesData.length;
       const unrepliedCount = conversations?.filter(c => c.status === "unreplied").length || 0;
       const leadsPending = leads?.filter((l: any) => l.status === "new").length || 0;
       const followUpsDue = leads?.filter(l => {
@@ -67,8 +74,6 @@ export function useDashboardStats() {
         return new Date(l.followup_due_date) <= now && l.status !== "closed";
       }).length || 0;
 
-      const incomingMessages = messagesData.filter(m => m.sender_type === "customer").length;
-      const outgoingMessages = messagesData.filter(m => m.sender_type === "page").length;
       const replyRate = incomingMessages > 0 ? Math.round((outgoingMessages / incomingMessages) * 100) : 0;
 
       return {
