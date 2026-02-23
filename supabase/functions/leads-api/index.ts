@@ -125,10 +125,12 @@ serve(async (req) => {
       const { data, error } = await query;
       if (error) throw error;
 
-      // Mark fetched leads as api_synced so "New" count excludes them
+      // Mark fetched leads as api_synced and set status to "pulled"
       if (data && data.length > 0) {
-        const ids = data.map((l: any) => l.id);
-        await supabase.from("leads").update({ api_synced: true }).in("id", ids);
+        const unsyncedIds = data.filter((l: any) => !l.api_synced).map((l: any) => l.id);
+        if (unsyncedIds.length > 0) {
+          await supabase.from("leads").update({ api_synced: true, status: "pulled" }).in("id", unsyncedIds);
+        }
       }
 
       return new Response(JSON.stringify({ success: true, leads: data, count: data?.length || 0 }), {
