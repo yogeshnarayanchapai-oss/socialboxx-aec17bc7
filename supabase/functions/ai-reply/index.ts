@@ -280,13 +280,19 @@ ${conversationHistory || 'First message from customer.'}`;
     console.log("Raw AI response length:", rawContent.length, "content:", rawContent.substring(0, 500));
     
     try {
-      // Step 1: Remove markdown code blocks
+      // Step 1: Remove markdown code blocks and double-brace wrappers
       let cleaned = rawContent.trim()
         .replace(/```json\s*/gi, "")
         .replace(/```\s*/g, "")
         .trim();
 
-      // Step 2: Find JSON boundaries
+      // Step 2: Remove double/triple brace wrappers like {{ ... }} or {{{ ... }}}
+      // Keep reducing until we have a single { ... }
+      while (cleaned.startsWith("{{") && cleaned.endsWith("}}")) {
+        cleaned = cleaned.slice(1, -1).trim();
+      }
+
+      // Step 3: Find JSON boundaries
       const jsonStart = cleaned.indexOf("{");
       const jsonEnd = cleaned.lastIndexOf("}");
 
@@ -332,9 +338,32 @@ ${conversationHistory || 'First message from customer.'}`;
     } catch (parseErr) {
       // If JSON parsing fails, use raw content as reply
       console.error("JSON parse failed for AI response:", parseErr, "Raw:", rawContent.substring(0, 300));
-      suggestedReply = rawContent;
       
-      // Last resort: try regex extraction for phone-based lead
+      // Try to extract just the reply field via regex so we NEVER send raw JSON to customer
+      const replyMatch = rawContent.match(/["']reply["']\s*:\s*["'](.+?)["']\s*[,}]/s);
+      if (replyMatch && replyMatch[1]) {
+        suggestedReply = replyMatch[1]
+          .replace(/\\n/g, '\n')
+          .replace(/\\"/g, '"')
+          .replace(/\\\\/g, '\\');
+        console.log("Regex fallback extracted reply text successfully");
+      } else {
+        // Absolute last resort: strip any JSON-like characters and use as plain text
+        suggestedReply = rawContent
+          .replace(/^\s*\{+/g, '')
+          .replace(/\}+\s*$/g, '')
+          .replace(/"reply"\s*:\s*"/i, '')
+          .replace(/",?\s*"lead_action"[\s\S]*/i, '')
+          .replace(/\\n/g, '\n')
+          .trim();
+        // If it still looks like JSON, use a safe generic reply
+        if (suggestedReply.includes('"should_create"') || suggestedReply.includes('"lead_action"')) {
+          suggestedReply = "Thank you for your message. Our team will get back to you shortly.";
+        }
+        console.log("Last resort fallback reply used");
+      }
+      
+      // Still try regex for phone-based lead
       const phoneMatch = rawContent.match(/["']phone["']\s*:\s*["'](\d{10,})["']/);
       const shouldCreateMatch = rawContent.match(/["']should_create["']\s*:\s*(true)/);
       if (phoneMatch && shouldCreateMatch) {
