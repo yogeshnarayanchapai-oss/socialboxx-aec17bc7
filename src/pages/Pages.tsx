@@ -351,6 +351,16 @@ export default function Pages() {
       </AlertDialog>
 
       <div className="p-4 md:p-6">
+        {pages.length > 0 && (
+          <div className="mb-4">
+            <Input
+              placeholder="Search pages by name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
+          </div>
+        )}
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
