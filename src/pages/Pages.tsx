@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap, FolderPlus, FolderOpen, X, ChevronRight } from "lucide-react";
+import { Plus, Facebook, MoreVertical, Loader2, AlertCircle, Settings2, Trash2, RefreshCw, MessageSquare, Construction, Bot, Zap, FolderPlus, FolderOpen, X, ChevronRight, Search } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -68,6 +68,7 @@ export default function Pages() {
   const [selectedPlatform, setSelectedPlatform] = useState("Messenger");
   const [newGroupName, setNewGroupName] = useState("");
   const [showNewGroupDialog, setShowNewGroupDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch page groups
   const { data: groups = [], refetch: refetchGroups } = useQuery({
@@ -167,11 +168,16 @@ export default function Pages() {
     return "error";
   };
 
+  // Filter pages by search query
+  const filteredPages = searchQuery.trim()
+    ? pages.filter(p => p.page_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : pages;
+
   // Group pages
-  const ungroupedPages = pages.filter(p => !p.group_id);
+  const ungroupedPages = filteredPages.filter(p => !p.group_id);
   const groupedPages = groups.map(g => ({
     ...g,
-    pages: pages.filter(p => p.group_id === g.id),
+    pages: filteredPages.filter(p => p.group_id === g.id),
   }));
 
   const renderPageCard = (page: typeof pages[0]) => (
@@ -345,6 +351,16 @@ export default function Pages() {
       </AlertDialog>
 
       <div className="p-4 md:p-6">
+        {pages.length > 0 && (
+          <div className="mb-4">
+            <Input
+              placeholder="Search pages by name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="max-w-sm"
+            />
+          </div>
+        )}
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
