@@ -168,11 +168,16 @@ export default function Pages() {
     return "error";
   };
 
+  // Filter pages by search query
+  const filteredPages = searchQuery.trim()
+    ? pages.filter(p => p.page_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : pages;
+
   // Group pages
-  const ungroupedPages = pages.filter(p => !p.group_id);
+  const ungroupedPages = filteredPages.filter(p => !p.group_id);
   const groupedPages = groups.map(g => ({
     ...g,
-    pages: pages.filter(p => p.group_id === g.id),
+    pages: filteredPages.filter(p => p.group_id === g.id),
   }));
 
   const renderPageCard = (page: typeof pages[0]) => (
