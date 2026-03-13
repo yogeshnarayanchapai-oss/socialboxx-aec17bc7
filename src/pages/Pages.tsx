@@ -68,6 +68,7 @@ export default function Pages() {
   const [selectedPlatform, setSelectedPlatform] = useState("Messenger");
   const [newGroupName, setNewGroupName] = useState("");
   const [showNewGroupDialog, setShowNewGroupDialog] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Fetch page groups
   const { data: groups = [], refetch: refetchGroups } = useQuery({
