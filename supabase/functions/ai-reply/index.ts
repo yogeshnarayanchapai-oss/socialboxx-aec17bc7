@@ -343,7 +343,7 @@ ${conversationHistory || 'First message from customer.'}`;
         parsed = JSON.parse(cleaned);
       }
       
-      suggestedReply = parsed.reply || rawContent;
+      suggestedReply = sanitizeRepetition(parsed.reply || rawContent);
       if (parsed.lead_action) {
         leadAction = {
           should_create: !!parsed.lead_action.should_create,
