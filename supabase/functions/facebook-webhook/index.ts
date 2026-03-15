@@ -672,6 +672,17 @@ serve(async (req) => {
 
           // First Message Template: if enabled and this is the first message, send template instead of AI
           if (page.ai_enabled && !page.automation_enabled && isFirstMessage && (page as any).first_msg_template_enabled) {
+            // TEMPLATE DEDUP: Check if template was already sent to this conversation
+            const { data: existingPageMsgs } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("conversation_id", conversationId)
+              .eq("sender_type", "page")
+              .limit(1);
+            
+            if (existingPageMsgs && existingPageMsgs.length > 0) {
+              console.log("Template already sent to this conversation, skipping duplicate");
+            } else {
             console.log("First msg template enabled, sending template instead of AI");
             const tmpl = (page as any).first_msg_template;
             const tmplMessages = tmpl?.messages || [];
