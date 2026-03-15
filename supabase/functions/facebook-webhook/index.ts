@@ -672,6 +672,17 @@ serve(async (req) => {
 
           // First Message Template: if enabled and this is the first message, send template instead of AI
           if (page.ai_enabled && !page.automation_enabled && isFirstMessage && (page as any).first_msg_template_enabled) {
+            // TEMPLATE DEDUP: Check if template was already sent to this conversation
+            const { data: existingPageMsgs } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("conversation_id", conversationId)
+              .eq("sender_type", "page")
+              .limit(1);
+            
+            if (existingPageMsgs && existingPageMsgs.length > 0) {
+              console.log("Template already sent to this conversation, skipping duplicate");
+            } else {
             console.log("First msg template enabled, sending template instead of AI");
             const tmpl = (page as any).first_msg_template;
             const tmplMessages = tmpl?.messages || [];
@@ -715,6 +726,7 @@ serve(async (req) => {
               }).eq("id", conversationId);
             }
           }
+          } // end template dedup else
           // AI reply logic (skip if template was sent for first message)
           else if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
@@ -912,6 +924,30 @@ serve(async (req) => {
                       console.log("AI response - leadAction:", JSON.stringify(leadAction), "isComplaint:", isComplaint, "hasReply:", !!suggestedReply);
 
                       if (suggestedReply) {
+                        // REPLY DEDUP: Check if we already sent a very similar reply in the last 5 minutes
+                        const { data: recentReplies } = await supabase
+                          .from("messages")
+                          .select("content, created_at")
+                          .eq("conversation_id", conversationId)
+                          .eq("sender_type", "page")
+                          .order("created_at", { ascending: false })
+                          .limit(3);
+                        
+                        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+                        const isDuplicateReply = recentReplies?.some(r => 
+                          r.created_at > fiveMinAgo && 
+                          r.content && suggestedReply &&
+                          (r.content === suggestedReply || 
+                           r.content.substring(0, 80) === suggestedReply.substring(0, 80))
+                        );
+                        
+                        if (isDuplicateReply) {
+                          console.log("DUPLICATE REPLY PREVENTED - same reply already sent in last 5 minutes");
+                          await supabase.from("conversations").update({ 
+                            status: "replied",
+                            ai_fail_reason: null,
+                          }).eq("id", conversationId);
+                        } else {
                         // Check if AI wants to send media
                         const mediaToSend = aiData.mediaToSend || null;
                         const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply, mediaToSend);
@@ -1110,6 +1146,7 @@ serve(async (req) => {
                           console.error("sendAutoReply failed, marking as ai_failed");
                           await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "Facebook send failed" }).eq("id", conversationId);
                         }
+                        } // end duplicate reply else
                       } else {
                         // No reply generated, release lock
                         await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "No AI reply generated" }).eq("id", conversationId);
