@@ -726,6 +726,7 @@ serve(async (req) => {
               }).eq("id", conversationId);
             }
           }
+          } // end template dedup else
           // AI reply logic (skip if template was sent for first message)
           else if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
