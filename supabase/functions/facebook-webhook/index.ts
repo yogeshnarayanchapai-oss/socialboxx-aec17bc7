@@ -1134,6 +1134,7 @@ serve(async (req) => {
                           console.error("sendAutoReply failed, marking as ai_failed");
                           await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "Facebook send failed" }).eq("id", conversationId);
                         }
+                        } // end duplicate reply else
                       } else {
                         // No reply generated, release lock
                         await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: "No AI reply generated" }).eq("id", conversationId);
