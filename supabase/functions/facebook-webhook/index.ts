@@ -912,6 +912,30 @@ serve(async (req) => {
                       console.log("AI response - leadAction:", JSON.stringify(leadAction), "isComplaint:", isComplaint, "hasReply:", !!suggestedReply);
 
                       if (suggestedReply) {
+                        // REPLY DEDUP: Check if we already sent a very similar reply in the last 5 minutes
+                        const { data: recentReplies } = await supabase
+                          .from("messages")
+                          .select("content, created_at")
+                          .eq("conversation_id", conversationId)
+                          .eq("sender_type", "page")
+                          .order("created_at", { ascending: false })
+                          .limit(3);
+                        
+                        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+                        const isDuplicateReply = recentReplies?.some(r => 
+                          r.created_at > fiveMinAgo && 
+                          r.content && suggestedReply &&
+                          (r.content === suggestedReply || 
+                           r.content.substring(0, 80) === suggestedReply.substring(0, 80))
+                        );
+                        
+                        if (isDuplicateReply) {
+                          console.log("DUPLICATE REPLY PREVENTED - same reply already sent in last 5 minutes");
+                          await supabase.from("conversations").update({ 
+                            status: "replied",
+                            ai_fail_reason: null,
+                          }).eq("id", conversationId);
+                        } else {
                         // Check if AI wants to send media
                         const mediaToSend = aiData.mediaToSend || null;
                         const sent = await sendAutoReply(page.page_access_token, senderId, suggestedReply, mediaToSend);
