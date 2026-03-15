@@ -278,6 +278,34 @@ ${conversationHistory || 'First message from customer.'}`;
     let isComplaint = false;
     
     console.log("Raw AI response length:", rawContent.length, "content:", rawContent.substring(0, 500));
+
+    // REPETITION SANITIZER: Detect and fix AI replies with repeated words/phrases
+    function sanitizeRepetition(text: string): string {
+      if (!text || text.length < 50) return text;
+      
+      // Detect any word/phrase repeated more than 4 times consecutively
+      // Match patterns like "word word word word word..." or "phrase phrase phrase..."
+      const repetitionRegex = /(\S+(?:\s+\S+){0,3}?)(?:\s+\1){4,}/gi;
+      let sanitized = text.replace(repetitionRegex, (match, pattern) => {
+        console.log(`Repetition detected: "${pattern}" repeated ${Math.floor(match.split(pattern).length - 1)} times`);
+        return pattern; // Keep just one occurrence
+      });
+      
+      // Additional check: if reply is suspiciously long (>500 chars) and has high character repetition ratio
+      if (sanitized.length > 500) {
+        const words = sanitized.split(/\s+/);
+        const uniqueWords = new Set(words.map(w => w.toLowerCase()));
+        const repetitionRatio = uniqueWords.size / words.length;
+        if (repetitionRatio < 0.15 && words.length > 20) {
+          // More than 85% repeated words - truncate to first meaningful sentence
+          console.log(`High repetition ratio (${repetitionRatio.toFixed(2)}), truncating reply`);
+          const firstSentence = sanitized.match(/^[^।.!?]+[।.!?]/);
+          sanitized = firstSentence ? firstSentence[0] : sanitized.substring(0, 200);
+        }
+      }
+      
+      return sanitized;
+    }
     
     try {
       // Step 1: Remove markdown code blocks and double-brace wrappers
