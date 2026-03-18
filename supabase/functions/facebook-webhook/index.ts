@@ -688,17 +688,32 @@ serve(async (req) => {
             const tmplMessages = tmpl?.messages || [];
             
             for (const tmplMsg of tmplMessages) {
-              if (tmplMsg.text || tmplMsg.media) {
+                if (tmplMsg.text || tmplMsg.media) {
                 const sent = await sendAutoReply(page.page_access_token, senderId, tmplMsg.text || "", tmplMsg.media || null);
                 if (sent && sent !== "permanent_fail") {
-                  await supabase.from("messages").insert({
-                    conversation_id: conversationId,
-                    content: tmplMsg.text || "[Template media]",
-                    sender_type: "page",
-                    message_type: tmplMsg.media ? "media" : "text",
-                    media_url: tmplMsg.media?.url || null,
-                    created_at: new Date().toISOString(),
-                  });
+                  // Only store ONE message per template entry:
+                  // If it has text, store the text (with media_url if present)
+                  // If it's media-only (no text), only store if no other template message already covered this media
+                  if (tmplMsg.text) {
+                    await supabase.from("messages").insert({
+                      conversation_id: conversationId,
+                      content: tmplMsg.text,
+                      sender_type: "page",
+                      message_type: tmplMsg.media ? "media" : "text",
+                      media_url: tmplMsg.media?.url || null,
+                      created_at: new Date().toISOString(),
+                    });
+                  } else if (tmplMsg.media) {
+                    // Media-only template message - store with descriptive content, skip if redundant
+                    await supabase.from("messages").insert({
+                      conversation_id: conversationId,
+                      content: `[${tmplMsg.media.type === 'image' ? '📷' : tmplMsg.media.type === 'video' ? '🎬' : '📎'} Media]`,
+                      sender_type: "page",
+                      message_type: "media",
+                      media_url: tmplMsg.media.url || null,
+                      created_at: new Date().toISOString(),
+                    });
+                  }
                 } else if (sent === "permanent_fail") {
                   await supabase.from("conversations").update({ status: "replied", last_message_preview: "⚠️ User unavailable on Facebook" }).eq("id", conversationId);
                   break;
