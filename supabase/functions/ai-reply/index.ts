@@ -6,6 +6,229 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+type ReplyScriptMode = "roman-nepali" | "devanagari-nepali" | "english" | "auto";
+
+function containsDevanagari(text: string): boolean {
+  return /[\u0900-\u097F]/.test(text || "");
+}
+
+function containsLatin(text: string): boolean {
+  return /[A-Za-z]/.test(text || "");
+}
+
+function looksLikeRomanNepali(text: string): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  return /\b(kati|lagcha|lagchha|parcha|parchha|tapai|tapailai|tapain|hajur|hamro|hamrai|mero|ma|yo|yesko|invoice|bhayo|bhane|cha|chha|cha\?|chha\?|xa|xaina|milcha|milchha|huncha|hunchha|garne|garnu|garcha|garchha|saman|delivery|godam|uthaune|service|shulka|charge)\b/i.test(normalized);
+}
+
+function detectRequiredReplyMode(aiInstructions: string, customerMessage: string): ReplyScriptMode {
+  const instructions = aiInstructions || "";
+  const hasLatin = containsLatin(customerMessage);
+  const hasDevanagari = containsDevanagari(customerMessage);
+
+  const romanInstruction = /(roman\s*nepali|nepali\s*roman|romanized\s*nepali|romannized\s*nepali|latin\s*script.*nepali|reply.*roman|roman.*reply|english letters.*nepali|roman ma|romanized form)/i.test(instructions);
+  const englishInstruction = /(english\s*(→|->)?\s*english|reply in english|english ma|english only)/i.test(instructions);
+  const devanagariInstruction = /(देवनागरी|devanagari|नेपालीमा|नेपाली मा|reply in nepali|nepali language)/i.test(instructions);
+
+  if (romanInstruction && hasLatin && !hasDevanagari) {
+    return looksLikeRomanNepali(customerMessage) ? "roman-nepali" : (englishInstruction ? "english" : "roman-nepali");
+  }
+
+  if (englishInstruction && hasLatin && !looksLikeRomanNepali(customerMessage)) {
+    return "english";
+  }
+
+  if (hasDevanagari) {
+    return "devanagari-nepali";
+  }
+
+  if (romanInstruction) return "roman-nepali";
+  if (englishInstruction) return "english";
+  if (devanagariInstruction) return "devanagari-nepali";
+  return "auto";
+}
+
+function buildScriptLockPrompt(requiredReplyMode: ReplyScriptMode, customerMessage: string, aiInstructions: string): string {
+  const safeCustomerMessage = customerMessage || "(empty)";
+
+  const scriptRule = requiredReplyMode === "roman-nepali"
+    ? "REQUIRED OUTPUT FORMAT FOR THIS TURN: Write the reply in Roman Nepali only, using Latin/English letters. DO NOT use any Devanagari characters at all. Ignore previous assistant replies in conversation history when choosing script."
+    : requiredReplyMode === "devanagari-nepali"
+      ? "REQUIRED OUTPUT FORMAT FOR THIS TURN: Write the reply in Nepali using Devanagari script."
+      : requiredReplyMode === "english"
+        ? "REQUIRED OUTPUT FORMAT FOR THIS TURN: Write the reply in English only."
+        : "REQUIRED OUTPUT FORMAT FOR THIS TURN: Follow the page owner's language instruction exactly for this message.";
+
+  return `FINAL MESSAGE-LEVEL INSTRUCTION LOCK (NON-NEGOTIABLE):
+- Current customer message for THIS turn: ${safeCustomerMessage}
+- Page Owner's Instructions to obey on every single customer message: ${aiInstructions || "(none provided)"}
+- Resolved reply mode for THIS turn: ${requiredReplyMode}
+- ${scriptRule}
+- If the customer wrote in Roman Nepali and instructions require Roman Nepali, any Devanagari output is INVALID.
+- Do NOT let previous assistant replies or conversation history override this turn-level script requirement.`;
+}
+
+function convertNepaliDigits(text: string): string {
+  const digitMap: Record<string, string> = {
+    "०": "0",
+    "१": "1",
+    "२": "2",
+    "३": "3",
+    "४": "4",
+    "५": "5",
+    "६": "6",
+    "७": "7",
+    "८": "8",
+    "९": "9",
+  };
+
+  return (text || "").replace(/[०-९]/g, (digit) => digitMap[digit] ?? digit);
+}
+
+function transliterateDevanagariToRoman(text: string): string {
+  if (!text || !containsDevanagari(text)) return text;
+
+  const independentVowels: Record<string, string> = {
+    "अ": "a",
+    "आ": "aa",
+    "इ": "i",
+    "ई": "ii",
+    "उ": "u",
+    "ऊ": "uu",
+    "ऋ": "ri",
+    "ए": "e",
+    "ऐ": "ai",
+    "ओ": "o",
+    "औ": "au",
+  };
+
+  const consonants: Record<string, string> = {
+    "क": "k",
+    "ख": "kh",
+    "ग": "g",
+    "घ": "gh",
+    "ङ": "ng",
+    "च": "ch",
+    "छ": "chh",
+    "ज": "j",
+    "झ": "jh",
+    "ञ": "ny",
+    "ट": "t",
+    "ठ": "th",
+    "ड": "d",
+    "ढ": "dh",
+    "ण": "n",
+    "त": "t",
+    "थ": "th",
+    "द": "d",
+    "ध": "dh",
+    "न": "n",
+    "प": "p",
+    "फ": "ph",
+    "ब": "b",
+    "भ": "bh",
+    "म": "m",
+    "य": "y",
+    "र": "r",
+    "ल": "l",
+    "व": "w",
+    "श": "sh",
+    "ष": "sh",
+    "स": "s",
+    "ह": "h",
+  };
+
+  const matras: Record<string, string> = {
+    "ा": "a",
+    "ि": "i",
+    "ी": "ii",
+    "ु": "u",
+    "ू": "uu",
+    "ृ": "ri",
+    "े": "e",
+    "ै": "ai",
+    "ो": "o",
+    "ौ": "au",
+    "ॅ": "e",
+    "ॉ": "o",
+    "ॆ": "e",
+    "ॊ": "o",
+  };
+
+  const marks: Record<string, string> = {
+    "ं": "n",
+    "ँ": "n",
+    "ः": "h",
+    "्": "",
+  };
+
+  const prepared = convertNepaliDigits(text)
+    .replace(/क्ष/g, "ksh")
+    .replace(/त्र/g, "tra")
+    .replace(/ज्ञ/g, "gya")
+    .replace(/श्र/g, "shra");
+
+  let result = "";
+
+  for (let i = 0; i < prepared.length; i++) {
+    const current = prepared[i];
+    const next = prepared[i + 1];
+
+    if (independentVowels[current]) {
+      result += independentVowels[current];
+      continue;
+    }
+
+    if (consonants[current]) {
+      const base = consonants[current];
+
+      if (next === "्") {
+        result += base;
+        i += 1;
+        continue;
+      }
+
+      if (next && matras[next] !== undefined) {
+        result += base + matras[next];
+        i += 1;
+        continue;
+      }
+
+      result += base + "a";
+      continue;
+    }
+
+    if (marks[current] !== undefined) {
+      result += marks[current];
+      continue;
+    }
+
+    if (current === "।") {
+      result += ".";
+      continue;
+    }
+
+    result += current;
+  }
+
+  return result
+    .replace(/[\u0900-\u097F]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\bchaa\b/gi, "cha")
+    .replace(/\bchhaa\b/gi, "chha")
+    .replace(/\bhaaami\b/gi, "haami")
+    .trim();
+}
+
+function enforceReplyScript(reply: string, requiredReplyMode: ReplyScriptMode): string {
+  if (!reply) return reply;
+  if (requiredReplyMode === "roman-nepali") {
+    return transliterateDevanagariToRoman(reply);
+  }
+  return reply;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -28,7 +251,7 @@ serve(async (req) => {
 
     const token = authHeader.replace("Bearer ", "");
     const isServiceRole = token === supabaseKey;
-    
+
     if (!isServiceRole) {
       const { data: { user }, error: userError } = await supabase.auth.getUser(token);
       if (userError || !user) {
@@ -37,6 +260,8 @@ serve(async (req) => {
     }
 
     const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead, mediaAssets } = await req.json();
+    const requiredReplyMode = detectRequiredReplyMode(aiInstructions || "", customerMessage || "");
+    const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", aiInstructions || "");
 
     // Get reply templates for context
     const { data: templates } = await supabase
@@ -187,11 +412,11 @@ ${conversationHistory || 'First message from customer.'}`;
 
     // Build user message content - support multimodal (text + images)
     const userContent: Array<{type: string; text?: string; image_url?: {url: string}}> = [];
-    
+
     if (customerMessage) {
       userContent.push({ type: "text", text: customerMessage });
     }
-    
+
     // Add image URLs if present
     if (imageUrls && Array.isArray(imageUrls) && imageUrls.length > 0) {
       for (const imgUrl of imageUrls) {
@@ -217,7 +442,7 @@ ${conversationHistory || 'First message from customer.'}`;
       { name: "google/gemini-2.5-flash", tokenParam: "max_tokens" },
       { name: "openai/gpt-5-mini", tokenParam: "max_completion_tokens" },
     ];
-    
+
     let response: Response | null = null;
     let lastError = "";
 
@@ -226,6 +451,7 @@ ${conversationHistory || 'First message from customer.'}`;
         model: model.name,
         messages: [
           { role: "system", content: systemPrompt },
+          { role: "system", content: scriptLockPrompt },
           { role: "user", content: userContent },
         ],
         [model.tokenParam]: 500,
@@ -243,7 +469,7 @@ ${conversationHistory || 'First message from customer.'}`;
         });
 
         if (response.ok) {
-          console.log(`AI reply successful with model: ${model.name}`);
+          console.log(`AI reply successful with model: ${model.name} | requiredReplyMode: ${requiredReplyMode}`);
           break;
         }
 
@@ -275,19 +501,19 @@ ${conversationHistory || 'First message from customer.'}`;
 
     const aiResponse = await response.json();
     const rawContent = aiResponse.choices?.[0]?.message?.content || "";
-    
+
     // Parse structured JSON response with robust extraction
     let suggestedReply = "";
     let leadAction = { should_create: false, phone: null as string | null, invalid_number: false, reason: "" };
     let sendMediaIndices: number[] = [];
     let isComplaint = false;
-    
+
     console.log("Raw AI response length:", rawContent.length, "content:", rawContent.substring(0, 500));
 
     // REPETITION SANITIZER: Detect and fix AI replies with repeated words/phrases
     function sanitizeRepetition(text: string): string {
       if (!text || text.length < 50) return text;
-      
+
       // Detect any word/phrase repeated more than 4 times consecutively
       // Match patterns like "word word word word word..." or "phrase phrase phrase..."
       const repetitionRegex = /(\S+(?:\s+\S+){0,3}?)(?:\s+\1){4,}/gi;
@@ -295,7 +521,7 @@ ${conversationHistory || 'First message from customer.'}`;
         console.log(`Repetition detected: "${pattern}" repeated ${Math.floor(match.split(pattern).length - 1)} times`);
         return pattern; // Keep just one occurrence
       });
-      
+
       // Additional check: if reply is suspiciously long (>500 chars) and has high character repetition ratio
       if (sanitized.length > 500) {
         const words = sanitized.split(/\s+/);
@@ -308,10 +534,10 @@ ${conversationHistory || 'First message from customer.'}`;
           sanitized = firstSentence ? firstSentence[0] : sanitized.substring(0, 200);
         }
       }
-      
+
       return sanitized;
     }
-    
+
     try {
       // Step 1: Remove markdown code blocks and double-brace wrappers
       let cleaned = rawContent.trim()
@@ -347,8 +573,8 @@ ${conversationHistory || 'First message from customer.'}`;
           .replace(/[\x00-\x1F\x7F]/g, ""); // Remove control characters
         parsed = JSON.parse(cleaned);
       }
-      
-      suggestedReply = sanitizeRepetition(parsed.reply || rawContent);
+
+      suggestedReply = enforceReplyScript(sanitizeRepetition(parsed.reply || rawContent), requiredReplyMode);
       if (parsed.lead_action) {
         leadAction = {
           should_create: !!parsed.lead_action.should_create,
@@ -358,12 +584,12 @@ ${conversationHistory || 'First message from customer.'}`;
         };
       }
       console.log("Parsed lead_action:", JSON.stringify(leadAction));
-      
+
       // Extract complaint flag
       if (parsed.is_complaint === true) {
         isComplaint = true;
       }
-      
+
       // Extract send_media indices
       if (parsed.send_media && Array.isArray(parsed.send_media)) {
         sendMediaIndices = parsed.send_media.filter((i: any) => typeof i === 'number');
@@ -371,31 +597,39 @@ ${conversationHistory || 'First message from customer.'}`;
     } catch (parseErr) {
       // If JSON parsing fails, use raw content as reply
       console.error("JSON parse failed for AI response:", parseErr, "Raw:", rawContent.substring(0, 300));
-      
+
       // Try to extract just the reply field via regex so we NEVER send raw JSON to customer
       const replyMatch = rawContent.match(/["']reply["']\s*:\s*["'](.+?)["']\s*[,}]/s);
       if (replyMatch && replyMatch[1]) {
-        suggestedReply = replyMatch[1]
-          .replace(/\\n/g, '\n')
-          .replace(/\\"/g, '"')
-          .replace(/\\\\/g, '\\');
+        suggestedReply = enforceReplyScript(
+          replyMatch[1]
+            .replace(/\\n/g, '\n')
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\'),
+          requiredReplyMode
+        );
         console.log("Regex fallback extracted reply text successfully");
       } else {
         // Absolute last resort: strip any JSON-like characters and use as plain text
-        suggestedReply = rawContent
-          .replace(/^\s*\{+/g, '')
-          .replace(/\}+\s*$/g, '')
-          .replace(/"reply"\s*:\s*"/i, '')
-          .replace(/",?\s*"lead_action"[\s\S]*/i, '')
-          .replace(/\\n/g, '\n')
-          .trim();
+        suggestedReply = enforceReplyScript(
+          rawContent
+            .replace(/^\s*\{+/g, '')
+            .replace(/\}+\s*$/g, '')
+            .replace(/"reply"\s*:\s*"/i, '')
+            .replace(/",?\s*"lead_action"[\s\S]*/i, '')
+            .replace(/\\n/g, '\n')
+            .trim(),
+          requiredReplyMode
+        );
         // If it still looks like JSON, use a safe generic reply
         if (suggestedReply.includes('"should_create"') || suggestedReply.includes('"lead_action"')) {
-          suggestedReply = "Thank you for your message. Our team will get back to you shortly.";
+          suggestedReply = requiredReplyMode === "roman-nepali"
+            ? "Dhanyabad! Tapailai sahayog garna hamro team chadai reply garchha."
+            : "Thank you for your message. Our team will get back to you shortly.";
         }
         console.log("Last resort fallback reply used");
       }
-      
+
       // Still try regex for phone-based lead
       const phoneMatch = rawContent.match(/["']phone["']\s*:\s*["'](\d{10,})["']/);
       const shouldCreateMatch = rawContent.match(/["']should_create["']\s*:\s*(true)/);
@@ -418,7 +652,7 @@ ${conversationHistory || 'First message from customer.'}`;
         };
         console.log("Sending media asset:", JSON.stringify(mediaToSend));
       }
-      // If multiple media, send them sequentially (webhook will handle the first one via mediaToSend, 
+      // If multiple media, send them sequentially (webhook will handle the first one via mediaToSend,
       // additional ones need to be sent separately)
       if (sendMediaIndices.length > 1) {
         const additionalMedia = sendMediaIndices.slice(1)
@@ -434,8 +668,8 @@ ${conversationHistory || 'First message from customer.'}`;
     }
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
+      JSON.stringify({
+        success: true,
         suggestedReply: suggestedReply.trim(),
         leadAction,
         isComplaint,
