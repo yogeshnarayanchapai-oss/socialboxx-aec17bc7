@@ -44,13 +44,15 @@ serve(async (req) => {
   }
 
   try {
-    // Find conversations that have been replied to, have NO lead-created tag,
-    // and where a customer sent a phone number
+    // Find conversations that have NO lead-created tag
+    // Process in batches of 100 to avoid timeout
     const { data: conversations, error: convErr } = await supabase
       .from("conversations")
       .select("id, participant_name, page_id, organization_id, tags")
       .is("deleted_at", null)
-      .not("tags", "cs", '{"lead-created"}');
+      .in("status", ["replied", "unreplied", "ai_failed"])
+      .order("created_at", { ascending: false })
+      .limit(200);
 
     if (convErr) throw convErr;
 
