@@ -114,26 +114,7 @@ serve(async (req) => {
           });
 
         let remark = "No Inquiry";
-        if (inquiryTexts.length > 0 && LOVABLE_API_KEY) {
-          try {
-            const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: "google/gemini-2.5-flash-lite",
-                messages: [
-                  { role: "system", content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary." },
-                  { role: "user", content: `Customer messages:\n${inquiryTexts.join('\n')}` }
-                ],
-              }),
-            });
-            if (aiResp.ok) {
-              const d = await aiResp.json();
-              const s = d.choices?.[0]?.message?.content?.trim();
-              if (s) remark = s.substring(0, 200);
-            }
-          } catch {}
-        } else if (inquiryTexts.length > 0) {
+        if (inquiryTexts.length > 0) {
           remark = inquiryTexts.join(' | ').substring(0, 500);
         }
 
