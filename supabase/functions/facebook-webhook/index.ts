@@ -999,12 +999,29 @@ serve(async (req) => {
                           }
 
                           // AI-based lead creation / update
-                          if (leadAction?.should_create && leadAction.phone && !leadAction.invalid_number) {
-                            const rawPhone = leadAction.phone;
+                          // FALLBACK: If AI didn't detect lead, scan unreplied customer messages for phone numbers directly
+                          let finalLeadAction = leadAction;
+                          if ((!finalLeadAction?.should_create || !finalLeadAction?.phone) && !hasLeadTag) {
+                            // Scan all unreplied customer messages for phone numbers
+                            for (const custMsg of unrepliedCustomerMessages) {
+                              const detectedPhone = extractPhoneNumber(custMsg);
+                              if (detectedPhone) {
+                                const digits = detectedPhone.replace(/\D/g, '');
+                                if (digits.length >= 10 && digits.startsWith('9')) {
+                                  console.log("FALLBACK phone detection found:", detectedPhone, "in message:", custMsg.substring(0, 50));
+                                  finalLeadAction = { should_create: true, phone: detectedPhone, invalid_number: false, reason: "fallback-phone-detection" };
+                                  break;
+                                }
+                              }
+                            }
+                          }
+
+                          if (finalLeadAction?.should_create && finalLeadAction.phone && !finalLeadAction.invalid_number) {
+                            const rawPhone = finalLeadAction.phone;
                             const digitsOnly = rawPhone.replace(/\D/g, '');
                             const normalizedPhone = digitsOnly.slice(-10);
 
-                            // Validate: must be exactly 10 digits (Nepal mobile)
+                            // Validate: must be at least 10 digits
                             if (digitsOnly.length < 10) {
                               console.log(`Invalid phone: ${rawPhone} has only ${digitsOnly.length} digits, skipping lead creation`);
                             } else {
@@ -1025,16 +1042,16 @@ serve(async (req) => {
                                 page_id: page.id,
                                 source: page.page_name,
                                 product: (page as any).product_name || null,
-                                last_message: message.text?.substring(0, 200),
+                                last_message: combinedCustomerMessage?.substring(0, 200),
                                 status: "new",
                                 organization_id: page.organization_id,
-                                remark: leadAction.reason || "No Inquiry",
+                                remark: finalLeadAction.reason || "No Inquiry",
                               });
                               if (insertErr) console.error("New lead creation error:", insertErr);
                               else console.log("New lead created successfully with phone:", rawPhone);
                             } else {
                               // New lead — dedup check then create
-                              console.log("AI detected valid lead with phone:", rawPhone);
+                              console.log("Lead detected with phone:", rawPhone);
 
                               // Dedup check by phone
                               const { data: existingLead } = await supabase
@@ -1047,7 +1064,7 @@ serve(async (req) => {
                               if (existingLead) {
                                 await supabase.from("leads").update({
                                   conversation_id: conversationId,
-                                  last_message: message.text?.substring(0, 200),
+                                  last_message: combinedCustomerMessage?.substring(0, 200),
                                   updated_at: new Date().toISOString(),
                                 }).eq("id", existingLead.id);
                               } else {
@@ -1109,7 +1126,7 @@ serve(async (req) => {
                                   page_id: page.id,
                                   source: page.page_name,
                                   product: (page as any).product_name || null,
-                                  last_message: message.text?.substring(0, 200),
+                                  last_message: combinedCustomerMessage?.substring(0, 200),
                                   status: "new",
                                   organization_id: page.organization_id,
                                   remark,
