@@ -60,7 +60,7 @@ serve(async (req) => {
     let skipped = 0;
     const results: Array<{ conv_id: string; phone: string; name: string; status: string }> = [];
 
-    for (const conv of conversations || []) {
+    for (const conv of (conversations || []).filter(c => !(c.tags || []).includes("lead-created"))) {
       // Get customer messages
       const { data: msgs } = await supabase
         .from("messages")
