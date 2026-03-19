@@ -33,13 +33,14 @@ serve(async (req) => {
   const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
   const supabase = createClient(supabaseUrl, supabaseKey);
 
-  // Auth check
+  // Auth check - service role or authenticated user
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return new Response("Unauthorized", { status: 401 });
-  const token = authHeader.replace("Bearer ", "");
-  if (token !== supabaseKey) {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) return new Response("Unauthorized", { status: 401 });
+  if (authHeader) {
+    const token = authHeader.replace("Bearer ", "");
+    if (token !== supabaseKey) {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+    }
   }
 
   try {
