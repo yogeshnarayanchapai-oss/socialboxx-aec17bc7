@@ -1017,7 +1017,7 @@ export default function Inbox() {
       </AlertDialog>
 
       {/* AI Retry Progress Dialog */}
-      <Dialog open={retryDialogOpen} onOpenChange={(open) => { if (retryProgress.completed || !retryingUnreplied) setRetryDialogOpen(open); }}>
+      <Dialog open={retryDialogOpen} onOpenChange={(open) => setRetryDialogOpen(open)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
