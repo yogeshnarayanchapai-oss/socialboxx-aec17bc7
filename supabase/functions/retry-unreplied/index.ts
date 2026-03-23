@@ -88,6 +88,7 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         imageUrls: unrepliedImageUrls.length > 0 ? unrepliedImageUrls : undefined,
         hasExistingLead: hasLeadTag,
         mediaAssets: page.ai_media_assets || [],
+        pageId: page.id,
       }),
     });
 

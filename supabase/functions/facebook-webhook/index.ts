@@ -915,6 +915,7 @@ serve(async (req) => {
                           longGapConfirmation,
                           hasExistingLead: hasLeadTag,
                           mediaAssets: (page as any).ai_media_assets || [],
+                          pageId: page.id,
                         }),
                       }
                     );
