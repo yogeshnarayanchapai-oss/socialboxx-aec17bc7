@@ -1,85 +1,72 @@
 
 
-# AI Follow-up System Fix Plan
+## Plan: AI Prompt Caching System to Reduce Cloud Balance Usage
 
-## Problems Identified
+### Problem
+Every incoming message triggers the `ai-reply` edge function which:
+1. Fetches `reply_templates` from DB (1 query)
+2. Fetches `app_settings` (ai_tone) from DB (1 query)  
+3. Rebuilds the entire system prompt (~2000+ tokens) from scratch
+4. Sends this large prompt + message to the AI gateway
 
-1. **Follow-up resets on customer reply** (Line 693-700 in `facebook-webhook/index.ts`): When a customer replies, the code resets `ai_followup_step` back to 0 and reschedules from step 1. This means if follow-up #2 was already sent and the customer replies, the system starts over from follow-up #1 again.
+The AI gateway charges per token — the system prompt tokens are sent **every single message**. This is the main cost driver.
 
-2. **Follow-up does not persist after AI failure**: When AI generation or Facebook send fails, the `ai_followup_step` and `ai_followup_next_at` are NOT preserved -- the followup tag ("FOLLOW-UP") is never added, so there's no visual indicator.
+### Solution: Pre-compiled Prompt Cache
 
-3. **Hint field is a single-line `<Input>`** (Line 1023 in `PageAutomationDialog.tsx`): Should be a `<Textarea>` so users can write long, detailed hints.
+When the user clicks **Save** on a page's AI settings, we pre-compile and store the full system prompt in a new DB table. On each message, `ai-reply` reads the cached prompt (1 query) instead of building it from 3+ queries.
 
-4. **Lead conversion does not add "FOLLOW-UP" tag before pausing**: When followup is active, conversations should have a "FOLLOW-UP" tag for visibility.
+**Key benefit**: We can also **optimize/shorten** the cached prompt at save-time, removing verbose explanations the AI doesn't need repeated. This directly reduces token cost per message.
 
-## Solution
+### Changes
 
-### 1. Stop resetting follow-up on customer reply
+**1. New DB table: `page_ai_prompt_cache`**
+- `page_id` (uuid, unique, FK to connected_pages)
+- `compiled_prompt` (text) — the ready-to-use system prompt
+- `script_config` (jsonb) — language/script detection rules
+- `media_assets` (jsonb) — cached media asset list
+- `updated_at` (timestamp)
 
-**File: `supabase/functions/facebook-webhook/index.ts`** (Lines 693-701)
+**2. New edge function: `compile-ai-prompt`**
+- Called when Save button is clicked on page AI settings
+- Takes page_id, fetches all page settings + templates + app_settings
+- Builds and **compresses** the system prompt (removes verbose repeat instructions, keeps only essential rules)
+- Stores in `page_ai_prompt_cache`
+- Estimated prompt reduction: ~30-40% fewer tokens
 
-Change the logic so that when a customer replies:
-- Do NOT reset `ai_followup_step` back to 0
-- Instead, keep the current step and just reschedule the next follow-up timer from NOW + the current step's delay
-- This ensures the follow-up sequence continues forward, not restart
+**3. Update `ai-reply` edge function**
+- First check `page_ai_prompt_cache` for this page
+- If cache exists → use cached prompt directly (skip templates + settings queries)
+- If no cache → fall back to current behavior (build from scratch)
+- Script-lock and per-message dynamic parts (customer message, conversation history, hasExistingLead, longGapConfirmation) still added dynamically each time
 
-### 2. Add "FOLLOW-UP" tag when AI follow-up is active
+**4. Update frontend Save handler**
+- After saving page AI settings, call `compile-ai-prompt` to regenerate the cache
+- Show toast on success
 
-**File: `supabase/functions/facebook-webhook/index.ts`**
+**5. Backfill: compile cache for all existing pages**
+- One-time migration/script to compile prompts for all currently configured pages
 
-When AI follow-up is first initialized (after AI reply, lines 1016-1025), add "FOLLOW-UP" tag to conversation tags if not already present.
+### What stays the same
+- AI still replies exactly as before — same logic, same rules
+- Script matching (Roman Nepali, Devanagari, English) still works per-message
+- Lead detection, complaint detection, media sending — all unchanged
+- The system just reads a pre-built prompt instead of building one each time
 
-### 3. Preserve follow-up scheduling on AI failure
+### Cost Savings Estimate
+- ~2 fewer DB queries per message
+- ~30-40% fewer input tokens per AI call (compressed prompt)
+- At high volume, this meaningfully reduces cloud balance consumption
 
-**File: `supabase/functions/daily-followup/index.ts`** (Lines 259-267)
-
-When AI follow-up fails:
-- Still mark `status: "ai_failed"` with reason
-- But keep `ai_followup_step` and `ai_followup_next_at` so it can retry next cycle
-- Add "FOLLOW-UP" tag to the conversation
-
-### 4. Extend hint field to Textarea
-
-**File: `src/components/pages/PageAutomationDialog.tsx`** (Line 1023)
-
-Change `<Input>` to `<Textarea>` with auto-resize capability so users can write detailed hints of any length.
-
-### 5. Pause follow-up only on lead conversion
-
-No change needed here -- the existing code at lines 1007-1011 already nullifies follow-up on lead creation. Just need to make sure it also removes the "FOLLOW-UP" tag and this is already handled.
-
----
-
-## Technical Details
-
-### facebook-webhook/index.ts Changes
-
-```text
-Lines 693-701: Replace "reset follow-up timer" logic
-  BEFORE: Always resets to step 0
-  AFTER:  Keep current step, reschedule from now + current step's delay
-          Only reset if ai_followup_step is null (not yet started)
-
-Lines 1016-1025: After AI reply, when starting followup tracking
-  ADD: Include "FOLLOW-UP" tag in conversation tags
-```
-
-### daily-followup/index.ts Changes
+### Technical Details
 
 ```text
-Lines 259-267: On AI failure
-  BEFORE: Sets status to ai_failed, stops there (no next schedule)
-  AFTER:  Sets status to ai_failed with reason,
-          BUT keeps ai_followup_step and reschedules ai_followup_next_at
-          for retry in 1 hour, so it tries again next cycle.
-          Adds "FOLLOW-UP" tag.
-```
+Current flow (per message):
+  webhook → ai-reply → [query templates] → [query settings] → [build prompt ~2000 tokens] → AI gateway
 
-### PageAutomationDialog.tsx Changes
+New flow (per message):  
+  webhook → ai-reply → [query cached prompt ~1200 tokens] → AI gateway
 
-```text
-Line 1023: Change <Input> to <Textarea>
-  Add: rows={3}, auto-expanding with min-height
-  This allows long detailed hints like the ones shown in the screenshot
+Save button flow:
+  frontend → save settings → compile-ai-prompt → store in page_ai_prompt_cache
 ```
 
