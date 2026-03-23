@@ -155,6 +155,17 @@ export function PageAIDialog({ open, onOpenChange, page }: PageAIDialogProps) {
         .eq("id", page.id);
 
       if (error) throw error;
+
+      // Compile and cache AI prompt for this page
+      try {
+        await supabase.functions.invoke("compile-ai-prompt", {
+          body: { pageId: page.id },
+        });
+        console.log("AI prompt cache compiled successfully");
+      } catch (cacheErr) {
+        console.warn("Failed to compile AI prompt cache (non-blocking):", cacheErr);
+      }
+
       queryClient.invalidateQueries({ queryKey: ["connected-pages"] });
       toast.success("AI settings save भयो!");
       onOpenChange(false);
