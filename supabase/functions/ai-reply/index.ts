@@ -477,7 +477,7 @@ ${conversationHistory || 'First message from customer.'}`;
       const aiRequestBody = JSON.stringify({
         model: model.name,
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPrompt + dynamicParts },
           { role: "system", content: scriptLockPrompt },
           { role: "user", content: userContent },
         ],
