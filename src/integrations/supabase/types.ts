@@ -673,6 +673,41 @@ export type Database = {
         }
         Relationships: []
       }
+      page_ai_prompt_cache: {
+        Row: {
+          compiled_prompt: string
+          id: string
+          media_assets: Json
+          page_id: string
+          script_config: Json
+          updated_at: string
+        }
+        Insert: {
+          compiled_prompt?: string
+          id?: string
+          media_assets?: Json
+          page_id: string
+          script_config?: Json
+          updated_at?: string
+        }
+        Update: {
+          compiled_prompt?: string
+          id?: string
+          media_assets?: Json
+          page_id?: string
+          script_config?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "page_ai_prompt_cache_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: true
+            referencedRelation: "connected_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       page_groups: {
         Row: {
           created_at: string

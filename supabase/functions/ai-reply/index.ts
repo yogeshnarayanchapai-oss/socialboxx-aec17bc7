@@ -259,27 +259,48 @@ serve(async (req) => {
       }
     }
 
-    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead, mediaAssets } = await req.json();
+    const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead, mediaAssets, pageId } = await req.json();
     const requiredReplyMode = detectRequiredReplyMode(aiInstructions || "", customerMessage || "");
     const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", aiInstructions || "");
 
-    // Get reply templates for context
-    const { data: templates } = await supabase
-      .from("reply_templates")
-      .select("name, content, category")
-      .eq("is_active", true)
-      .limit(10);
+    // Try to use cached prompt first
+    let systemPrompt = "";
+    let usedCache = false;
 
-    // Get app settings for tone/style
-    const { data: settings } = await supabase
-      .from("app_settings")
-      .select("setting_value")
-      .eq("setting_key", "ai_tone")
-      .single();
+    if (pageId) {
+      const { data: cache } = await supabase
+        .from("page_ai_prompt_cache")
+        .select("compiled_prompt")
+        .eq("page_id", pageId)
+        .single();
 
-    const aiTone = settings?.setting_value || "friendly and professional";
+      if (cache?.compiled_prompt) {
+        // Use cached prompt + append dynamic parts
+        systemPrompt = cache.compiled_prompt;
+        usedCache = true;
+        console.log("Using cached AI prompt for page:", pageId);
+      }
+    }
 
-    const systemPrompt = `You are a friendly customer service assistant for "${pageName || 'our business'}". 
+    if (!usedCache) {
+      // Fallback: build prompt from scratch (original behavior)
+      // Get reply templates for context
+      const { data: templates } = await supabase
+        .from("reply_templates")
+        .select("name, content, category")
+        .eq("is_active", true)
+        .limit(10);
+
+      // Get app settings for tone/style
+      const { data: settings } = await supabase
+        .from("app_settings")
+        .select("setting_value")
+        .eq("setting_key", "ai_tone")
+        .single();
+
+      const aiTone = settings?.setting_value || "friendly and professional";
+
+      systemPrompt = `You are a friendly customer service assistant for "${pageName || 'our business'}". 
 Your tone should be ${aiTone}.
 
 ${businessDescription ? `About this business:\n${businessDescription}\n` : ''}
@@ -367,13 +388,6 @@ ${aiInstructions}
 ===== END OF PAGE OWNER'S INSTRUCTIONS =====
 ` : ''}
 
-${longGapConfirmation ? `
-IMPORTANT - LONG GAP DETECTED:
-This customer previously gave their phone number and was marked as a lead. After a gap of 15+ days, they sent a new message. This might be a NEW inquiry.
-You MUST first confirm their number by saying something like: "तपाईंको नम्बर यही xxxxxxxxxx हो नि है? नयाँ inquiry को लागि हो?" (use the language from instructions, and reference their actual phone from conversation history if visible).
-Then address their new message normally.
-` : ''}
-
 COMPLAINT DETECTION - CRITICAL:
 - Detect if the customer is making a COMPLAINT. Examples: product not working, defective item, wants refund/return, unsatisfied with service/product, damaged goods, wrong item received, poor quality.
 - Set "is_complaint" to true ONLY when the customer is genuinely complaining about a product/service issue.
@@ -404,8 +418,21 @@ Rules for lead_action:
 - "should_create": MUST be false if the number is invalid (wrong digit count, wrong format) — even for existing leads
 - "phone": extract the raw digits (remove spaces, dashes, country code prefix like +977 or 977, keep all digits)
 - "invalid_number": true if customer sent something that looks like a phone number but is INVALID (wrong length, wrong format per instructions). When this is true, should_create MUST be false.
-- When invalid_number is true, your "reply" MUST politely tell the customer the number seems incorrect and ask for the correct one
-- ${hasExistingLead ? 'IMPORTANT: This conversation ALREADY has a lead created. The customer\'s phone number has ALREADY been collected. Do NOT ask for their phone number again. Do NOT mention providing contact details. Just answer their query naturally and helpfully. If the customer provides a NEW VALID phone number voluntarily (correct digit count per instructions), set should_create to true. If the number is INVALID, set should_create to false and invalid_number to true.' : 'No lead exists yet for this conversation.'}
+- When invalid_number is true, your "reply" MUST politely tell the customer the number seems incorrect and ask for the correct one`;
+      console.log("Built AI prompt from scratch (no cache)");
+    }
+
+    // Append dynamic per-message parts to the prompt
+    const dynamicParts = `
+
+${longGapConfirmation ? `
+IMPORTANT - LONG GAP DETECTED:
+This customer previously gave their phone number and was marked as a lead. After a gap of 15+ days, they sent a new message. This might be a NEW inquiry.
+You MUST first confirm their number by saying something like: "तपाईंको नम्बर यही xxxxxxxxxx हो नि है? नयाँ inquiry को लागि हो?" (use the language from instructions, and reference their actual phone from conversation history if visible).
+Then address their new message normally.
+` : ''}
+
+${hasExistingLead ? 'IMPORTANT: This conversation ALREADY has a lead created. The customer\'s phone number has ALREADY been collected. Do NOT ask for their phone number again. Do NOT mention providing contact details. Just answer their query naturally and helpfully. If the customer provides a NEW VALID phone number voluntarily (correct digit count per instructions), set should_create to true. If the number is INVALID, set should_create to false and invalid_number to true.' : 'No lead exists yet for this conversation.'}
 
 Conversation so far:
 ${conversationHistory || 'First message from customer.'}`;
@@ -450,7 +477,7 @@ ${conversationHistory || 'First message from customer.'}`;
       const aiRequestBody = JSON.stringify({
         model: model.name,
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPrompt + dynamicParts },
           { role: "system", content: scriptLockPrompt },
           { role: "user", content: userContent },
         ],

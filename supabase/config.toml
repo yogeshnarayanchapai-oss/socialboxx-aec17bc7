@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.facebook-webhook]
 verify_jwt = false
+
+[functions.compile-ai-prompt]
+verify_jwt = false
