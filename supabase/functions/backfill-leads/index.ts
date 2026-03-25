@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 25;
 
 function convertNepaliDigits(text: string): string {
   const nd: Record<string, string> = { '०':'0','१':'1','२':'2','३':'3','४':'4','५':'5','६':'6','७':'7','८':'8','९':'9' };
@@ -15,7 +15,6 @@ function convertNepaliDigits(text: string): string {
 
 function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
-  // Skip URLs/attachments
   if (text.includes("facebook.com") || text.includes("fbcdn") || text.includes("scontent") || text.includes("cdn.fbsbx")) return null;
   const converted = convertNepaliDigits(text);
   const digitGroups = converted.match(/\d+/g);
@@ -50,143 +49,154 @@ serve(async (req) => {
     const { _batchOffset } = body;
     const offset = _batchOffset || 0;
 
-    // Use RPC or direct SQL to find conversations with phone numbers efficiently
-    // First get conversation IDs that have customer messages with phone-like patterns
-    const { data: convIds, error: convErr } = await supabase
-      .rpc('find_conversations_with_phones' as any, { _offset: offset, _limit: BATCH_SIZE })
-      .select('*');
+    // Use SQL to find only conversations that have customer messages with phone-like content
+    // This avoids scanning all 28K conversations
+    const { data: convWithPhones, error: sqlErr } = await supabase.rpc(
+      'backfill_find_phone_convs' as any,
+      { _offset: offset, _limit: BATCH_SIZE }
+    );
 
-    // Fallback: if RPC doesn't exist, use the manual approach
-    // Get conversations that DON'T have lead-created tag
-    // and have customer messages with phone numbers
-    const { data: candidates, error: candErr } = await supabase
-      .from("conversations")
-      .select("id, participant_name, page_id, organization_id, tags")
-      .is("deleted_at", null)
-      .not("tags", "cs", '{"lead-created"}')
-      .order("created_at", { ascending: true })
-      .range(offset, offset + 999);
+    // If RPC doesn't exist, fall back to a simpler approach
+    if (sqlErr) {
+      console.log("RPC not found, using direct query approach");
+      // Query messages table directly for phone patterns, then group by conversation
+      const { data: phoneMessages } = await supabase
+        .from("messages")
+        .select("conversation_id, content")
+        .eq("sender_type", "customer")
+        .not("content", "like", "%facebook.com%")
+        .not("content", "like", "%fbcdn%")
+        .not("content", "like", "%scontent%")
+        .like("content", "%9__________%") // rough 10+ digit filter
+        .order("created_at", { ascending: true })
+        .range(offset, offset + 500 - 1);
 
-    if (candErr) throw candErr;
-    if (!candidates || candidates.length === 0) {
-      return new Response(JSON.stringify({ success: true, message: "Backfill complete", offset }), {
+      if (!phoneMessages || phoneMessages.length === 0) {
+        return new Response(JSON.stringify({ success: true, message: "Backfill complete" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Group by conversation, extract real phone numbers
+      const convPhoneMap = new Map<string, string>();
+      for (const msg of phoneMessages) {
+        if (convPhoneMap.has(msg.conversation_id)) continue;
+        const phone = extractPhoneNumber(msg.content || "");
+        if (phone) convPhoneMap.set(msg.conversation_id, phone);
+      }
+
+      if (convPhoneMap.size === 0) {
+        // No valid phones found, try next batch
+        if (phoneMessages.length === 500) {
+          fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+            body: JSON.stringify({ _batchOffset: offset + 500 }),
+          }).catch(() => {});
+        }
+        return new Response(JSON.stringify({ success: true, offset, noPhones: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const convIds = Array.from(convPhoneMap.keys());
+
+      // Get conversation details
+      const { data: convs } = await supabase
+        .from("conversations")
+        .select("id, participant_name, page_id, organization_id, tags")
+        .in("id", convIds)
+        .is("deleted_at", null);
+
+      let created = 0, existing = 0;
+
+      for (const conv of (convs || [])) {
+        if ((conv.tags || []).includes("lead-created")) continue;
+
+        const foundPhone = convPhoneMap.get(conv.id)!;
+        const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
+
+        const { data: existingLead } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("organization_id", conv.organization_id)
+          .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+          .maybeSingle();
+
+        if (existingLead) {
+          await supabase.from("leads").update({
+            conversation_id: conv.id,
+            updated_at: new Date().toISOString(),
+          }).eq("id", existingLead.id);
+          existing++;
+        } else {
+          // Get all customer messages for remark
+          const { data: msgs } = await supabase
+            .from("messages")
+            .select("content")
+            .eq("conversation_id", conv.id)
+            .eq("sender_type", "customer")
+            .order("created_at", { ascending: true });
+
+          const inquiryTexts = (msgs || [])
+            .map((m: any) => m.content || "")
+            .filter((t: string) => {
+              const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
+              return t.trim().length > 0 && !/^\d{9,}$/.test(stripped) && !t.includes("facebook.com") && !t.includes("fbcdn");
+            });
+
+          const remark = inquiryTexts.length > 0 ? inquiryTexts.join(' | ').substring(0, 500) : "No Inquiry";
+
+          const { data: pageInfo } = await supabase
+            .from("connected_pages")
+            .select("page_name, product_name")
+            .eq("id", conv.page_id)
+            .single();
+
+          await supabase.from("leads").insert({
+            phone: foundPhone,
+            full_name: conv.participant_name || "Unknown",
+            conversation_id: conv.id,
+            page_id: conv.page_id,
+            source: pageInfo?.page_name || "Unknown",
+            product: pageInfo?.product_name || null,
+            last_message: (msgs || [])[((msgs || []).length) - 1]?.content?.substring(0, 200),
+            status: "new",
+            organization_id: conv.organization_id,
+            remark,
+          });
+          created++;
+        }
+
+        // Tag conversation
+        const tags = conv.tags || [];
+        if (!tags.includes("lead-created")) {
+          await supabase.from("conversations").update({
+            tags: [...tags, "lead-created"],
+            ai_followup_step: null,
+            ai_followup_next_at: null,
+          }).eq("id", conv.id);
+        }
+      }
+
+      console.log(`Backfill batch offset=${offset}: created=${created}, existing=${existing}`);
+
+      if (phoneMessages.length === 500) {
+        fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+          body: JSON.stringify({ _batchOffset: offset + 500 }),
+        }).catch(() => {});
+      }
+
+      return new Response(JSON.stringify({ success: true, created, existing, offset }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    let created = 0;
-    let existing = 0;
-    let processed = 0;
-
-    for (const conv of candidates) {
-      if ((conv.tags || []).includes("lead-created")) continue;
-
-      // Get customer messages
-      const { data: msgs } = await supabase
-        .from("messages")
-        .select("content, sender_type")
-        .eq("conversation_id", conv.id)
-        .eq("sender_type", "customer")
-        .order("created_at", { ascending: true });
-
-      if (!msgs || msgs.length === 0) continue;
-
-      // Find phone numbers
-      let foundPhone: string | null = null;
-      for (const msg of msgs) {
-        const phone = extractPhoneNumber(msg.content || "");
-        if (phone) {
-          foundPhone = phone;
-          break;
-        }
-      }
-
-      if (!foundPhone) continue;
-      processed++;
-
-      const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
-
-      // Dedup
-      const { data: existingLead } = await supabase
-        .from("leads")
-        .select("id")
-        .eq("organization_id", conv.organization_id)
-        .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-        .maybeSingle();
-
-      if (existingLead) {
-        await supabase.from("leads").update({
-          conversation_id: conv.id,
-          updated_at: new Date().toISOString(),
-        }).eq("id", existingLead.id);
-        existing++;
-      } else {
-        const inquiryTexts = msgs
-          .map((m: any) => m.content || "")
-          .filter((t: string) => {
-            const stripped = t.replace(/[\s\-\(\)\.\+]/g, '');
-            return t.trim().length > 0 && !/^\d{9,}$/.test(stripped) && !t.includes("facebook.com") && !t.includes("fbcdn");
-          });
-
-        let remark = "No Inquiry";
-        if (inquiryTexts.length > 0) {
-          remark = inquiryTexts.join(' | ').substring(0, 500);
-        }
-
-        const { data: pageInfo } = await supabase
-          .from("connected_pages")
-          .select("page_name, product_name")
-          .eq("id", conv.page_id)
-          .single();
-
-        await supabase.from("leads").insert({
-          phone: foundPhone,
-          full_name: conv.participant_name || "Unknown",
-          conversation_id: conv.id,
-          page_id: conv.page_id,
-          source: pageInfo?.page_name || "Unknown",
-          product: pageInfo?.product_name || null,
-          last_message: msgs[msgs.length - 1]?.content?.substring(0, 200),
-          status: "new",
-          organization_id: conv.organization_id,
-          remark,
-        });
-        created++;
-      }
-
-      // Tag conversation
-      const tags = conv.tags || [];
-      if (!tags.includes("lead-created")) {
-        await supabase.from("conversations").update({
-          tags: [...tags, "lead-created"],
-          ai_followup_step: null,
-          ai_followup_next_at: null,
-        }).eq("id", conv.id);
-      }
-    }
-
-    console.log(`Backfill batch offset=${offset}: created=${created}, existing=${existing}, processed=${processed}, scanned=${candidates.length}`);
-
-    // If we got 1000 results, trigger next batch
-    if (candidates.length === 1000) {
-      const nextOffset = offset + 1000;
-      fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-        body: JSON.stringify({ _batchOffset: nextOffset }),
-      }).catch(err => console.error("Failed to trigger next backfill batch:", err));
-    }
-
-    return new Response(JSON.stringify({
-      success: true,
-      created,
-      existing,
-      processed,
-      scanned: candidates.length,
-      offset,
-      hasMore: candidates.length === 1000,
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("Backfill error:", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), {
