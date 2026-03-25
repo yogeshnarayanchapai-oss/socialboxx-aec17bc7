@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const BATCH_SIZE = 25;
+
 async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string) {
   try {
     const { data: recentMessages } = await supabase
@@ -237,297 +239,269 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("No authorization header");
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) throw new Error("Unauthorized");
-
     const body = await req.json();
-    const { pageId, conversationId, bulkRetry, jobId: pollJobId } = body;
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset } = body;
 
-    // === POLL MODE: client polls for job progress ===
-    if (pollJobId) {
-      const { data: job } = await supabase
-        .from("retry_jobs")
-        .select("*")
-        .eq("id", pollJobId)
-        .single();
-      
-      return new Response(JSON.stringify(job || { error: "Job not found" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Check if this is an internal batch call (no auth needed — uses service key header check)
+    const isInternalBatch = !!_batchJobId;
 
-    // === BULK RETRY MODE: runs entirely on backend ===
-    if (bulkRetry) {
-      // Get user's org
-      const { data: membership } = await supabase
-        .from("organization_members")
-        .select("organization_id")
-        .eq("user_id", user.id)
-        .single();
-      
-      if (!membership) throw new Error("No organization found");
-      const orgId = membership.organization_id;
+    if (!isInternalBatch) {
+      // User-facing calls require auth
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader) throw new Error("No authorization header");
+      const token = authHeader.replace("Bearer ", "");
+      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+      if (userError || !user) throw new Error("Unauthorized");
 
-      // Check if there's already a running job for this org
-      const { data: existingJob } = await supabase
-        .from("retry_jobs")
-        .select("id, status, total, processed, failed, new_msg_fail, followup_fail, unavailable_cleared, created_at")
-        .eq("organization_id", orgId)
-        .eq("status", "running")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingJob) {
-        // Return existing running job so client can show progress
-        return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, ...existingJob }), {
+      // === POLL MODE ===
+      if (pollJobId) {
+        const { data: job } = await supabase
+          .from("retry_jobs")
+          .select("*")
+          .eq("id", pollJobId)
+          .single();
+        return new Response(JSON.stringify(job || { error: "Job not found" }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Fetch all AI failed conversations for this org
-      const { data: allFailedConvs } = await supabase
-        .from("conversations")
-        .select("id, ai_fail_reason, ai_followup_step, status, page_id")
-        .in("status", ["ai_failed", "ai_processing"])
-        .eq("organization_id", orgId)
-        .is("deleted_at", null);
+      // === BULK RETRY MODE: initiate job ===
+      if (bulkRetry) {
+        const { data: membership } = await supabase
+          .from("organization_members")
+          .select("organization_id")
+          .eq("user_id", user.id)
+          .single();
+        if (!membership) throw new Error("No organization found");
+        const orgId = membership.organization_id;
 
-      if (!allFailedConvs || allFailedConvs.length === 0) {
-        return new Response(JSON.stringify({ jobId: null, total: 0, message: "No AI failed conversations" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+        // Check for existing running job
+        const { data: existingJob } = await supabase
+          .from("retry_jobs")
+          .select("id, status, total, processed, failed, new_msg_fail, followup_fail, unavailable_cleared, created_at")
+          .eq("organization_id", orgId)
+          .eq("status", "running")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
-      // Pre-filter unavailable users
-      const personNotAvailable = allFailedConvs.filter(c => {
-        const reason = (c.ai_fail_reason || "").toLowerCase();
-        return reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)");
-      });
-      const retryableConvs = allFailedConvs.filter(c => {
-        const reason = (c.ai_fail_reason || "").toLowerCase();
-        return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
-      });
+        if (existingJob) {
+          return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, ...existingJob }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-      // Mark unavailable as replied
-      if (personNotAvailable.length > 0) {
-        await supabase
+        // Fetch all AI failed conversations
+        const { data: allFailedConvs } = await supabase
           .from("conversations")
-          .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
-          .in("id", personNotAvailable.map(c => c.id));
-      }
+          .select("id, ai_fail_reason, ai_followup_step, status, page_id")
+          .in("status", ["ai_failed", "ai_processing"])
+          .eq("organization_id", orgId)
+          .is("deleted_at", null);
 
-      const newMsgFail = retryableConvs.filter(c => {
-        const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
-        return !isFollowup;
-      }).length;
-      const followupFail = retryableConvs.length - newMsgFail;
+        if (!allFailedConvs || allFailedConvs.length === 0) {
+          return new Response(JSON.stringify({ jobId: null, total: 0, message: "No AI failed conversations" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-      if (retryableConvs.length === 0) {
-        return new Response(JSON.stringify({ 
-          jobId: null, total: 0, 
+        // Pre-filter unavailable users
+        const personNotAvailable = allFailedConvs.filter(c => {
+          const reason = (c.ai_fail_reason || "").toLowerCase();
+          return reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)");
+        });
+        const retryableConvs = allFailedConvs.filter(c => {
+          const reason = (c.ai_fail_reason || "").toLowerCase();
+          return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
+        });
+
+        // Mark unavailable as replied
+        if (personNotAvailable.length > 0) {
+          await supabase
+            .from("conversations")
+            .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
+            .in("id", personNotAvailable.map(c => c.id));
+        }
+
+        const newMsgFail = retryableConvs.filter(c => {
+          const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
+          return !isFollowup;
+        }).length;
+        const followupFail = retryableConvs.length - newMsgFail;
+
+        if (retryableConvs.length === 0) {
+          return new Response(JSON.stringify({
+            jobId: null, total: 0,
+            unavailable_cleared: personNotAvailable.length,
+            message: "No retryable conversations"
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Store conversation IDs in the job for batch processing
+        const { data: job, error: jobErr } = await supabase
+          .from("retry_jobs")
+          .insert({
+            organization_id: orgId,
+            status: "running",
+            total: retryableConvs.length,
+            processed: 0,
+            failed: 0,
+            new_msg_fail: newMsgFail,
+            followup_fail: followupFail,
+            unavailable_cleared: personNotAvailable.length,
+          })
+          .select("id")
+          .single();
+
+        if (jobErr || !job) throw new Error("Failed to create retry job");
+
+        // Trigger first batch asynchronously via self-invocation
+        fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+          body: JSON.stringify({ _batchJobId: job.id, _batchOffset: 0 }),
+        }).catch(err => console.error("Failed to trigger first batch:", err));
+
+        return new Response(JSON.stringify({
+          jobId: job.id,
+          total: retryableConvs.length,
+          newMsgFail,
+          followupFail,
           unavailable_cleared: personNotAvailable.length,
-          message: "No retryable conversations" 
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      // Create the job record
-      const { data: job, error: jobErr } = await supabase
-        .from("retry_jobs")
-        .insert({
-          organization_id: orgId,
-          status: "running",
-          total: retryableConvs.length,
-          processed: 0,
-          failed: 0,
-          new_msg_fail: newMsgFail,
-          followup_fail: followupFail,
-          unavailable_cleared: personNotAvailable.length,
-        })
-        .select("id")
-        .single();
+      // === SINGLE CONVERSATION RETRY ===
+      if (conversationId) {
+        const { data: conv } = await supabase
+          .from("conversations")
+          .select("*, connected_pages(*)")
+          .eq("id", conversationId)
+          .single();
+        if (!conv) throw new Error("Conversation not found");
 
-      if (jobErr || !job) throw new Error("Failed to create retry job");
+        const page = conv.connected_pages;
+        if (!page) throw new Error("Page not found");
 
-      // Return immediately with the job ID — processing happens async below
-      const responseBody = JSON.stringify({ 
-        jobId: job.id, 
-        total: retryableConvs.length,
-        newMsgFail,
-        followupFail,
-        unavailable_cleared: personNotAvailable.length,
-      });
-
-      // Use waitUntil pattern: start processing but return response immediately
-      // Deno edge functions don't have waitUntil, so we use a non-awaited promise
-      const processAllInBackground = async () => {
-        try {
-          // Group conversations by page for efficiency
-          const pageIds = [...new Set(retryableConvs.map(c => c.page_id))];
-          const { data: pagesData } = await supabase
-            .from("connected_pages")
-            .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings")
-            .in("id", pageIds);
-
-          const pagesMap = new Map((pagesData || []).map(p => [p.id, p]));
-
-          let totalProcessed = 0;
-          let totalFailed = 0;
-
-          for (let i = 0; i < retryableConvs.length; i++) {
-            const conv = retryableConvs[i];
-            const page = pagesMap.get(conv.page_id);
-
-            if (!page) {
-              totalFailed++;
-            } else {
-              const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
-              totalProcessed += result.processed || 0;
-              totalFailed += result.failed || 0;
-            }
-
-            // Update job progress
-            await supabase
-              .from("retry_jobs")
-              .update({ 
-                processed: i + 1, 
-                failed: totalFailed,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", job.id);
-
-            // 1 second delay between each (except last)
-            if (i < retryableConvs.length - 1) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-          }
-
-          // Mark job as completed
-          await supabase
-            .from("retry_jobs")
-            .update({ 
-              status: "completed",
-              processed: retryableConvs.length,
-              failed: totalFailed,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", job.id);
-
-          console.log(`Retry job ${job.id} completed: ${totalProcessed} processed, ${totalFailed} failed`);
-        } catch (err) {
-          console.error(`Retry job ${job.id} error:`, err);
-          await supabase
-            .from("retry_jobs")
-            .update({ status: "error", updated_at: new Date().toISOString() })
-            .eq("id", job.id);
-        }
-      };
-
-      // Start processing without awaiting — response returns immediately
-      processAllInBackground();
-
-      return new Response(responseBody, {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // === SINGLE CONVERSATION MODE ===
-    if (conversationId) {
-      const { data: conv, error: convErr } = await supabase
-        .from("conversations")
-        .select("id, participant_id, participant_name, tags, status, last_message_at, ai_fail_reason, ai_followup_step, page_id")
-        .eq("id", conversationId)
-        .in("status", ["ai_failed", "ai_processing"])
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      if (convErr || !conv) {
-        return new Response(JSON.stringify({ processed: 0, failed: 0, error: "Not in failed state" }), {
+        const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
+        return new Response(JSON.stringify(result), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const { data: page, error: pageError } = await supabase
-        .from("connected_pages")
-        .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings")
-        .eq("id", conv.page_id)
-        .single();
-
-      if (pageError || !page) {
-        return new Response(JSON.stringify({ processed: 0, failed: 1, error: "Page not found" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
-      return new Response(JSON.stringify(result), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      throw new Error("Invalid request");
     }
 
-    // === LEGACY BULK MODE (by pageId) ===
-    if (!pageId) throw new Error("pageId, conversationId, or bulkRetry is required");
+    // === INTERNAL BATCH PROCESSING ===
+    const jobId = _batchJobId;
+    const offset = _batchOffset || 0;
 
-    const { data: page, error: pageError } = await supabase
-      .from("connected_pages")
-      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings")
-      .eq("id", pageId)
+    // Get job details
+    const { data: job } = await supabase
+      .from("retry_jobs")
+      .select("*")
+      .eq("id", jobId)
       .single();
 
-    if (pageError || !page) throw new Error("Page not found");
-    if (!page.ai_enabled) throw new Error("AI is not enabled for this page");
-
-    const functionStartTime = Date.now();
-    const MAX_FUNCTION_TIME_MS = 120000;
-
-    const { data: unrepliedConvs, error: convError } = await supabase
-      .from("conversations")
-      .select("id, participant_id, participant_name, tags, status, last_message_at, ai_fail_reason, ai_followup_step")
-      .eq("page_id", pageId)
-      .is("deleted_at", null)
-      .in("status", ["ai_failed", "ai_processing"])
-      .order("last_message_at", { ascending: true });
-
-    if (convError) throw convError;
-    if (!unrepliedConvs || unrepliedConvs.length === 0) {
-      return new Response(JSON.stringify({ processed: 0, message: "No AI failed conversations found" }), {
+    if (!job || job.status !== "running") {
+      return new Response(JSON.stringify({ message: "Job not running" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    let processed = 0;
-    let failed = 0;
-    let skipped = 0;
+    const orgId = job.organization_id;
 
-    for (const conv of unrepliedConvs) {
-      if (Date.now() - functionStartTime > MAX_FUNCTION_TIME_MS) {
-        console.log(`Approaching timeout, stopping after ${processed} processed.`);
-        break;
+    // Fetch retryable conversations (skip unavailable — already cleared in init)
+    const { data: allFailedConvs } = await supabase
+      .from("conversations")
+      .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
+      .in("status", ["ai_failed", "ai_processing"])
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .range(offset, offset + BATCH_SIZE - 1);
+
+    const retryableConvs = (allFailedConvs || []).filter(c => {
+      const reason = (c.ai_fail_reason || "").toLowerCase();
+      return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
+    });
+
+    if (retryableConvs.length === 0) {
+      // No more conversations — mark job complete
+      await supabase
+        .from("retry_jobs")
+        .update({ status: "completed", updated_at: new Date().toISOString() })
+        .eq("id", jobId);
+
+      console.log(`Retry job ${jobId} completed at offset ${offset}`);
+      return new Response(JSON.stringify({ message: "Job completed" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Get pages for this batch
+    const pageIds = [...new Set(retryableConvs.map(c => c.page_id))];
+    const { data: pagesData } = await supabase
+      .from("connected_pages")
+      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings")
+      .in("id", pageIds);
+    const pagesMap = new Map((pagesData || []).map(p => [p.id, p]));
+
+    let batchProcessed = 0;
+    let batchFailed = 0;
+
+    // Process this batch sequentially with 1s delay
+    for (let i = 0; i < retryableConvs.length; i++) {
+      const conv = retryableConvs[i];
+      const page = pagesMap.get(conv.page_id);
+
+      if (!page) {
+        batchFailed++;
+      } else {
+        const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
+        batchProcessed += result.processed || 0;
+        batchFailed += result.failed || 0;
       }
 
-      const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
-      processed += result.processed || 0;
-      failed += result.failed || 0;
-      skipped += result.skipped || 0;
+      // Update job progress after each conversation
+      await supabase
+        .from("retry_jobs")
+        .update({
+          processed: (job.processed || 0) + i + 1,
+          failed: (job.failed || 0) + batchFailed,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", jobId);
 
-      if (processed < unrepliedConvs.length) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+      // 1 second delay between messages (except last in batch)
+      if (i < retryableConvs.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
-    return new Response(
-      JSON.stringify({ processed, failed, skipped, total: unrepliedConvs.length }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  } catch (error) {
-    console.error("Retry unreplied error:", error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 400,
+    console.log(`Batch offset=${offset} done: ${batchProcessed} processed, ${batchFailed} failed`);
+
+    // Trigger next batch via self-invocation
+    const nextOffset = offset + BATCH_SIZE;
+
+    fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+      body: JSON.stringify({ _batchJobId: jobId, _batchOffset: nextOffset }),
+    }).catch(err => console.error("Failed to trigger next batch:", err));
+
+    return new Response(JSON.stringify({ message: "Batch done", nextOffset }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+
+  } catch (err) {
+    console.error("retry-unreplied error:", err);
+    return new Response(JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }), {
+      status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
