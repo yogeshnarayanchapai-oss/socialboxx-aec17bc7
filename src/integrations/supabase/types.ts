@@ -824,6 +824,48 @@ export type Database = {
           },
         ]
       }
+      retry_jobs: {
+        Row: {
+          created_at: string
+          failed: number
+          followup_fail: number
+          id: string
+          new_msg_fail: number
+          organization_id: string
+          processed: number
+          status: string
+          total: number
+          unavailable_cleared: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          failed?: number
+          followup_fail?: number
+          id?: string
+          new_msg_fail?: number
+          organization_id: string
+          processed?: number
+          status?: string
+          total?: number
+          unavailable_cleared?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          failed?: number
+          followup_fail?: number
+          id?: string
+          new_msg_fail?: number
+          organization_id?: string
+          processed?: number
+          status?: string
+          total?: number
+          unavailable_cleared?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       team_access_scopes: {
         Row: {
           access_level: string

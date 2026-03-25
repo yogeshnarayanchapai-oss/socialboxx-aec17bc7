@@ -243,9 +243,200 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser(token);
     if (userError || !user) throw new Error("Unauthorized");
 
-    const { pageId, conversationId } = await req.json();
+    const body = await req.json();
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId } = body;
 
-    // Single conversation mode - used by client for 1-by-1 retry with progress
+    // === POLL MODE: client polls for job progress ===
+    if (pollJobId) {
+      const { data: job } = await supabase
+        .from("retry_jobs")
+        .select("*")
+        .eq("id", pollJobId)
+        .single();
+      
+      return new Response(JSON.stringify(job || { error: "Job not found" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // === BULK RETRY MODE: runs entirely on backend ===
+    if (bulkRetry) {
+      // Get user's org
+      const { data: membership } = await supabase
+        .from("organization_members")
+        .select("organization_id")
+        .eq("user_id", user.id)
+        .single();
+      
+      if (!membership) throw new Error("No organization found");
+      const orgId = membership.organization_id;
+
+      // Check if there's already a running job for this org
+      const { data: existingJob } = await supabase
+        .from("retry_jobs")
+        .select("id, status, total, processed, failed, new_msg_fail, followup_fail, unavailable_cleared, created_at")
+        .eq("organization_id", orgId)
+        .eq("status", "running")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingJob) {
+        // Return existing running job so client can show progress
+        return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, ...existingJob }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Fetch all AI failed conversations for this org
+      const { data: allFailedConvs } = await supabase
+        .from("conversations")
+        .select("id, ai_fail_reason, ai_followup_step, status, page_id")
+        .in("status", ["ai_failed", "ai_processing"])
+        .eq("organization_id", orgId)
+        .is("deleted_at", null);
+
+      if (!allFailedConvs || allFailedConvs.length === 0) {
+        return new Response(JSON.stringify({ jobId: null, total: 0, message: "No AI failed conversations" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Pre-filter unavailable users
+      const personNotAvailable = allFailedConvs.filter(c => {
+        const reason = (c.ai_fail_reason || "").toLowerCase();
+        return reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)");
+      });
+      const retryableConvs = allFailedConvs.filter(c => {
+        const reason = (c.ai_fail_reason || "").toLowerCase();
+        return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
+      });
+
+      // Mark unavailable as replied
+      if (personNotAvailable.length > 0) {
+        await supabase
+          .from("conversations")
+          .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
+          .in("id", personNotAvailable.map(c => c.id));
+      }
+
+      const newMsgFail = retryableConvs.filter(c => {
+        const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
+        return !isFollowup;
+      }).length;
+      const followupFail = retryableConvs.length - newMsgFail;
+
+      if (retryableConvs.length === 0) {
+        return new Response(JSON.stringify({ 
+          jobId: null, total: 0, 
+          unavailable_cleared: personNotAvailable.length,
+          message: "No retryable conversations" 
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Create the job record
+      const { data: job, error: jobErr } = await supabase
+        .from("retry_jobs")
+        .insert({
+          organization_id: orgId,
+          status: "running",
+          total: retryableConvs.length,
+          processed: 0,
+          failed: 0,
+          new_msg_fail: newMsgFail,
+          followup_fail: followupFail,
+          unavailable_cleared: personNotAvailable.length,
+        })
+        .select("id")
+        .single();
+
+      if (jobErr || !job) throw new Error("Failed to create retry job");
+
+      // Return immediately with the job ID — processing happens async below
+      const responseBody = JSON.stringify({ 
+        jobId: job.id, 
+        total: retryableConvs.length,
+        newMsgFail,
+        followupFail,
+        unavailable_cleared: personNotAvailable.length,
+      });
+
+      // Use waitUntil pattern: start processing but return response immediately
+      // Deno edge functions don't have waitUntil, so we use a non-awaited promise
+      const processAllInBackground = async () => {
+        try {
+          // Group conversations by page for efficiency
+          const pageIds = [...new Set(retryableConvs.map(c => c.page_id))];
+          const { data: pagesData } = await supabase
+            .from("connected_pages")
+            .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings")
+            .in("id", pageIds);
+
+          const pagesMap = new Map((pagesData || []).map(p => [p.id, p]));
+
+          let totalProcessed = 0;
+          let totalFailed = 0;
+
+          for (let i = 0; i < retryableConvs.length; i++) {
+            const conv = retryableConvs[i];
+            const page = pagesMap.get(conv.page_id);
+
+            if (!page) {
+              totalFailed++;
+            } else {
+              const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
+              totalProcessed += result.processed || 0;
+              totalFailed += result.failed || 0;
+            }
+
+            // Update job progress
+            await supabase
+              .from("retry_jobs")
+              .update({ 
+                processed: i + 1, 
+                failed: totalFailed,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", job.id);
+
+            // 1 second delay between each (except last)
+            if (i < retryableConvs.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
+
+          // Mark job as completed
+          await supabase
+            .from("retry_jobs")
+            .update({ 
+              status: "completed",
+              processed: retryableConvs.length,
+              failed: totalFailed,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job.id);
+
+          console.log(`Retry job ${job.id} completed: ${totalProcessed} processed, ${totalFailed} failed`);
+        } catch (err) {
+          console.error(`Retry job ${job.id} error:`, err);
+          await supabase
+            .from("retry_jobs")
+            .update({ status: "error", updated_at: new Date().toISOString() })
+            .eq("id", job.id);
+        }
+      };
+
+      // Start processing without awaiting — response returns immediately
+      processAllInBackground();
+
+      return new Response(responseBody, {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // === SINGLE CONVERSATION MODE ===
     if (conversationId) {
       const { data: conv, error: convErr } = await supabase
         .from("conversations")
@@ -279,8 +470,8 @@ serve(async (req) => {
       });
     }
 
-    // Bulk mode (original behavior for backward compat)
-    if (!pageId) throw new Error("pageId or conversationId is required");
+    // === LEGACY BULK MODE (by pageId) ===
+    if (!pageId) throw new Error("pageId, conversationId, or bulkRetry is required");
 
     const { data: page, error: pageError } = await supabase
       .from("connected_pages")
