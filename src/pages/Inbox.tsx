@@ -450,118 +450,124 @@ export default function Inbox() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to sync"); }
   };
 
+  const retryJobIdRef = useRef<string | null>(null);
+  const retryPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (retryPollingRef.current) clearInterval(retryPollingRef.current);
+    };
+  }, []);
+
+  const startPolling = (jobId: string) => {
+    retryJobIdRef.current = jobId;
+    if (retryPollingRef.current) clearInterval(retryPollingRef.current);
+
+    retryPollingRef.current = setInterval(async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const r = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ jobId }),
+          }
+        );
+        const job = await r.json();
+        if (!job || job.error) return;
+
+        const isCompleted = job.status === "completed" || job.status === "error";
+        setRetryProgress({
+          total: job.total || 0,
+          newMsgFail: job.new_msg_fail || 0,
+          followupFail: job.followup_fail || 0,
+          processed: job.processed || 0,
+          failed: job.failed || 0,
+          completed: isCompleted,
+          noErrors: (job.failed || 0) === 0,
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["conversations"] });
+
+        if (isCompleted) {
+          if (retryPollingRef.current) clearInterval(retryPollingRef.current);
+          retryPollingRef.current = null;
+          setRetryingUnreplied(false);
+          if (job.unavailable_cleared > 0) {
+            toast.info(`${job.unavailable_cleared} unavailable users auto-cleared`);
+          }
+        }
+      } catch (e) {
+        console.error("Polling error:", e);
+      }
+    }, 2000);
+  };
+
   const handleRetryUnreplied = async () => {
     if (pages.length === 0) { toast.error("No pages connected."); return; }
-    
-    // Fetch all AI failed conversations
-    const { data: allFailedConvs } = await supabase
-      .from("conversations")
-      .select("id, ai_fail_reason, ai_followup_step, status, page_id")
-      .in("status", ["ai_failed", "ai_processing"])
-      .is("deleted_at", null);
-    
-    if (!allFailedConvs || allFailedConvs.length === 0) {
-      toast.info("No AI failed conversations to retry");
+
+    // If already retrying, just reopen dialog
+    if (retryingUnreplied && retryJobIdRef.current) {
+      setRetryDialogOpen(true);
       return;
     }
 
-    // Pre-filter: auto-remove "person not available" / "User unavailable" conversations
-    const personNotAvailable = allFailedConvs.filter(c => {
-      const reason = (c.ai_fail_reason || "").toLowerCase();
-      return reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)");
-    });
-    const retryableConvs = allFailedConvs.filter(c => {
-      const reason = (c.ai_fail_reason || "").toLowerCase();
-      return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
-    });
-
-    // Mark "person not available" as replied silently
-    if (personNotAvailable.length > 0) {
-      await supabase
-        .from("conversations")
-        .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
-        .in("id", personNotAvailable.map(c => c.id));
-    }
-
-    if (retryableConvs.length === 0) {
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      toast.success(`${personNotAvailable.length} unavailable users cleared. No retryable conversations.`);
-      return;
-    }
-
-    const newMsgFail = retryableConvs.filter(c => {
-      const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
-      return !isFollowup;
-    }).length;
-    const followupFail = retryableConvs.length - newMsgFail;
-
-    setRetryProgress({ total: retryableConvs.length, newMsgFail, followupFail, processed: 0, failed: 0, completed: false, noErrors: true });
-    setRetryDialogOpen(true);
     setRetryingUnreplied(true);
+    setRetryProgress({ total: 0, newMsgFail: 0, followupFail: 0, processed: 0, failed: 0, completed: false, noErrors: true });
+    setRetryDialogOpen(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { toast.error("Not authenticated"); setRetryDialogOpen(false); return; }
+      if (!session) { toast.error("Not authenticated"); setRetryingUnreplied(false); setRetryDialogOpen(false); return; }
 
-      let totalProcessed = 0;
-      let totalFailed = 0;
-
-      // Process each conversation 1-by-1 with 2s delay for speed
-      for (let i = 0; i < retryableConvs.length; i++) {
-        const conv = retryableConvs[i];
-        try {
-          const r = await fetch(
-            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-              body: JSON.stringify({ conversationId: conv.id }),
-            }
-          );
-          const body = await r.json().catch(() => null);
-          if (r.ok && body) {
-            totalProcessed += body.processed || 0;
-            totalFailed += body.failed || 0;
-          } else {
-            totalFailed++;
-          }
-        } catch (e) {
-          console.error(`Retry failed for conv ${conv.id}:`, e);
-          totalFailed++;
+      const r = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/retry-unreplied`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ bulkRetry: true }),
         }
+      );
+      const result = await r.json();
 
-        setRetryProgress(prev => ({
-          ...prev,
-          processed: i + 1,
-          failed: totalFailed,
-          noErrors: totalFailed === 0,
-        }));
-
-        // Refresh conversation list after each processed item so replies show immediately
+      if (!result.jobId) {
+        // No retryable conversations
+        setRetryProgress(prev => ({ ...prev, completed: true }));
+        setRetryingUnreplied(false);
+        if (result.unavailable_cleared > 0) {
+          toast.info(`${result.unavailable_cleared} unavailable users auto-cleared. No retryable conversations.`);
+        } else {
+          toast.info("No AI failed conversations to retry");
+        }
         queryClient.invalidateQueries({ queryKey: ["conversations"] });
-
-        // 2 second delay between each conversation (except last)
-        if (i < retryableConvs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+        return;
       }
 
-      setRetryProgress(prev => ({
-        ...prev,
-        processed: retryableConvs.length,
-        failed: totalFailed,
-        completed: true,
-        noErrors: totalFailed === 0,
-      }));
+      // Set initial progress
+      setRetryProgress({
+        total: result.total || 0,
+        newMsgFail: result.newMsgFail || 0,
+        followupFail: result.followupFail || 0,
+        processed: result.existing ? (result.processed || 0) : 0,
+        failed: result.existing ? (result.failed || 0) : 0,
+        completed: false,
+        noErrors: true,
+      });
 
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      if (personNotAvailable.length > 0) {
-        toast.info(`${personNotAvailable.length} unavailable users auto-cleared`);
+      if (result.existing) {
+        toast.info("Retry already running — showing progress");
       }
+
+      // Start polling for progress
+      startPolling(result.jobId);
+
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to retry");
       setRetryDialogOpen(false);
-    } finally {
       setRetryingUnreplied(false);
     }
   };
