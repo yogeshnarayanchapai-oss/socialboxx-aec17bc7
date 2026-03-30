@@ -53,21 +53,33 @@ serve(async (req) => {
     if (restoreMode) {
       console.log(`Restore mode: offset=${offset}, dateFilter=${dateFilter || 'none'}`);
       
+      // First get conversation IDs that already have leads to exclude them
+      const { data: existingLeadConvs } = await supabase
+        .from("leads")
+        .select("conversation_id")
+        .not("conversation_id", "is", null);
+      
+      const existingConvIds = new Set((existingLeadConvs || []).map((l: any) => l.conversation_id));
+      
       let query = supabase
         .from("conversations")
         .select("id, participant_name, page_id, organization_id, tags")
         .contains("tags", ["lead-created"])
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
-        .range(0, 24);
+        .range(0, 49);
 
       if (dateFilter) {
         query = query.gte("created_at", dateFilter);
       }
-      const { data: taggedConvs } = await query;
+      const { data: allTaggedConvs } = await query;
+
+      // Filter out conversations that already have leads
+      const taggedConvs = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id));
 
       if (!taggedConvs || taggedConvs.length === 0) {
-        return new Response(JSON.stringify({ success: true, message: "Restore complete", offset }), {
+        const totalProcessed = existingConvIds.size;
+        return new Response(JSON.stringify({ success: true, message: "Restore complete", totalLeads: totalProcessed }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
