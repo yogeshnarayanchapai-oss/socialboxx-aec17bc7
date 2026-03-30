@@ -506,7 +506,7 @@ serve(async (req) => {
       const conv = retryableConvs[i];
       const page = pagesMap.get(conv.page_id);
       const result = page
-        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey)
+        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey, retryMarker)
         : { processed: 0, failed: 1 };
 
       if (!page) {
