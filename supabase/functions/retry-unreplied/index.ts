@@ -467,12 +467,17 @@ serve(async (req) => {
         batchFailed += result.failed || 0;
       }
 
-      // Update job progress after each conversation
+      // Update job progress using increment via re-fetch
+      const { data: currentJob } = await supabase
+        .from("retry_jobs")
+        .select("processed, failed")
+        .eq("id", jobId)
+        .single();
       await supabase
         .from("retry_jobs")
         .update({
-          processed: (job.processed || 0) + i + 1,
-          failed: (job.failed || 0) + batchFailed,
+          processed: (currentJob?.processed || 0) + 1,
+          failed: (currentJob?.failed || 0) + (result?.failed || (!page ? 1 : 0)),
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
