@@ -66,6 +66,7 @@ serve(async (req) => {
       }
       const { data: taggedConvs } = await query;
 
+      if (!taggedConvs || taggedConvs.length === 0) {
         return new Response(JSON.stringify({ success: true, message: "Restore complete", offset }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
