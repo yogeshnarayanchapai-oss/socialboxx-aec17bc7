@@ -33,7 +33,7 @@ async function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId
   }
 }
 
-async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string) {
+async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string, retryMarker?: string) {
   try {
     const { data: recentMessages } = await supabase
       .from("messages")
