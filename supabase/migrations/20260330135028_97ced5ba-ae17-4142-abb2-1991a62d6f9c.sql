@@ -1,0 +1,1 @@
+UPDATE retry_jobs SET status = 'completed', updated_at = now() WHERE id = '0b781c41-7481-46f0-a5c4-c3a79b61d7e4' AND status = 'running';
