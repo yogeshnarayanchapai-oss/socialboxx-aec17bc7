@@ -478,11 +478,22 @@ serve(async (req) => {
     });
 
     if (retryableConvs.length === 0) {
-      // No more conversations — mark job complete
+      // No more conversations — mark job complete and clean up retry markers
       await supabase
         .from("retry_jobs")
         .update({ status: "completed", updated_at: new Date().toISOString() })
         .eq("id", jobId);
+
+      // Clean up retry markers from ai_fail_reason
+      const { data: markedConvs } = await supabase
+        .from("conversations")
+        .select("id, ai_fail_reason")
+        .eq("organization_id", orgId)
+        .like("ai_fail_reason", `%${retryMarker}%`);
+      for (const mc of (markedConvs || [])) {
+        const cleanReason = (mc.ai_fail_reason || "").replace(retryMarker, "").trim();
+        await supabase.from("conversations").update({ ai_fail_reason: cleanReason }).eq("id", mc.id);
+      }
 
       console.log(`Retry job ${jobId} completed`);
       return new Response(JSON.stringify({ message: "Job completed" }), {
