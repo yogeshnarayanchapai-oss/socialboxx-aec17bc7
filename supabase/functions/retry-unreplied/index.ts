@@ -530,7 +530,25 @@ serve(async (req) => {
 
     console.log(`Batch done: ${batchProcessed} processed, ${batchFailed} failed`);
 
-    // Trigger next batch via self-invocation (offset not needed, always fetches from start)
+    // Check if we've processed enough — stop to prevent infinite loop
+    const { data: latestJob } = await supabase
+      .from("retry_jobs")
+      .select("processed, total")
+      .eq("id", jobId)
+      .single();
+
+    if (latestJob && latestJob.processed >= latestJob.total) {
+      await supabase
+        .from("retry_jobs")
+        .update({ status: "completed", updated_at: new Date().toISOString() })
+        .eq("id", jobId);
+      console.log(`Retry job ${jobId} completed (processed ${latestJob.processed}/${latestJob.total})`);
+      return new Response(JSON.stringify({ message: "Job completed" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Trigger next batch
     await triggerRetryBatch(supabaseUrl, supabaseKey, jobId);
 
     return new Response(JSON.stringify({ message: "Batch done" }), {
