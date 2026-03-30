@@ -415,7 +415,7 @@ serve(async (req) => {
 
     const orgId = job.organization_id;
 
-    // Fetch retryable conversations (skip unavailable — already cleared in init)
+    // Always fetch from start — already-processed convs won't appear (status changed)
     const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
@@ -423,7 +423,7 @@ serve(async (req) => {
       .eq("organization_id", orgId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true })
-      .range(offset, offset + BATCH_SIZE - 1);
+      .limit(BATCH_SIZE);
 
     const retryableConvs = (allFailedConvs || []).filter(c => {
       const reason = (c.ai_fail_reason || "").toLowerCase();
@@ -467,12 +467,17 @@ serve(async (req) => {
         batchFailed += result.failed || 0;
       }
 
-      // Update job progress after each conversation
+      // Update job progress using increment via re-fetch
+      const { data: currentJob } = await supabase
+        .from("retry_jobs")
+        .select("processed, failed")
+        .eq("id", jobId)
+        .single();
       await supabase
         .from("retry_jobs")
         .update({
-          processed: (job.processed || 0) + i + 1,
-          failed: (job.failed || 0) + batchFailed,
+          processed: (currentJob?.processed || 0) + 1,
+          failed: (currentJob?.failed || 0) + (result?.failed || (!page ? 1 : 0)),
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -483,18 +488,16 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Batch offset=${offset} done: ${batchProcessed} processed, ${batchFailed} failed`);
+    console.log(`Batch done: ${batchProcessed} processed, ${batchFailed} failed`);
 
-    // Trigger next batch via self-invocation
-    const nextOffset = offset + BATCH_SIZE;
-
+    // Trigger next batch via self-invocation (offset not needed, always fetches from start)
     fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-      body: JSON.stringify({ _batchJobId: jobId, _batchOffset: nextOffset }),
+      body: JSON.stringify({ _batchJobId: jobId, _batchOffset: 0 }),
     }).catch(err => console.error("Failed to trigger next batch:", err));
 
-    return new Response(JSON.stringify({ message: "Batch done", nextOffset }), {
+    return new Response(JSON.stringify({ message: "Batch done" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
