@@ -147,8 +147,8 @@ serve(async (req) => {
 
       console.log(`Restore batch offset=${offset}: created=${created}, skipped=${skipped}`);
 
-      // Trigger next batch if we got a full page (since we skip already-existing leads, always trigger if we got results)
-      if (created > 0 || taggedConvs.length === 25) {
+      // Only trigger next batch if we actually created leads (if all skipped, we're done)
+      if (created > 0) {
         await fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
