@@ -67,7 +67,7 @@ serve(async (req) => {
         .contains("tags", ["lead-created"])
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
-        .range(0, 49);
+        .range(0, 999);
 
       if (dateFilter) {
         query = query.gte("created_at", dateFilter);
