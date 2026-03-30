@@ -453,7 +453,8 @@ serve(async (req) => {
 
     const orgId = job.organization_id;
 
-    // Always fetch from start — already-processed convs won't appear (status changed)
+    // Fetch failed convs, excluding ones already attempted in this job (marked with [retried:jobId])
+    const retryMarker = `[retried:${jobId}]`;
     const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
@@ -464,8 +465,13 @@ serve(async (req) => {
       .limit(BATCH_SIZE);
 
     const retryableConvs = (allFailedConvs || []).filter(c => {
-      const reason = (c.ai_fail_reason || "").toLowerCase();
-      return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
+      const reason = (c.ai_fail_reason || "");
+      const reasonLower = reason.toLowerCase();
+      // Skip already-attempted in this job
+      if (reason.includes(retryMarker)) return false;
+      // Skip permanently unavailable users
+      if (reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)")) return false;
+      return true;
     });
 
     if (retryableConvs.length === 0) {
