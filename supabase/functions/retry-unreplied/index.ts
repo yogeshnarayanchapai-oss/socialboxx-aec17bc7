@@ -521,6 +521,7 @@ serve(async (req) => {
         : { processed: 0, failed: 1 };
 
       if (!page) {
+        await supabase.from("conversations").update({ ai_fail_reason: `${retryMarker} Page not found` }).eq("id", conv.id);
         batchFailed++;
       }
 
