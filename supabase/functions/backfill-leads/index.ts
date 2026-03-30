@@ -67,15 +67,16 @@ serve(async (req) => {
         .contains("tags", ["lead-created"])
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
-        .range(0, 49);
+        .range(0, 999);
 
       if (dateFilter) {
         query = query.gte("created_at", dateFilter);
       }
       const { data: allTaggedConvs } = await query;
 
-      // Filter out conversations that already have leads
-      const taggedConvs = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id));
+      // Filter out conversations that already have leads, limit to 30 per batch
+      const taggedConvs = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id)).slice(0, 30);
+      const totalRemaining = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id)).length;
 
       if (!taggedConvs || taggedConvs.length === 0) {
         const totalProcessed = existingConvIds.size;
@@ -119,18 +120,18 @@ serve(async (req) => {
           }
         }
 
-        if (!foundPhone) { skipped++; continue; }
+        // Check for duplicate phone in org (only if phone found)
+        if (foundPhone) {
+          const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
+          const { data: dupLead } = await supabase
+            .from("leads")
+            .select("id")
+            .eq("organization_id", conv.organization_id)
+            .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+            .maybeSingle();
 
-        // Check for duplicate phone in org
-        const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
-        const { data: dupLead } = await supabase
-          .from("leads")
-          .select("id")
-          .eq("organization_id", conv.organization_id)
-          .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-          .maybeSingle();
-
-        if (dupLead) { skipped++; continue; }
+          if (dupLead) { skipped++; continue; }
+        }
 
         const remark = inquiryTexts.length > 0 ? inquiryTexts.join(' | ').substring(0, 500) : "No Inquiry";
 
@@ -157,10 +158,10 @@ serve(async (req) => {
         created++;
       }
 
-      console.log(`Restore batch offset=${offset}: created=${created}, skipped=${skipped}`);
+      console.log(`Restore batch: created=${created}, skipped=${skipped}, remaining=${totalRemaining - created - skipped}`);
 
-      // Only trigger next batch if we actually created leads this round
-      if (created > 0) {
+      // Trigger next batch if there are more remaining conversations
+      if (totalRemaining > taggedConvs.length || created > 0) {
         fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
@@ -168,7 +169,7 @@ serve(async (req) => {
         }).catch(() => {});
       }
 
-      return new Response(JSON.stringify({ success: true, created, skipped, remaining: taggedConvs.length - created - skipped }), {
+      return new Response(JSON.stringify({ success: true, created, skipped, remaining: totalRemaining - created - skipped }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
