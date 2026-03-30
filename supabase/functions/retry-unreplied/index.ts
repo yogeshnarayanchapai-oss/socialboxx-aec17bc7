@@ -167,9 +167,10 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       const errMsg = isPermanent
         ? "User unavailable on Facebook (blocked or deactivated)"
         : `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
+      const markedErrMsg = (!isPermanent && retryMarker) ? `${retryMarker} ${errMsg}` : (isPermanent ? null : errMsg);
       await supabase.from("conversations").update({
         status: isPermanent ? "replied" : "ai_failed",
-        ai_fail_reason: isPermanent ? null : errMsg,
+        ai_fail_reason: isPermanent ? null : markedErrMsg,
         ...(isPermanent ? { last_message_preview: "⚠️ User unavailable on Facebook" } : {}),
       }).eq("id", conv.id);
       return { processed: isPermanent ? 1 : 0, failed: isPermanent ? 0 : 1, type: "new_reply" };
