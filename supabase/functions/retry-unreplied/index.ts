@@ -8,6 +8,31 @@ const corsHeaders = {
 
 const BATCH_SIZE = 25;
 
+const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.facebook\.com)/i;
+const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
+const AUDIO_VIDEO_EXTENSIONS = /\.(mp4|mov|avi|webm|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i;
+
+async function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+      body: JSON.stringify({ _batchJobId: jobId }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Failed to trigger retry batch for job ${jobId}:`, errorText);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`Failed to trigger retry batch for job ${jobId}:`, error);
+    return false;
+  }
+}
+
 async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string) {
   try {
     const { data: recentMessages } = await supabase
@@ -27,16 +52,27 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         if (latestMessages[i].media_url) {
           const mediaUrl = latestMessages[i].media_url!.toLowerCase();
           const isFacebookLink = mediaUrl.includes("facebook.com/reel") || mediaUrl.includes("l.facebook.com/l.php") || mediaUrl.includes("fb.watch");
+          const isPrivateHostedAttachment = PRIVATE_ATTACHMENT_HOSTS.test(mediaUrl);
+          const isDocumentAttachment = DOCUMENT_ATTACHMENT_EXTENSIONS.test(mediaUrl);
+          const isAudioOrVideo = AUDIO_VIDEO_EXTENSIONS.test(mediaUrl) || latestMessages[i].message_type === "audio" || latestMessages[i].message_type === "video";
           if (isFacebookLink) {
             unrepliedCustomerMessages.push("[Customer shared a Facebook link/reel]");
+          } else if (isDocumentAttachment) {
+            unrepliedCustomerMessages.push("[Customer sent a document attachment]");
+          } else if (isAudioOrVideo) {
+            unrepliedCustomerMessages.push("[Customer sent an audio/video message]");
           } else {
             const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) ||
               latestMessages[i].message_type === "image" ||
-              (!mediaUrl.includes(".mp4") && !mediaUrl.includes(".mp3") && !mediaUrl.includes(".wav") && !mediaUrl.includes(".ogg") && !mediaUrl.includes(".m4a") && !mediaUrl.includes("audioclip") && !mediaUrl.includes("videoclip"));
+              (!isDocumentAttachment && !isAudioOrVideo && !mediaUrl.includes("audioclip") && !mediaUrl.includes("videoclip"));
             if (isImage) {
-              unrepliedImageUrls.push(latestMessages[i].media_url!);
+              if (isPrivateHostedAttachment) {
+                unrepliedCustomerMessages.push("[Customer sent an image attachment]");
+              } else {
+                unrepliedImageUrls.push(latestMessages[i].media_url!);
+              }
             } else {
-              unrepliedCustomerMessages.push("[Customer sent an audio/video message]");
+              unrepliedCustomerMessages.push("[Customer sent an attachment]");
             }
           }
         }
@@ -278,7 +314,7 @@ serve(async (req) => {
         // Check for existing running job
         const { data: existingJob } = await supabase
           .from("retry_jobs")
-          .select("id, status, total, processed, failed, new_msg_fail, followup_fail, unavailable_cleared, created_at")
+          .select("id, status, total, processed, failed, new_msg_fail, followup_fail, unavailable_cleared, created_at, updated_at")
           .eq("organization_id", orgId)
           .eq("status", "running")
           .order("created_at", { ascending: false })
@@ -286,7 +322,14 @@ serve(async (req) => {
           .maybeSingle();
 
         if (existingJob) {
-          return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, ...existingJob }), {
+          const lastUpdatedAt = existingJob.updated_at ? new Date(existingJob.updated_at).getTime() : 0;
+          const isStale = existingJob.processed < existingJob.total && (Date.now() - lastUpdatedAt > 45_000);
+
+          if (isStale) {
+            await triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id);
+          }
+
+          return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, resumed: isStale, ...existingJob }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
@@ -358,11 +401,7 @@ serve(async (req) => {
         if (jobErr || !job) throw new Error("Failed to create retry job");
 
         // Trigger first batch asynchronously via self-invocation
-        fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-          body: JSON.stringify({ _batchJobId: job.id, _batchOffset: 0 }),
-        }).catch(err => console.error("Failed to trigger first batch:", err));
+        await triggerRetryBatch(supabaseUrl, supabaseKey, job.id);
 
         return new Response(JSON.stringify({
           jobId: job.id,
@@ -398,7 +437,6 @@ serve(async (req) => {
 
     // === INTERNAL BATCH PROCESSING ===
     const jobId = _batchJobId;
-    const offset = _batchOffset || 0;
 
     // Get job details
     const { data: job } = await supabase
@@ -437,7 +475,7 @@ serve(async (req) => {
         .update({ status: "completed", updated_at: new Date().toISOString() })
         .eq("id", jobId);
 
-      console.log(`Retry job ${jobId} completed at offset ${offset}`);
+      console.log(`Retry job ${jobId} completed`);
       return new Response(JSON.stringify({ message: "Job completed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -458,14 +496,16 @@ serve(async (req) => {
     for (let i = 0; i < retryableConvs.length; i++) {
       const conv = retryableConvs[i];
       const page = pagesMap.get(conv.page_id);
+      const result = page
+        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey)
+        : { processed: 0, failed: 1 };
 
       if (!page) {
         batchFailed++;
-      } else {
-        const result = await processConversation(supabase, conv, page, supabaseUrl, supabaseKey);
-        batchProcessed += result.processed || 0;
-        batchFailed += result.failed || 0;
       }
+
+      batchProcessed += result.processed || 0;
+      batchFailed += result.failed || 0;
 
       // Update job progress using increment via re-fetch
       const { data: currentJob } = await supabase
@@ -477,7 +517,7 @@ serve(async (req) => {
         .from("retry_jobs")
         .update({
           processed: (currentJob?.processed || 0) + 1,
-          failed: (currentJob?.failed || 0) + (result?.failed || (!page ? 1 : 0)),
+          failed: (currentJob?.failed || 0) + (result.failed || 0),
           updated_at: new Date().toISOString(),
         })
         .eq("id", jobId);
@@ -491,11 +531,7 @@ serve(async (req) => {
     console.log(`Batch done: ${batchProcessed} processed, ${batchFailed} failed`);
 
     // Trigger next batch via self-invocation (offset not needed, always fetches from start)
-    fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-      body: JSON.stringify({ _batchJobId: jobId, _batchOffset: 0 }),
-    }).catch(err => console.error("Failed to trigger next batch:", err));
+    await triggerRetryBatch(supabaseUrl, supabaseKey, jobId);
 
     return new Response(JSON.stringify({ message: "Batch done" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
