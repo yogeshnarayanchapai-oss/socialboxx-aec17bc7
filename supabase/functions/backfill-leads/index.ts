@@ -158,10 +158,10 @@ serve(async (req) => {
         created++;
       }
 
-      console.log(`Restore batch offset=${offset}: created=${created}, skipped=${skipped}`);
+      console.log(`Restore batch: created=${created}, skipped=${skipped}, remaining=${totalRemaining - created - skipped}`);
 
-      // Only trigger next batch if we actually created leads this round
-      if (created > 0) {
+      // Trigger next batch if there are more remaining conversations
+      if (totalRemaining > taggedConvs.length || created > 0) {
         fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
@@ -169,7 +169,7 @@ serve(async (req) => {
         }).catch(() => {});
       }
 
-      return new Response(JSON.stringify({ success: true, created, skipped, remaining: taggedConvs.length - created - skipped }), {
+      return new Response(JSON.stringify({ success: true, created, skipped, remaining: totalRemaining - created - skipped }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
