@@ -33,7 +33,7 @@ async function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId
   }
 }
 
-async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string) {
+async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string, retryMarker?: string) {
   try {
     const { data: recentMessages } = await supabase
       .from("messages")
@@ -138,7 +138,8 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         else if (aiResponse.status === 429) failReason = "Rate limit exceeded";
         else if (errBody?.error) failReason = typeof errBody.error === 'string' ? errBody.error.substring(0, 200) : JSON.stringify(errBody.error).substring(0, 200);
       } catch {}
-      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conv.id);
+      const markedReason = retryMarker ? `${retryMarker} ${failReason}` : failReason;
+      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: markedReason }).eq("id", conv.id);
       return { processed: 0, failed: 1, type: "new_reply" };
     }
 
@@ -166,9 +167,10 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       const errMsg = isPermanent
         ? "User unavailable on Facebook (blocked or deactivated)"
         : `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
+      const markedErrMsg = (!isPermanent && retryMarker) ? `${retryMarker} ${errMsg}` : (isPermanent ? null : errMsg);
       await supabase.from("conversations").update({
         status: isPermanent ? "replied" : "ai_failed",
-        ai_fail_reason: isPermanent ? null : errMsg,
+        ai_fail_reason: isPermanent ? null : markedErrMsg,
         ...(isPermanent ? { last_message_preview: "⚠️ User unavailable on Facebook" } : {}),
       }).eq("id", conv.id);
       return { processed: isPermanent ? 1 : 0, failed: isPermanent ? 0 : 1, type: "new_reply" };
@@ -260,7 +262,8 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
   } catch (convErr) {
     console.error(`Error processing conv ${conv.id}:`, convErr);
     const reason = convErr instanceof Error ? convErr.message.substring(0, 150) : "Unknown retry error";
-    await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: reason }).eq("id", conv.id);
+    const markedReason = retryMarker ? `${retryMarker} ${reason}` : reason;
+    await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: markedReason }).eq("id", conv.id);
     return { processed: 0, failed: 1 };
   }
 }
@@ -453,7 +456,8 @@ serve(async (req) => {
 
     const orgId = job.organization_id;
 
-    // Always fetch from start — already-processed convs won't appear (status changed)
+    // Fetch failed convs, excluding ones already attempted in this job (marked with [retried:jobId])
+    const retryMarker = `[retried:${jobId}]`;
     const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
@@ -464,16 +468,32 @@ serve(async (req) => {
       .limit(BATCH_SIZE);
 
     const retryableConvs = (allFailedConvs || []).filter(c => {
-      const reason = (c.ai_fail_reason || "").toLowerCase();
-      return !(reason.includes("person not available") || reason.includes("user unavailable") || reason.includes("(#551)") || reason.includes("(#10)"));
+      const reason = (c.ai_fail_reason || "");
+      const reasonLower = reason.toLowerCase();
+      // Skip already-attempted in this job
+      if (reason.includes(retryMarker)) return false;
+      // Skip permanently unavailable users
+      if (reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)")) return false;
+      return true;
     });
 
     if (retryableConvs.length === 0) {
-      // No more conversations — mark job complete
+      // No more conversations — mark job complete and clean up retry markers
       await supabase
         .from("retry_jobs")
         .update({ status: "completed", updated_at: new Date().toISOString() })
         .eq("id", jobId);
+
+      // Clean up retry markers from ai_fail_reason
+      const { data: markedConvs } = await supabase
+        .from("conversations")
+        .select("id, ai_fail_reason")
+        .eq("organization_id", orgId)
+        .like("ai_fail_reason", `%${retryMarker}%`);
+      for (const mc of (markedConvs || [])) {
+        const cleanReason = (mc.ai_fail_reason || "").replace(retryMarker, "").trim();
+        await supabase.from("conversations").update({ ai_fail_reason: cleanReason }).eq("id", mc.id);
+      }
 
       console.log(`Retry job ${jobId} completed`);
       return new Response(JSON.stringify({ message: "Job completed" }), {
@@ -497,10 +517,11 @@ serve(async (req) => {
       const conv = retryableConvs[i];
       const page = pagesMap.get(conv.page_id);
       const result = page
-        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey)
+        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey, retryMarker)
         : { processed: 0, failed: 1 };
 
       if (!page) {
+        await supabase.from("conversations").update({ ai_fail_reason: `${retryMarker} Page not found` }).eq("id", conv.id);
         batchFailed++;
       }
 
@@ -542,6 +563,16 @@ serve(async (req) => {
         .from("retry_jobs")
         .update({ status: "completed", updated_at: new Date().toISOString() })
         .eq("id", jobId);
+      // Clean up retry markers
+      const { data: markedConvs } = await supabase
+        .from("conversations")
+        .select("id, ai_fail_reason")
+        .eq("organization_id", orgId)
+        .like("ai_fail_reason", `%${retryMarker}%`);
+      for (const mc of (markedConvs || [])) {
+        const cleanReason = (mc.ai_fail_reason || "").replace(retryMarker, "").trim();
+        await supabase.from("conversations").update({ ai_fail_reason: cleanReason }).eq("id", mc.id);
+      }
       console.log(`Retry job ${jobId} completed (processed ${latestJob.processed}/${latestJob.total})`);
       return new Response(JSON.stringify({ message: "Job completed" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
