@@ -159,8 +159,8 @@ serve(async (req) => {
 
       console.log(`Restore batch offset=${offset}: created=${created}, skipped=${skipped}`);
 
-      // Always trigger next batch if we processed any conversations (created or skipped with no phone)
-      if (taggedConvs.length > 0) {
+      // Only trigger next batch if we actually created leads this round
+      if (created > 0) {
         fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
