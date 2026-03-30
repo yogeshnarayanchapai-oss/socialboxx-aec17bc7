@@ -119,18 +119,18 @@ serve(async (req) => {
           }
         }
 
-        if (!foundPhone) { skipped++; continue; }
+        // Check for duplicate phone in org (only if phone found)
+        if (foundPhone) {
+          const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
+          const { data: dupLead } = await supabase
+            .from("leads")
+            .select("id")
+            .eq("organization_id", conv.organization_id)
+            .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+            .maybeSingle();
 
-        // Check for duplicate phone in org
-        const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
-        const { data: dupLead } = await supabase
-          .from("leads")
-          .select("id")
-          .eq("organization_id", conv.organization_id)
-          .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-          .maybeSingle();
-
-        if (dupLead) { skipped++; continue; }
+          if (dupLead) { skipped++; continue; }
+        }
 
         const remark = inquiryTexts.length > 0 ? inquiryTexts.join(' | ').substring(0, 500) : "No Inquiry";
 
