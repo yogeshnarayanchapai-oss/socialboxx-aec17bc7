@@ -74,8 +74,9 @@ serve(async (req) => {
       }
       const { data: allTaggedConvs } = await query;
 
-      // Filter out conversations that already have leads
-      const taggedConvs = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id));
+      // Filter out conversations that already have leads, limit to 30 per batch
+      const taggedConvs = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id)).slice(0, 30);
+      const totalRemaining = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id)).length;
 
       if (!taggedConvs || taggedConvs.length === 0) {
         const totalProcessed = existingConvIds.size;
