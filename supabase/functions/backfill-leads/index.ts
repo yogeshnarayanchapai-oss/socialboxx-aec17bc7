@@ -147,13 +147,13 @@ serve(async (req) => {
 
       console.log(`Restore batch offset=${offset}: created=${created}, skipped=${skipped}`);
 
-      // Trigger next batch if we got a full page
-      if (taggedConvs.length === 200) {
-        fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
+      // Trigger next batch if we got a full page (since we skip already-existing leads, always trigger if we got results)
+      if (created > 0 || taggedConvs.length === 25) {
+        await fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-          body: JSON.stringify({ restoreMode: true, _batchOffset: offset + 200, dateFilter }),
-        }).catch(() => {});
+          body: JSON.stringify({ restoreMode: true, dateFilter }),
+        });
       }
 
       return new Response(JSON.stringify({ success: true, created, skipped, offset }), {
