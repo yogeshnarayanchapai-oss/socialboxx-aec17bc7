@@ -415,7 +415,7 @@ serve(async (req) => {
 
     const orgId = job.organization_id;
 
-    // Fetch retryable conversations (skip unavailable — already cleared in init)
+    // Always fetch from start — already-processed convs won't appear (status changed)
     const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
@@ -423,7 +423,7 @@ serve(async (req) => {
       .eq("organization_id", orgId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true })
-      .range(offset, offset + BATCH_SIZE - 1);
+      .limit(BATCH_SIZE);
 
     const retryableConvs = (allFailedConvs || []).filter(c => {
       const reason = (c.ai_fail_reason || "").toLowerCase();
