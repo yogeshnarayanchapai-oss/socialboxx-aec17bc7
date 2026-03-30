@@ -488,18 +488,16 @@ serve(async (req) => {
       }
     }
 
-    console.log(`Batch offset=${offset} done: ${batchProcessed} processed, ${batchFailed} failed`);
+    console.log(`Batch done: ${batchProcessed} processed, ${batchFailed} failed`);
 
-    // Trigger next batch via self-invocation
-    const nextOffset = offset + BATCH_SIZE;
-
+    // Trigger next batch via self-invocation (offset not needed, always fetches from start)
     fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-      body: JSON.stringify({ _batchJobId: jobId, _batchOffset: nextOffset }),
+      body: JSON.stringify({ _batchJobId: jobId, _batchOffset: 0 }),
     }).catch(err => console.error("Failed to trigger next batch:", err));
 
-    return new Response(JSON.stringify({ message: "Batch done", nextOffset }), {
+    return new Response(JSON.stringify({ message: "Batch done" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
