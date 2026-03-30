@@ -53,14 +53,15 @@ serve(async (req) => {
     if (restoreMode) {
       console.log(`Restore mode: offset=${offset}`);
       
-      // Get conversations that have lead-created tag but no matching lead
+      // Get conversations that have lead-created tag — always start from offset 0
+      // since we skip ones that already have leads, we use a larger fetch to find unprocessed ones
       const { data: taggedConvs } = await supabase
         .from("conversations")
         .select("id, participant_name, page_id, organization_id, tags")
         .contains("tags", ["lead-created"])
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
-        .range(offset, offset + BATCH_SIZE - 1);
+        .range(0, 199);
 
       if (!taggedConvs || taggedConvs.length === 0) {
         return new Response(JSON.stringify({ success: true, message: "Restore complete", offset }), {
