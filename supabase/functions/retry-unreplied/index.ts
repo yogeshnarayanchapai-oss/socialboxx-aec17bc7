@@ -138,7 +138,9 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         else if (aiResponse.status === 429) failReason = "Rate limit exceeded";
         else if (errBody?.error) failReason = typeof errBody.error === 'string' ? errBody.error.substring(0, 200) : JSON.stringify(errBody.error).substring(0, 200);
       } catch {}
-      const markedReason = retryMarker ? `${retryMarker} ${failReason}` : failReason;
+      const newRetryCount = (retryCount || 0) + 1;
+      const retryCountTag = `[retryCount:${newRetryCount}]`;
+      const markedReason = retryMarker ? `${retryMarker} ${retryCountTag} ${failReason}` : `${retryCountTag} ${failReason}`;
       await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: markedReason }).eq("id", conv.id);
       return { processed: 0, failed: 1, type: "new_reply" };
     }
