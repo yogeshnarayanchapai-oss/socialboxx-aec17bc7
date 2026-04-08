@@ -264,7 +264,9 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
   } catch (convErr) {
     console.error(`Error processing conv ${conv.id}:`, convErr);
     const reason = convErr instanceof Error ? convErr.message.substring(0, 150) : "Unknown retry error";
-    const markedReason = retryMarker ? `${retryMarker} ${reason}` : reason;
+    const newRetryCount = (retryCount || 0) + 1;
+    const retryCountTag = `[retryCount:${newRetryCount}]`;
+    const markedReason = retryMarker ? `${retryMarker} ${retryCountTag} ${reason}` : `${retryCountTag} ${reason}`;
     await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: markedReason }).eq("id", conv.id);
     return { processed: 0, failed: 1 };
   }
