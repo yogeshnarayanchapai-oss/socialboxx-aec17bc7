@@ -37,7 +37,10 @@ async function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId
 
 function isPermanentlyUnavailable(reason?: string | null) {
   const reasonLower = (reason || "").toLowerCase();
-  return reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)");
+  return reasonLower.includes("person not available") ||
+    reasonLower.includes("user unavailable") ||
+    reasonLower.includes("blocked or deactivated") ||
+    reasonLower.includes("(#551)");
 }
 
 async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string) {
@@ -152,7 +155,7 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       const isFollowupFail = conv.ai_fail_reason?.includes("Followup") || conv.ai_fail_reason?.includes("followup");
       if (isFollowupFail) {
         const failReason = conv.ai_fail_reason || "";
-        const isPermanent = failReason.includes("#551") || failReason.includes("(#10)") || failReason.includes("#10,");
+        const isPermanent = isPermanentlyUnavailable(failReason);
         if (isPermanent) {
           await supabase.from("conversations").update({
             status: "replied",
@@ -239,7 +242,8 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
     if (!sendResponse.ok) {
       const err = await sendResponse.json();
       const fbErrorCode = err?.error?.code;
-      const isPermanent = fbErrorCode === 551 || fbErrorCode === 10;
+      const fbErrorMessage = String(err?.error?.message || "");
+      const isPermanent = fbErrorCode === 551 || isPermanentlyUnavailable(fbErrorMessage);
       const errMsg = isPermanent
         ? "User unavailable on Facebook (blocked or deactivated)"
         : `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
