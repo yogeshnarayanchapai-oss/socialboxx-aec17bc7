@@ -163,8 +163,10 @@ async function sendAutoReply(
         const errBody = await textResponse.json();
         const fbCode = errBody?.error?.code;
         console.error("Auto-reply text failed:", errBody);
-        // #551 = person unavailable (blocked/deactivated) - permanent, don't retry
-        if (fbCode === 551 || fbCode === 10) {
+        // Only true user-unavailable cases are permanent
+        const fbMessage = String(errBody?.error?.message || '').toLowerCase();
+        const isPermanentUnavailable = fbCode === 551 || fbMessage.includes('person not available') || fbMessage.includes('user unavailable') || fbMessage.includes('blocked or deactivated');
+        if (isPermanentUnavailable) {
           return "permanent_fail";
         }
         return false;
