@@ -541,8 +541,10 @@ serve(async (req) => {
     for (let i = 0; i < retryableConvs.length; i++) {
       const conv = retryableConvs[i];
       const page = pagesMap.get(conv.page_id);
+      const convRetryCount = (conv as any)._retryCount || 0;
       const result = page
-        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey, retryMarker)
+        ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey, retryMarker, convRetryCount)
+        : { processed: 0, failed: 1 };
         : { processed: 0, failed: 1 };
 
       if (!page) {
