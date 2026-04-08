@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 25;
+const MAX_REPLY_LENGTH = 1900;
 
 const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.facebook\.com)/i;
 const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
@@ -43,6 +44,7 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       .limit(15);
 
     const latestMessages = (recentMessages || []).reverse();
+    const lastMessage = latestMessages[latestMessages.length - 1];
 
     const unrepliedCustomerMessages: string[] = [];
     const unrepliedImageUrls: string[] = [];
@@ -51,20 +53,29 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         if (latestMessages[i].content) unrepliedCustomerMessages.unshift(latestMessages[i].content!);
         if (latestMessages[i].media_url) {
           const mediaUrl = latestMessages[i].media_url!.toLowerCase();
-          const isFacebookLink = mediaUrl.includes("facebook.com/reel") || mediaUrl.includes("l.facebook.com/l.php") || mediaUrl.includes("fb.watch");
+          const isLinkShare =
+            mediaUrl.includes("facebook.com/reel") ||
+            mediaUrl.includes("l.facebook.com/l.php") ||
+            mediaUrl.includes("fb.watch") ||
+            mediaUrl.includes("instagram.com/reel") ||
+            mediaUrl.includes("instagram.com/p/") ||
+            mediaUrl.includes("youtu.be") ||
+            mediaUrl.includes("youtube.com") ||
+            mediaUrl.includes("fb.me");
           const isPrivateHostedAttachment = PRIVATE_ATTACHMENT_HOSTS.test(mediaUrl);
           const isDocumentAttachment = DOCUMENT_ATTACHMENT_EXTENSIONS.test(mediaUrl);
           const isAudioOrVideo = AUDIO_VIDEO_EXTENSIONS.test(mediaUrl) || latestMessages[i].message_type === "audio" || latestMessages[i].message_type === "video";
-          if (isFacebookLink) {
-            unrepliedCustomerMessages.push("[Customer shared a Facebook link/reel]");
+          if (isLinkShare) {
+            unrepliedCustomerMessages.push("[Customer shared a link/reel]");
           } else if (isDocumentAttachment) {
             unrepliedCustomerMessages.push("[Customer sent a document attachment]");
           } else if (isAudioOrVideo) {
             unrepliedCustomerMessages.push("[Customer sent an audio/video message]");
           } else {
-            const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) ||
+            const isImage =
               latestMessages[i].message_type === "image" ||
-              (!isDocumentAttachment && !isAudioOrVideo && !mediaUrl.includes("audioclip") && !mediaUrl.includes("videoclip"));
+              /\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?|$)/i.test(mediaUrl) ||
+              (isPrivateHostedAttachment && !isDocumentAttachment && !isAudioOrVideo);
             if (isImage) {
               if (isPrivateHostedAttachment) {
                 unrepliedCustomerMessages.push("[Customer sent an image attachment]");
@@ -100,10 +111,12 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         return { processed: 1, failed: 0, type: "followup" };
       }
 
-      if (conv.status === "ai_processing") {
-        await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conv.id);
-      }
-      return { processed: 0, failed: 0, skipped: 1 };
+      const recoveredStatus = lastMessage?.sender_type === "page" ? "replied" : "unreplied";
+      await supabase.from("conversations").update({
+        status: recoveredStatus,
+        ai_fail_reason: null,
+      }).eq("id", conv.id);
+      return { processed: 1, failed: 0, type: "recovered" };
     }
 
     const combinedCustomerMessage = unrepliedCustomerMessages.join("\n");
@@ -146,10 +159,13 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
     }
 
     const aiData = await aiResponse.json();
-    const suggestedReply = aiData.suggestedReply;
+    const fallbackReply = (page.auto_reply_followup || page.auto_reply_first_message || "Thank you for your message. Our team will get back to you shortly.").trim();
+    const suggestedReply = String(aiData.suggestedReply || fallbackReply).trim().slice(0, MAX_REPLY_LENGTH);
 
     if (!suggestedReply) {
-      return { processed: 0, failed: 0, skipped: 1 };
+      const failReason = retryMarker ? `${retryMarker} No AI reply generated` : "No AI reply generated";
+      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conv.id);
+      return { processed: 0, failed: 1, type: "new_reply" };
     }
 
     const sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
@@ -464,7 +480,6 @@ serve(async (req) => {
 
     // Fetch failed convs, excluding ones already attempted in this job (marked with [retried:jobId])
     const retryMarker = `[retried:${jobId}]`;
-    const MAX_RETRY_ATTEMPTS = 2;
     const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
@@ -474,37 +489,13 @@ serve(async (req) => {
       .order("created_at", { ascending: true })
       .limit(BATCH_SIZE);
 
-    const retryableConvs: typeof allFailedConvs = [];
-    const permanentlyFailed: string[] = [];
-
-    for (const c of (allFailedConvs || [])) {
+    const retryableConvs = (allFailedConvs || []).filter((c: any) => {
       const reason = (c.ai_fail_reason || "");
       const reasonLower = reason.toLowerCase();
-      // Skip already-attempted in this job
-      if (reason.includes(retryMarker)) continue;
-      // Skip permanently unavailable users
-      if (reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)")) continue;
-      // Check retry count - skip if already retried MAX times
-      const retryCountMatch = reason.match(/\[retryCount:(\d+)\]/);
-      const retryCount = retryCountMatch ? parseInt(retryCountMatch[1], 10) : 0;
-      if (retryCount >= MAX_RETRY_ATTEMPTS) {
-        permanentlyFailed.push(c.id);
-        continue;
-      }
-      (c as any)._retryCount = retryCount;
-      retryableConvs.push(c);
-    }
-
-    // Mark permanently failed conversations so they stop being retried
-    if (permanentlyFailed.length > 0) {
-      console.log(`Skipping ${permanentlyFailed.length} conversations that exceeded ${MAX_RETRY_ATTEMPTS} retry attempts`);
-      // Update job processed count for skipped ones
-      const { data: curJob } = await supabase.from("retry_jobs").select("processed").eq("id", jobId).single();
-      await supabase.from("retry_jobs").update({
-        processed: (curJob?.processed || 0) + permanentlyFailed.length,
-        updated_at: new Date().toISOString(),
-      }).eq("id", jobId);
-    }
+      if (reason.includes(retryMarker)) return false;
+      if (reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)")) return false;
+      return true;
+    });
 
     if (retryableConvs.length === 0) {
       // No more conversations — mark job complete and clean up retry markers
@@ -534,7 +525,7 @@ serve(async (req) => {
     const pageIds = [...new Set(retryableConvs.map(c => c.page_id))];
     const { data: pagesData } = await supabase
       .from("connected_pages")
-      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings")
+      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings, auto_reply_first_message, auto_reply_followup")
       .in("id", pageIds);
     const pagesMap = new Map((pagesData || []).map(p => [p.id, p]));
 
