@@ -549,7 +549,6 @@ serve(async (req) => {
       const result = page
         ? await processConversation(supabase, conv, page, supabaseUrl, supabaseKey, retryMarker, convRetryCount)
         : { processed: 0, failed: 1 };
-        : { processed: 0, failed: 1 };
 
       if (!page) {
         await supabase.from("conversations").update({ ai_fail_reason: `${retryMarker} Page not found` }).eq("id", conv.id);
