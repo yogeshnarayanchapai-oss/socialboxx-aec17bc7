@@ -601,8 +601,8 @@ serve(async (req) => {
         .eq("organization_id", orgId)
         .like("ai_fail_reason", `%${retryMarker}%`);
       for (const mc of (markedConvs || [])) {
-        const cleanReason = (mc.ai_fail_reason || "").replace(retryMarker, "").trim();
-        await supabase.from("conversations").update({ ai_fail_reason: cleanReason }).eq("id", mc.id);
+        const cleanReason = (mc.ai_fail_reason || "").replace(retryMarker, "").replace(/\[retryCount:\d+\]/g, "").trim();
+        await supabase.from("conversations").update({ ai_fail_reason: cleanReason || null }).eq("id", mc.id);
       }
       console.log(`Retry job ${jobId} completed (processed ${latestJob.processed}/${latestJob.total})`);
       return new Response(JSON.stringify({ message: "Job completed" }), {
