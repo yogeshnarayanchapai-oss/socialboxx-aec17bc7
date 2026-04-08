@@ -458,6 +458,7 @@ serve(async (req) => {
 
     // Fetch failed convs, excluding ones already attempted in this job (marked with [retried:jobId])
     const retryMarker = `[retried:${jobId}]`;
+    const MAX_RETRY_ATTEMPTS = 2;
     const { data: allFailedConvs } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
@@ -467,15 +468,37 @@ serve(async (req) => {
       .order("created_at", { ascending: true })
       .limit(BATCH_SIZE);
 
-    const retryableConvs = (allFailedConvs || []).filter(c => {
+    const retryableConvs: typeof allFailedConvs = [];
+    const permanentlyFailed: string[] = [];
+
+    for (const c of (allFailedConvs || [])) {
       const reason = (c.ai_fail_reason || "");
       const reasonLower = reason.toLowerCase();
       // Skip already-attempted in this job
-      if (reason.includes(retryMarker)) return false;
+      if (reason.includes(retryMarker)) continue;
       // Skip permanently unavailable users
-      if (reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)")) return false;
-      return true;
-    });
+      if (reasonLower.includes("person not available") || reasonLower.includes("user unavailable") || reasonLower.includes("(#551)") || reasonLower.includes("(#10)")) continue;
+      // Check retry count - skip if already retried MAX times
+      const retryCountMatch = reason.match(/\[retryCount:(\d+)\]/);
+      const retryCount = retryCountMatch ? parseInt(retryCountMatch[1], 10) : 0;
+      if (retryCount >= MAX_RETRY_ATTEMPTS) {
+        permanentlyFailed.push(c.id);
+        continue;
+      }
+      (c as any)._retryCount = retryCount;
+      retryableConvs.push(c);
+    }
+
+    // Mark permanently failed conversations so they stop being retried
+    if (permanentlyFailed.length > 0) {
+      console.log(`Skipping ${permanentlyFailed.length} conversations that exceeded ${MAX_RETRY_ATTEMPTS} retry attempts`);
+      // Update job processed count for skipped ones
+      const { data: curJob } = await supabase.from("retry_jobs").select("processed").eq("id", jobId).single();
+      await supabase.from("retry_jobs").update({
+        processed: (curJob?.processed || 0) + permanentlyFailed.length,
+        updated_at: new Date().toISOString(),
+      }).eq("id", jobId);
+    }
 
     if (retryableConvs.length === 0) {
       // No more conversations — mark job complete and clean up retry markers
