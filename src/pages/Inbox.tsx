@@ -398,15 +398,25 @@ export default function Inbox() {
         remark,
         status: "new",
       });
-      // Update conversation tag to "lead"
+      // Update conversation tag to "lead" and clear AI failed state if applicable
       const currentTags = selectedConversation.tags || [];
       const newTags = currentTags.filter(t => t !== 'new' && t !== 'follow-up');
       if (!newTags.includes('lead-created')) newTags.push('lead-created');
+      const wasAiFailed = selectedConversation.status === 'ai_failed';
+      const updates: Record<string, unknown> = { tags: newTags };
+      if (wasAiFailed) {
+        updates.status = 'replied';
+        updates.ai_fail_reason = null;
+      }
       await updateConversation.mutateAsync({
         conversationId: selectedConversation.id,
-        updates: { tags: newTags },
+        updates,
       });
-      setSelectedConversation({ ...selectedConversation, tags: newTags });
+      setSelectedConversation({
+        ...selectedConversation,
+        tags: newTags,
+        ...(wasAiFailed ? { status: 'replied', ai_fail_reason: null } : {}),
+      });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       toast.success(extractedPhone ? `Lead created with phone ${extractedPhone}!` : "Lead created!");
     } catch { toast.error("Failed to create lead"); }
