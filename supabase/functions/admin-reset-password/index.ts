@@ -76,14 +76,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (targetUserId === callerId) {
-      return new Response(JSON.stringify({ error: "Use account settings to change your own password" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Update password
+    // Update password (admin can also reset their own)
     const { error: updErr } = await admin.auth.admin.updateUserById(targetUserId, {
       password: newPassword,
     });
