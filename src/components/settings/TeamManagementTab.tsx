@@ -68,6 +68,40 @@ export function TeamManagementTab() {
 
   const currentEditMember = members?.find((m) => m.user_id === editMember);
 
+  // Reset password state
+  const [resetPasswordMember, setResetPasswordMember] = useState<{ user_id: string; name: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordMember) return;
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-reset-password", {
+        body: { targetUserId: resetPasswordMember.user_id, newPassword },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Password reset for ${resetPasswordMember.name}`);
+      setResetPasswordMember(null);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to reset password");
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
   const handleSelectAll = (level: string, setter: (val: Record<string, string>) => void) => {
     if (!pages) return;
     const newAccess: Record<string, string> = {};
