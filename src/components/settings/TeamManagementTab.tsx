@@ -559,6 +559,14 @@ export function TeamManagementTab() {
                         <Pencil className="mr-1 h-3.5 w-3.5" />
                         Edit
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setResetPasswordMember({ user_id: member.user_id, name: member.full_name || member.email || "Member" })}
+                      >
+                        <KeyRound className="mr-1 h-3.5 w-3.5" />
+                        Password
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleRemove(member.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
