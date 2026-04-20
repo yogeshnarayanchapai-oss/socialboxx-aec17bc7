@@ -242,6 +242,49 @@ export default function Inbox() {
     }
   }, [messages]);
 
+  // Refresh messages from Facebook for current conversation
+  const [refreshingMessages, setRefreshingMessages] = useState(false);
+  const handleRefreshMessages = async (silent = false) => {
+    if (!selectedConversation) return;
+    setRefreshingMessages(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/facebook-messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ action: "fetch_messages", pageId: selectedConversation.page_id, conversationId: selectedConversation.id }),
+        }
+      );
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to refresh");
+      await queryClient.invalidateQueries({ queryKey: ["messages", selectedConversation.id] });
+      if (!silent) toast.success(`Refreshed ${result.messages?.length || 0} messages from Facebook`);
+    } catch (error) {
+      if (!silent) toast.error(error instanceof Error ? error.message : "Failed to refresh");
+    } finally {
+      setRefreshingMessages(false);
+    }
+  };
+
+  // Auto-backfill: if conversation opened has 0 messages but a preview exists, silently refresh from Facebook
+  const autoBackfilledRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (
+      selectedConversation &&
+      !loadingMessages &&
+      messages.length === 0 &&
+      selectedConversation.last_message_preview &&
+      !autoBackfilledRef.current.has(selectedConversation.id) &&
+      !refreshingMessages
+    ) {
+      autoBackfilledRef.current.add(selectedConversation.id);
+      handleRefreshMessages(true);
+    }
+  }, [selectedConversation?.id, loadingMessages, messages.length]);
+
   const handleSend = async () => {
     if (!message.trim() || !selectedConversation) return;
     try {
@@ -843,11 +886,23 @@ export default function Inbox() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRefreshMessages(false)}
+                      disabled={refreshingMessages}
+                      title="Refresh messages from Facebook"
+                    >
+                      <RefreshCw className={cn("h-4 w-4", refreshingMessages && "animate-spin")} />
+                    </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleRefreshMessages(false)}>
+                          <RefreshCw className="h-4 w-4 mr-2" /> Refresh from Facebook
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={handleCreateLead}>Create Lead</DropdownMenuItem>
                         <DropdownMenuItem onClick={handleMarkFollowUp}>Mark as Follow-up</DropdownMenuItem>
                         <DropdownMenuItem>Archive</DropdownMenuItem>
@@ -869,10 +924,16 @@ export default function Inbox() {
 
                 {/* Messages */}
                 <div className="custom-scrollbar flex-1 overflow-y-auto p-4 space-y-3">
-                  {loadingMessages ? (
-                    <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                  {loadingMessages || refreshingMessages ? (
+                    <div className="flex flex-col items-center justify-center py-8 gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      {refreshingMessages && <p className="text-xs text-muted-foreground">Refreshing from Facebook...</p>}
+                    </div>
                   ) : messages.length === 0 ? (
-                    <div className="text-center text-muted-foreground py-8">No messages in this conversation</div>
+                    <div className="text-center text-muted-foreground py-8 space-y-2">
+                      <p>No messages loaded</p>
+                      <p className="text-xs">Click the refresh icon above to fetch from Facebook</p>
+                    </div>
                   ) : (
                     <>
                       {messages.map((msg) => {
