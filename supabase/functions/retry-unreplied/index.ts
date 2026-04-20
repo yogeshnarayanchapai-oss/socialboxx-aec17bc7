@@ -661,9 +661,9 @@ serve(async (req) => {
         })
         .eq("id", jobId);
 
-      // 1 second delay between messages (except last in batch)
+      // Short delay between messages (except last in batch) to avoid FB rate limits
       if (i < retryableConvs.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, INTER_MESSAGE_DELAY_MS));
       }
     }
 
