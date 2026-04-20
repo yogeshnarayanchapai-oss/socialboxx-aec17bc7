@@ -426,10 +426,82 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await req.json();
-    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset } = body;
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId } = body;
 
     // Check if this is an internal batch call (no auth needed — uses service key header check)
     const isInternalBatch = !!_batchJobId;
+    const isAutoCron = !!_autoCron;
+
+    // === AUTO CRON MODE: kick off bulk retry for a specific org without user auth ===
+    if (isAutoCron && cronOrgId) {
+      const { data: existingJob } = await supabase
+        .from("retry_jobs")
+        .select("id, updated_at")
+        .eq("organization_id", cronOrgId)
+        .eq("status", "running")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingJob) {
+        const lastUpdatedAt = existingJob.updated_at ? new Date(existingJob.updated_at).getTime() : 0;
+        const isStale = Date.now() - lastUpdatedAt > 45_000;
+        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id);
+        return new Response(JSON.stringify({ message: "Job already running", jobId: existingJob.id }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: allFailedConvs } = await supabase
+        .from("conversations")
+        .select("id, ai_fail_reason, page_id")
+        .in("status", ["ai_failed", "ai_processing"])
+        .eq("organization_id", cronOrgId)
+        .is("deleted_at", null);
+
+      if (!allFailedConvs || allFailedConvs.length === 0) {
+        return new Response(JSON.stringify({ message: "No failed convs" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const personNotAvailable = allFailedConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
+      const retryableConvs = allFailedConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason));
+
+      if (personNotAvailable.length > 0) {
+        await supabase.from("conversations")
+          .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
+          .in("id", personNotAvailable.map(c => c.id));
+      }
+
+      if (retryableConvs.length === 0) {
+        return new Response(JSON.stringify({ message: "Only unavailable cleared", unavailable_cleared: personNotAvailable.length }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const newMsgFail = retryableConvs.filter(c => {
+        const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
+        return !isFollowup;
+      }).length;
+
+      const { data: job } = await supabase.from("retry_jobs").insert({
+        organization_id: cronOrgId,
+        status: "running",
+        total: retryableConvs.length,
+        processed: 0,
+        failed: 0,
+        new_msg_fail: newMsgFail,
+        followup_fail: retryableConvs.length - newMsgFail,
+        unavailable_cleared: personNotAvailable.length,
+      }).select("id").single();
+
+      if (job) triggerRetryBatch(supabaseUrl, supabaseKey, job.id);
+
+      return new Response(JSON.stringify({ message: "Auto-cron job started", jobId: job?.id, total: retryableConvs.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!isInternalBatch) {
       // User-facing calls require auth
