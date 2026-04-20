@@ -357,14 +357,23 @@ export default function Inbox() {
       const customerMessages = messages
         .filter(m => m.sender_type === "customer" && m.content)
         .map(m => m.content!);
-      
-      // Search for Nepal mobile numbers (10 digits starting with 97 or 98)
+
+      // Search for Nepal mobile numbers — accepts +977, 977, or bare 97/98XXXXXXXX
+      // Strips +977 / 977 country code and keeps the 10-digit local number (97/98XXXXXXXX)
       for (const msg of customerMessages) {
-        const phoneMatch = msg.match(/(?:^|\D)(9[78]\d{8})(?:\D|$)/);
+        // Normalize: remove spaces, dashes, parens, dots
+        const normalized = msg.replace(/[\s\-().]/g, '');
+        const phoneMatch = normalized.match(/(?:\+?977)?(9[78]\d{8})(?!\d)/);
         if (phoneMatch) {
           extractedPhone = phoneMatch[1];
           break;
         }
+      }
+
+      // No phone found → show error and abort
+      if (!extractedPhone) {
+        toast.error("Lead भेटिएन — chat मा valid Nepal phone number (+977/977/97/98) छैन");
+        return;
       }
 
       // Get page details for source & product (same as AI lead creation)
