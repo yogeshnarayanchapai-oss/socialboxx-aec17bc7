@@ -886,11 +886,23 @@ export default function Inbox() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRefreshMessages(false)}
+                      disabled={refreshingMessages}
+                      title="Refresh messages from Facebook"
+                    >
+                      <RefreshCw className={cn("h-4 w-4", refreshingMessages && "animate-spin")} />
+                    </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleRefreshMessages(false)}>
+                          <RefreshCw className="h-4 w-4 mr-2" /> Refresh from Facebook
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={handleCreateLead}>Create Lead</DropdownMenuItem>
                         <DropdownMenuItem onClick={handleMarkFollowUp}>Mark as Follow-up</DropdownMenuItem>
                         <DropdownMenuItem>Archive</DropdownMenuItem>
