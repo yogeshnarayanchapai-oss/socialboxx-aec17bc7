@@ -615,6 +615,59 @@ export function TeamManagementTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={!!resetPasswordMember} onOpenChange={(open) => {
+        if (!open) {
+          setResetPasswordMember(null);
+          setNewPassword("");
+          setConfirmPassword("");
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for <strong>{resetPasswordMember?.name}</strong>. They can log in with this new password immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>New Password</Label>
+              <Input
+                type="password"
+                placeholder="Min 6 characters"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Confirm Password</Label>
+              <Input
+                type="password"
+                placeholder="Re-enter new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              ⚠️ Share the new password securely with the member. The old password will no longer work.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPasswordMember(null)}>Cancel</Button>
+            <Button
+              onClick={handleResetPassword}
+              disabled={resettingPassword || !newPassword || !confirmPassword}
+            >
+              {resettingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Reset Password
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
