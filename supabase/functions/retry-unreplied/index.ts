@@ -6,33 +6,37 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BATCH_SIZE = 25;
-const RETRY_SCAN_PAGE_SIZE = 200;
+const BATCH_SIZE = 15;
+const RETRY_SCAN_PAGE_SIZE = 300;
 const MAX_REPLY_LENGTH = 1900;
+const INTER_MESSAGE_DELAY_MS = 400;
+
+// Phone extraction: detects +977 / 977 / 97XXXXXXXX / 98XXXXXXXX anywhere in text
+function extractNepalPhone(text: string): string | null {
+  if (!text) return null;
+  const normalized = text.replace(/[\s\-().]/g, "");
+  const match = normalized.match(/(?:\+?977)?(9[78]\d{8})(?!\d)/);
+  return match ? match[1] : null;
+}
 
 const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.facebook\.com)/i;
 const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
 const AUDIO_VIDEO_EXTENSIONS = /\.(mp4|mov|avi|webm|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i;
 
-async function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+  // Fire-and-forget: do NOT await the response. The next batch runs in its own
+  // function instance so the current instance can return immediately and avoid
+  // hitting the edge-function execution-time limit when chaining many batches.
   try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
+    fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
       body: JSON.stringify({ _batchJobId: jobId }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Failed to trigger retry batch for job ${jobId}:`, errorText);
-      return false;
-    }
-
-    return true;
+    }).catch((err) => console.error(`Trigger batch fetch failed for job ${jobId}:`, err));
   } catch (error) {
     console.error(`Failed to trigger retry batch for job ${jobId}:`, error);
-    return false;
   }
+  return true;
 }
 
 function isPermanentlyUnavailable(reason?: string | null) {
@@ -149,6 +153,65 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
           }
         }
       } else break;
+    }
+
+    // === AUTO LEAD CREATION FROM PHONE ===
+    // If any customer message contains a Nepal phone number, create a lead and
+    // mark the conversation as replied — bypassing the AI call entirely.
+    const hasLeadTagAlready = conv.tags?.includes("lead-created") || false;
+    if (!hasLeadTagAlready) {
+      const allCustomerTexts = (recentMessages || [])
+        .filter((m: any) => m.sender_type === "customer" && m.content)
+        .map((m: any) => m.content as string);
+      let foundPhone: string | null = null;
+      for (const txt of allCustomerTexts) {
+        const p = extractNepalPhone(txt);
+        if (p) { foundPhone = p; break; }
+      }
+
+      if (foundPhone) {
+        const { data: existingLead } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("organization_id", page.organization_id)
+          .or(`phone.eq.${foundPhone},phone.ilike.%${foundPhone}%`)
+          .maybeSingle();
+
+        if (!existingLead) {
+          const inquiryTexts = allCustomerTexts.filter((t: string) => {
+            const stripped = t.replace(/[\s\-().+]/g, "");
+            return t.trim().length > 0 && !/^\d{9,}$/.test(stripped);
+          });
+          const remark = inquiryTexts.length > 0
+            ? inquiryTexts.join(" | ").substring(0, 500)
+            : "No Inquiry";
+          const lastCustomerMsg = allCustomerTexts.slice(-1)[0]?.substring(0, 200) || null;
+
+          await supabase.from("leads").insert({
+            phone: foundPhone,
+            full_name: conv.participant_name,
+            conversation_id: conv.id,
+            page_id: page.id,
+            source: page.page_name,
+            product: page.product_name || null,
+            status: "new",
+            organization_id: page.organization_id,
+            remark,
+            last_message: lastCustomerMsg,
+          });
+        }
+
+        const newTags = [...(conv.tags || []).filter((t: string) => t !== "new" && t !== "follow-up")];
+        if (!newTags.includes("lead-created")) newTags.push("lead-created");
+        await supabase.from("conversations").update({
+          status: "replied",
+          ai_fail_reason: null,
+          tags: newTags,
+        }).eq("id", conv.id);
+
+        console.log(`Auto-lead created from retry for conv ${conv.id} phone ${foundPhone}`);
+        return { processed: 1, failed: 0, type: "auto_lead" };
+      }
     }
 
     if (unrepliedCustomerMessages.length === 0) {
@@ -363,10 +426,82 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await req.json();
-    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset } = body;
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId } = body;
 
     // Check if this is an internal batch call (no auth needed — uses service key header check)
     const isInternalBatch = !!_batchJobId;
+    const isAutoCron = !!_autoCron;
+
+    // === AUTO CRON MODE: kick off bulk retry for a specific org without user auth ===
+    if (isAutoCron && cronOrgId) {
+      const { data: existingJob } = await supabase
+        .from("retry_jobs")
+        .select("id, updated_at")
+        .eq("organization_id", cronOrgId)
+        .eq("status", "running")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingJob) {
+        const lastUpdatedAt = existingJob.updated_at ? new Date(existingJob.updated_at).getTime() : 0;
+        const isStale = Date.now() - lastUpdatedAt > 45_000;
+        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id);
+        return new Response(JSON.stringify({ message: "Job already running", jobId: existingJob.id }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: allFailedConvs } = await supabase
+        .from("conversations")
+        .select("id, ai_fail_reason, page_id")
+        .in("status", ["ai_failed", "ai_processing"])
+        .eq("organization_id", cronOrgId)
+        .is("deleted_at", null);
+
+      if (!allFailedConvs || allFailedConvs.length === 0) {
+        return new Response(JSON.stringify({ message: "No failed convs" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const personNotAvailable = allFailedConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
+      const retryableConvs = allFailedConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason));
+
+      if (personNotAvailable.length > 0) {
+        await supabase.from("conversations")
+          .update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" })
+          .in("id", personNotAvailable.map(c => c.id));
+      }
+
+      if (retryableConvs.length === 0) {
+        return new Response(JSON.stringify({ message: "Only unavailable cleared", unavailable_cleared: personNotAvailable.length }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const newMsgFail = retryableConvs.filter(c => {
+        const isFollowup = c.ai_fail_reason?.includes("Followup") || c.ai_fail_reason?.includes("followup");
+        return !isFollowup;
+      }).length;
+
+      const { data: job } = await supabase.from("retry_jobs").insert({
+        organization_id: cronOrgId,
+        status: "running",
+        total: retryableConvs.length,
+        processed: 0,
+        failed: 0,
+        new_msg_fail: newMsgFail,
+        followup_fail: retryableConvs.length - newMsgFail,
+        unavailable_cleared: personNotAvailable.length,
+      }).select("id").single();
+
+      if (job) triggerRetryBatch(supabaseUrl, supabaseKey, job.id);
+
+      return new Response(JSON.stringify({ message: "Auto-cron job started", jobId: job?.id, total: retryableConvs.length }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!isInternalBatch) {
       // User-facing calls require auth
@@ -598,9 +733,9 @@ serve(async (req) => {
         })
         .eq("id", jobId);
 
-      // 1 second delay between messages (except last in batch)
+      // Short delay between messages (except last in batch) to avoid FB rate limits
       if (i < retryableConvs.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, INTER_MESSAGE_DELAY_MS));
       }
     }
 
