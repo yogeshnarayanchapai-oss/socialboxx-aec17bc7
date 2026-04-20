@@ -924,10 +924,16 @@ export default function Inbox() {
 
                 {/* Messages */}
                 <div className="custom-scrollbar flex-1 overflow-y-auto p-4 space-y-3">
-                  {loadingMessages ? (
-                    <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                  {loadingMessages || refreshingMessages ? (
+                    <div className="flex flex-col items-center justify-center py-8 gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      {refreshingMessages && <p className="text-xs text-muted-foreground">Refreshing from Facebook...</p>}
+                    </div>
                   ) : messages.length === 0 ? (
-                    <div className="text-center text-muted-foreground py-8">No messages in this conversation</div>
+                    <div className="text-center text-muted-foreground py-8 space-y-2">
+                      <p>No messages loaded</p>
+                      <p className="text-xs">Click the refresh icon above to fetch from Facebook</p>
+                    </div>
                   ) : (
                     <>
                       {messages.map((msg) => {
