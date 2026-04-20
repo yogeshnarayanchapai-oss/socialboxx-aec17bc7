@@ -6,33 +6,37 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BATCH_SIZE = 25;
-const RETRY_SCAN_PAGE_SIZE = 200;
+const BATCH_SIZE = 15;
+const RETRY_SCAN_PAGE_SIZE = 300;
 const MAX_REPLY_LENGTH = 1900;
+const INTER_MESSAGE_DELAY_MS = 400;
+
+// Phone extraction: detects +977 / 977 / 97XXXXXXXX / 98XXXXXXXX anywhere in text
+function extractNepalPhone(text: string): string | null {
+  if (!text) return null;
+  const normalized = text.replace(/[\s\-().]/g, "");
+  const match = normalized.match(/(?:\+?977)?(9[78]\d{8})(?!\d)/);
+  return match ? match[1] : null;
+}
 
 const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.facebook\.com)/i;
 const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
 const AUDIO_VIDEO_EXTENSIONS = /\.(mp4|mov|avi|webm|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i;
 
-async function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+  // Fire-and-forget: do NOT await the response. The next batch runs in its own
+  // function instance so the current instance can return immediately and avoid
+  // hitting the edge-function execution-time limit when chaining many batches.
   try {
-    const response = await fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
+    fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
       body: JSON.stringify({ _batchJobId: jobId }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Failed to trigger retry batch for job ${jobId}:`, errorText);
-      return false;
-    }
-
-    return true;
+    }).catch((err) => console.error(`Trigger batch fetch failed for job ${jobId}:`, err));
   } catch (error) {
     console.error(`Failed to trigger retry batch for job ${jobId}:`, error);
-    return false;
   }
+  return true;
 }
 
 function isPermanentlyUnavailable(reason?: string | null) {
