@@ -21,7 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Trash2, UserPlus, Shield, Eye, Pencil } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Shield, Eye, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useTeamMembers, useInviteTeamMember, useRemoveTeamMember, useUpdatePageAccess, useUpdateMemberRole } from "@/hooks/useTeamMembers";
 import { useConnectedPages } from "@/hooks/usePages";
@@ -67,6 +67,40 @@ export function TeamManagementTab() {
   const [editScopes, setEditScopes] = useState<{ type: string; groupId?: string; level: string }[]>([]);
 
   const currentEditMember = members?.find((m) => m.user_id === editMember);
+
+  // Reset password state
+  const [resetPasswordMember, setResetPasswordMember] = useState<{ user_id: string; name: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetPasswordMember) return;
+    if (newPassword.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-reset-password", {
+        body: { targetUserId: resetPasswordMember.user_id, newPassword },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Password reset for ${resetPasswordMember.name}`);
+      setResetPasswordMember(null);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to reset password");
+    } finally {
+      setResettingPassword(false);
+    }
+  };
 
   const handleSelectAll = (level: string, setter: (val: Record<string, string>) => void) => {
     if (!pages) return;
@@ -525,6 +559,14 @@ export function TeamManagementTab() {
                         <Pencil className="mr-1 h-3.5 w-3.5" />
                         Edit
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setResetPasswordMember({ user_id: member.user_id, name: member.full_name || member.email || "Member" })}
+                      >
+                        <KeyRound className="mr-1 h-3.5 w-3.5" />
+                        Password
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleRemove(member.id)}>
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -569,6 +611,59 @@ export function TeamManagementTab() {
             <Button onClick={handleSaveEdit} disabled={updateRole.isPending}>
               {updateRole.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog open={!!resetPasswordMember} onOpenChange={(open) => {
+        if (!open) {
+          setResetPasswordMember(null);
+          setNewPassword("");
+          setConfirmPassword("");
+        }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Set a new password for <strong>{resetPasswordMember?.name}</strong>. They can log in with this new password immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>New Password</Label>
+              <Input
+                type="password"
+                placeholder="Min 6 characters"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Confirm Password</Label>
+              <Input
+                type="password"
+                placeholder="Re-enter new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              ⚠️ Share the new password securely with the member. The old password will no longer work.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResetPasswordMember(null)}>Cancel</Button>
+            <Button
+              onClick={handleResetPassword}
+              disabled={resettingPassword || !newPassword || !confirmPassword}
+            >
+              {resettingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Reset Password
             </Button>
           </DialogFooter>
         </DialogContent>
