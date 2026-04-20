@@ -21,7 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, Trash2, UserPlus, Shield, Eye, Pencil } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Shield, Eye, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useTeamMembers, useInviteTeamMember, useRemoveTeamMember, useUpdatePageAccess, useUpdateMemberRole } from "@/hooks/useTeamMembers";
 import { useConnectedPages } from "@/hooks/usePages";
