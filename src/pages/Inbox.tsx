@@ -947,25 +947,22 @@ export default function Inbox() {
                         <Button variant="ghost" size="icon" onClick={handleGetAISuggestion} disabled={aiSuggestion.isPending} className="h-8 w-8 flex-shrink-0" title="AI suggestion">
                           {aiSuggestion.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                         </Button>
-                        {/* Templates dropdown */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 text-xs flex-shrink-0">
-                              Templates<ChevronDown className="ml-1 h-3 w-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent>
-                            {templates.length === 0 ? (
-                              <DropdownMenuItem disabled>No templates</DropdownMenuItem>
-                            ) : (
-                              templates.map((template) => (
-                                <DropdownMenuItem key={template.id} onClick={() => handleUseTemplate(template.content)}>
-                                  {template.name}
-                                </DropdownMenuItem>
-                              ))
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        {/* Mark as Lead button */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs flex-shrink-0"
+                          onClick={handleCreateLead}
+                          disabled={createLead.isPending}
+                          title="Extract phone number from chat and create a lead"
+                        >
+                          {createLead.isPending ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <User className="mr-1 h-3 w-3" />
+                          )}
+                          Mark as Lead
+                        </Button>
                       </div>
                       <Button onClick={handleSend} size="sm" disabled={sendMessage.isPending || !message.trim()} className="flex-shrink-0">
                         {sendMessage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
