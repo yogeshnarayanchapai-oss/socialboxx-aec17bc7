@@ -155,6 +155,65 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       } else break;
     }
 
+    // === AUTO LEAD CREATION FROM PHONE ===
+    // If any customer message contains a Nepal phone number, create a lead and
+    // mark the conversation as replied — bypassing the AI call entirely.
+    const hasLeadTagAlready = conv.tags?.includes("lead-created") || false;
+    if (!hasLeadTagAlready) {
+      const allCustomerTexts = (recentMessages || [])
+        .filter((m: any) => m.sender_type === "customer" && m.content)
+        .map((m: any) => m.content as string);
+      let foundPhone: string | null = null;
+      for (const txt of allCustomerTexts) {
+        const p = extractNepalPhone(txt);
+        if (p) { foundPhone = p; break; }
+      }
+
+      if (foundPhone) {
+        const { data: existingLead } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("organization_id", page.organization_id)
+          .or(`phone.eq.${foundPhone},phone.ilike.%${foundPhone}%`)
+          .maybeSingle();
+
+        if (!existingLead) {
+          const inquiryTexts = allCustomerTexts.filter((t: string) => {
+            const stripped = t.replace(/[\s\-().+]/g, "");
+            return t.trim().length > 0 && !/^\d{9,}$/.test(stripped);
+          });
+          const remark = inquiryTexts.length > 0
+            ? inquiryTexts.join(" | ").substring(0, 500)
+            : "No Inquiry";
+          const lastCustomerMsg = allCustomerTexts.slice(-1)[0]?.substring(0, 200) || null;
+
+          await supabase.from("leads").insert({
+            phone: foundPhone,
+            full_name: conv.participant_name,
+            conversation_id: conv.id,
+            page_id: page.id,
+            source: page.page_name,
+            product: page.product_name || null,
+            status: "new",
+            organization_id: page.organization_id,
+            remark,
+            last_message: lastCustomerMsg,
+          });
+        }
+
+        const newTags = [...(conv.tags || []).filter((t: string) => t !== "new" && t !== "follow-up")];
+        if (!newTags.includes("lead-created")) newTags.push("lead-created");
+        await supabase.from("conversations").update({
+          status: "replied",
+          ai_fail_reason: null,
+          tags: newTags,
+        }).eq("id", conv.id);
+
+        console.log(`Auto-lead created from retry for conv ${conv.id} phone ${foundPhone}`);
+        return { processed: 1, failed: 0, type: "auto_lead" };
+      }
+    }
+
     if (unrepliedCustomerMessages.length === 0) {
       const isFollowupFail = conv.ai_fail_reason?.includes("Followup") || conv.ai_fail_reason?.includes("followup");
       if (isFollowupFail) {
