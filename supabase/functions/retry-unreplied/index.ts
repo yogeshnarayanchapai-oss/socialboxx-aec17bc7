@@ -23,7 +23,7 @@ const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.fac
 const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
 const AUDIO_VIDEO_EXTENSIONS = /\.(mp4|mov|avi|webm|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i;
 
-function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
   // Fire-and-forget: do NOT await the response. The next batch runs in its own
   // function instance so the current instance can return immediately and avoid
   // hitting the edge-function execution-time limit when chaining many batches.
@@ -31,7 +31,7 @@ function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: stri
     fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-      body: JSON.stringify({ _batchJobId: jobId }),
+      body: JSON.stringify({ _batchJobId: jobId, _scanMode: scanMode }),
     }).catch((err) => console.error(`Trigger batch fetch failed for job ${jobId}:`, err));
   } catch (error) {
     console.error(`Failed to trigger retry batch for job ${jobId}:`, error);
