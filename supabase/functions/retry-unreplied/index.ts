@@ -47,15 +47,21 @@ function isPermanentlyUnavailable(reason?: string | null) {
     reasonLower.includes("(#551)");
 }
 
-async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string) {
+async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
   const candidates: any[] = [];
   let from = 0;
+
+  const statusFilter = scanMode === "unreplied"
+    ? ["unreplied"]
+    : scanMode === "all"
+      ? ["ai_failed", "ai_processing", "unreplied"]
+      : ["ai_failed", "ai_processing"];
 
   while (candidates.length < BATCH_SIZE) {
     const { data: pageConvs, error } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
-      .in("status", ["ai_failed", "ai_processing"])
+      .in("status", statusFilter)
       .eq("organization_id", orgId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true })
