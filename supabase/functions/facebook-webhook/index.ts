@@ -121,7 +121,7 @@ function isEmojiOrNonsense(text: string): boolean {
 }
 
 interface MediaAttachment {
-  type: "image" | "video" | "audio" | "link";
+  type: "image" | "video" | "link";
   url: string;
 }
 
@@ -143,7 +143,7 @@ async function sendAutoReply(
   recipientId: string, 
   messageContent: string,
   media?: MediaAttachment | null
-): Promise<boolean | "permanent_fail"> {
+): Promise<boolean> {
   try {
     const parsed = parseMessageContent(messageContent);
     const textMessage = parsed.text || messageContent;
@@ -992,21 +992,17 @@ serve(async (req) => {
 
                           // AI-based lead creation / update
                           // FALLBACK: If AI didn't detect lead, scan unreplied customer messages for phone numbers directly
-                          // STRICT: Nepal mobile must be EXACTLY 10 digits starting with 9 (97/98). 11+ digits = invalid.
                           let finalLeadAction = leadAction;
                           if ((!finalLeadAction?.should_create || !finalLeadAction?.phone) && !hasLeadTag) {
+                            // Scan all unreplied customer messages for phone numbers
                             for (const custMsg of unrepliedCustomerMessages) {
                               const detectedPhone = extractPhoneNumber(custMsg);
                               if (detectedPhone) {
                                 const digits = detectedPhone.replace(/\D/g, '');
-                                // Only accept EXACTLY 10 digits starting with 9 as a valid Nepal mobile
-                                if (digits.length === 10 && digits.startsWith('9')) {
-                                  console.log("FALLBACK phone detection found valid 10-digit:", detectedPhone);
+                                if (digits.length >= 10 && digits.startsWith('9')) {
+                                  console.log("FALLBACK phone detection found:", detectedPhone, "in message:", custMsg.substring(0, 50));
                                   finalLeadAction = { should_create: true, phone: detectedPhone, invalid_number: false, reason: "fallback-phone-detection" };
                                   break;
-                                } else {
-                                  // Found a number-like string but wrong length (e.g., 11+ digits) → treat as invalid, do NOT create lead
-                                  console.log(`FALLBACK detected number with invalid length (${digits.length}): ${detectedPhone} — skipping lead creation`);
                                 }
                               }
                             }

@@ -1,1 +1,0 @@
-DELETE FROM public.page_ai_prompt_cache;
