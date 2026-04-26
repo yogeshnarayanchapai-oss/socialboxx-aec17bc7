@@ -475,11 +475,13 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await req.json();
-    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId } = body;
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId, _scanMode: rawScanMode } = body;
 
     // Check if this is an internal batch call (no auth needed — uses service key header check)
     const isInternalBatch = !!_batchJobId;
     const isAutoCron = !!_autoCron;
+    const scanMode: "failed" | "unreplied" | "all" =
+      rawScanMode === "unreplied" || rawScanMode === "all" ? rawScanMode : "failed";
 
     // === AUTO CRON MODE: kick off bulk retry for a specific org without user auth ===
     if (isAutoCron && cronOrgId) {
@@ -495,21 +497,37 @@ serve(async (req) => {
       if (existingJob) {
         const lastUpdatedAt = existingJob.updated_at ? new Date(existingJob.updated_at).getTime() : 0;
         const isStale = Date.now() - lastUpdatedAt > 45_000;
-        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id);
+        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id, scanMode);
         return new Response(JSON.stringify({ message: "Job already running", jobId: existingJob.id }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
+      // Pre-pass: correct status drift for unreplied where page already replied.
+      let driftCorrected = 0;
+      if (scanMode === "unreplied" || scanMode === "all") {
+        try {
+          driftCorrected = await correctUnrepliedStatusDrift(supabase, cronOrgId);
+        } catch (e) {
+          console.error("Status drift correction failed:", e);
+        }
+      }
+
+      const candidateStatuses = scanMode === "unreplied"
+        ? ["unreplied"]
+        : scanMode === "all"
+          ? ["ai_failed", "ai_processing", "unreplied"]
+          : ["ai_failed", "ai_processing"];
+
       const { data: allFailedConvs } = await supabase
         .from("conversations")
-        .select("id, ai_fail_reason, page_id")
-        .in("status", ["ai_failed", "ai_processing"])
+        .select("id, ai_fail_reason, page_id, status")
+        .in("status", candidateStatuses)
         .eq("organization_id", cronOrgId)
         .is("deleted_at", null);
 
       if (!allFailedConvs || allFailedConvs.length === 0) {
-        return new Response(JSON.stringify({ message: "No failed convs" }), {
+        return new Response(JSON.stringify({ message: "No convs to retry", drift_corrected: driftCorrected }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -524,7 +542,7 @@ serve(async (req) => {
       }
 
       if (retryableConvs.length === 0) {
-        return new Response(JSON.stringify({ message: "Only unavailable cleared", unavailable_cleared: personNotAvailable.length }), {
+        return new Response(JSON.stringify({ message: "Only unavailable cleared", unavailable_cleared: personNotAvailable.length, drift_corrected: driftCorrected }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -545,9 +563,9 @@ serve(async (req) => {
         unavailable_cleared: personNotAvailable.length,
       }).select("id").single();
 
-      if (job) triggerRetryBatch(supabaseUrl, supabaseKey, job.id);
+      if (job) triggerRetryBatch(supabaseUrl, supabaseKey, job.id, scanMode);
 
-      return new Response(JSON.stringify({ message: "Auto-cron job started", jobId: job?.id, total: retryableConvs.length }), {
+      return new Response(JSON.stringify({ message: "Auto-cron job started", jobId: job?.id, total: retryableConvs.length, drift_corrected: driftCorrected, scan_mode: scanMode }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
