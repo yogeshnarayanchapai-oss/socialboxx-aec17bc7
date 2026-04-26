@@ -23,7 +23,7 @@ const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.fac
 const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
 const AUDIO_VIDEO_EXTENSIONS = /\.(mp4|mov|avi|webm|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i;
 
-function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string) {
+function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
   // Fire-and-forget: do NOT await the response. The next batch runs in its own
   // function instance so the current instance can return immediately and avoid
   // hitting the edge-function execution-time limit when chaining many batches.
@@ -31,7 +31,7 @@ function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: stri
     fetch(`${supabaseUrl}/functions/v1/retry-unreplied`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-      body: JSON.stringify({ _batchJobId: jobId }),
+      body: JSON.stringify({ _batchJobId: jobId, _scanMode: scanMode }),
     }).catch((err) => console.error(`Trigger batch fetch failed for job ${jobId}:`, err));
   } catch (error) {
     console.error(`Failed to trigger retry batch for job ${jobId}:`, error);
@@ -47,15 +47,21 @@ function isPermanentlyUnavailable(reason?: string | null) {
     reasonLower.includes("(#551)");
 }
 
-async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string) {
+async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
   const candidates: any[] = [];
   let from = 0;
+
+  const statusFilter = scanMode === "unreplied"
+    ? ["unreplied"]
+    : scanMode === "all"
+      ? ["ai_failed", "ai_processing", "unreplied"]
+      : ["ai_failed", "ai_processing"];
 
   while (candidates.length < BATCH_SIZE) {
     const { data: pageConvs, error } = await supabase
       .from("conversations")
       .select("id, ai_fail_reason, ai_followup_step, status, page_id, participant_id, participant_name, tags")
-      .in("status", ["ai_failed", "ai_processing"])
+      .in("status", statusFilter)
       .eq("organization_id", orgId)
       .is("deleted_at", null)
       .order("created_at", { ascending: true })
@@ -97,6 +103,49 @@ async function cleanupRetryMarkers(supabase: any, orgId: string, retryMarker: st
       .trim();
     await supabase.from("conversations").update({ ai_fail_reason: cleanReason || null }).eq("id", mc.id);
   }
+}
+
+// Pre-pass: scan unreplied conversations and mark as 'replied' if the latest
+// message in the conversation is from the page (already responded) — these are
+// status drift, not actual unanswered messages. Returns count of corrected rows.
+async function correctUnrepliedStatusDrift(supabase: any, orgId: string): Promise<number> {
+  let corrected = 0;
+  const PAGE_SIZE = 500;
+  let from = 0;
+
+  while (true) {
+    const { data: convs } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("status", "unreplied")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (!convs || convs.length === 0) break;
+
+    // Fetch last message per conversation in batch
+    for (const c of convs) {
+      const { data: lastMsg } = await supabase
+        .from("messages")
+        .select("sender_type")
+        .eq("conversation_id", c.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastMsg && lastMsg.sender_type === "page") {
+        await supabase.from("conversations")
+          .update({ status: "replied", ai_fail_reason: null })
+          .eq("id", c.id);
+        corrected++;
+      }
+    }
+
+    if (convs.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return corrected;
 }
 
 async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string, retryMarker?: string, retryCount?: number) {
@@ -426,11 +475,13 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await req.json();
-    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId } = body;
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId, _scanMode: rawScanMode } = body;
 
     // Check if this is an internal batch call (no auth needed — uses service key header check)
     const isInternalBatch = !!_batchJobId;
     const isAutoCron = !!_autoCron;
+    const scanMode: "failed" | "unreplied" | "all" =
+      rawScanMode === "unreplied" || rawScanMode === "all" ? rawScanMode : "failed";
 
     // === AUTO CRON MODE: kick off bulk retry for a specific org without user auth ===
     if (isAutoCron && cronOrgId) {
@@ -446,21 +497,37 @@ serve(async (req) => {
       if (existingJob) {
         const lastUpdatedAt = existingJob.updated_at ? new Date(existingJob.updated_at).getTime() : 0;
         const isStale = Date.now() - lastUpdatedAt > 45_000;
-        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id);
+        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id, scanMode);
         return new Response(JSON.stringify({ message: "Job already running", jobId: existingJob.id }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
+      // Pre-pass: correct status drift for unreplied where page already replied.
+      let driftCorrected = 0;
+      if (scanMode === "unreplied" || scanMode === "all") {
+        try {
+          driftCorrected = await correctUnrepliedStatusDrift(supabase, cronOrgId);
+        } catch (e) {
+          console.error("Status drift correction failed:", e);
+        }
+      }
+
+      const candidateStatuses = scanMode === "unreplied"
+        ? ["unreplied"]
+        : scanMode === "all"
+          ? ["ai_failed", "ai_processing", "unreplied"]
+          : ["ai_failed", "ai_processing"];
+
       const { data: allFailedConvs } = await supabase
         .from("conversations")
-        .select("id, ai_fail_reason, page_id")
-        .in("status", ["ai_failed", "ai_processing"])
+        .select("id, ai_fail_reason, page_id, status")
+        .in("status", candidateStatuses)
         .eq("organization_id", cronOrgId)
         .is("deleted_at", null);
 
       if (!allFailedConvs || allFailedConvs.length === 0) {
-        return new Response(JSON.stringify({ message: "No failed convs" }), {
+        return new Response(JSON.stringify({ message: "No convs to retry", drift_corrected: driftCorrected }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -475,7 +542,7 @@ serve(async (req) => {
       }
 
       if (retryableConvs.length === 0) {
-        return new Response(JSON.stringify({ message: "Only unavailable cleared", unavailable_cleared: personNotAvailable.length }), {
+        return new Response(JSON.stringify({ message: "Only unavailable cleared", unavailable_cleared: personNotAvailable.length, drift_corrected: driftCorrected }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -496,9 +563,9 @@ serve(async (req) => {
         unavailable_cleared: personNotAvailable.length,
       }).select("id").single();
 
-      if (job) triggerRetryBatch(supabaseUrl, supabaseKey, job.id);
+      if (job) triggerRetryBatch(supabaseUrl, supabaseKey, job.id, scanMode);
 
-      return new Response(JSON.stringify({ message: "Auto-cron job started", jobId: job?.id, total: retryableConvs.length }), {
+      return new Response(JSON.stringify({ message: "Auto-cron job started", jobId: job?.id, total: retryableConvs.length, drift_corrected: driftCorrected, scan_mode: scanMode }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -672,7 +739,7 @@ serve(async (req) => {
     // Fetch next retryable batch for this job. We scan pages of records so earlier failed rows
     // from this same job do not block later conversations from being processed.
     const retryMarker = `[retried:${jobId}]`;
-    const retryableConvs = await loadRetryableBatch(supabase, orgId, retryMarker);
+    const retryableConvs = await loadRetryableBatch(supabase, orgId, retryMarker, scanMode);
 
     if (retryableConvs.length === 0) {
       // No more conversations — mark job complete and clean up retry markers
@@ -762,7 +829,7 @@ serve(async (req) => {
     }
 
     // Trigger next batch
-    await triggerRetryBatch(supabaseUrl, supabaseKey, jobId);
+    await triggerRetryBatch(supabaseUrl, supabaseKey, jobId, scanMode);
 
     return new Response(JSON.stringify({ message: "Batch done" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
