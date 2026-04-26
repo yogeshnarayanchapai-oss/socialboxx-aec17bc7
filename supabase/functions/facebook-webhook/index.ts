@@ -121,7 +121,7 @@ function isEmojiOrNonsense(text: string): boolean {
 }
 
 interface MediaAttachment {
-  type: "image" | "video" | "link";
+  type: "image" | "video" | "audio" | "link";
   url: string;
 }
 
