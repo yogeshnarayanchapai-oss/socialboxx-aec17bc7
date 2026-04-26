@@ -966,7 +966,7 @@ serve(async (req) => {
                           }
                         }
                         
-                        if (sent) {
+                        if (sent === true) {
                           await supabase.from("messages").insert({
                             conversation_id: conversationId,
                             content: suggestedReply,
