@@ -829,7 +829,7 @@ serve(async (req) => {
     }
 
     // Trigger next batch
-    await triggerRetryBatch(supabaseUrl, supabaseKey, jobId);
+    await triggerRetryBatch(supabaseUrl, supabaseKey, jobId, scanMode);
 
     return new Response(JSON.stringify({ message: "Batch done" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
