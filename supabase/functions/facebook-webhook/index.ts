@@ -121,7 +121,7 @@ function isEmojiOrNonsense(text: string): boolean {
 }
 
 interface MediaAttachment {
-  type: "image" | "video" | "link";
+  type: "image" | "video" | "audio" | "link";
   url: string;
 }
 
@@ -143,7 +143,7 @@ async function sendAutoReply(
   recipientId: string, 
   messageContent: string,
   media?: MediaAttachment | null
-): Promise<boolean> {
+): Promise<boolean | "permanent_fail"> {
   try {
     const parsed = parseMessageContent(messageContent);
     const textMessage = parsed.text || messageContent;

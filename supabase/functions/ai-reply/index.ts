@@ -425,7 +425,7 @@ NEPAL MOBILE NUMBER VALIDATION (CRITICAL):
 - If the customer sends a number with 11, 12, or more digits (e.g., "98321578901", "976795449698"), or fewer than 10 digits, it is INVALID.
 - Country code "+977" or "977" prefix is allowed — strip it first, the remaining must be exactly 10 digits starting with 9.
 - For invalid numbers, set invalid_number=true, should_create=false, and your reply MUST politely say something like: "तपाईंले दिनुभएको नम्बर मिलेन। कृपया सही 10 अंकको नम्बर पठाउनुहोस् (जस्तै: 98XXXXXXXX)।" — match the language style from the page instructions (Roman Nepali / Devanagari / English).
-- DO NOT silently accept 11+ digit numbers. Always flag them as invalid and ask for the correct one.
+- DO NOT silently accept 11+ digit numbers. Always flag them as invalid and ask for the correct one.`;
       console.log("Built AI prompt from scratch (no cache)");
     }
 
