@@ -105,6 +105,49 @@ async function cleanupRetryMarkers(supabase: any, orgId: string, retryMarker: st
   }
 }
 
+// Pre-pass: scan unreplied conversations and mark as 'replied' if the latest
+// message in the conversation is from the page (already responded) — these are
+// status drift, not actual unanswered messages. Returns count of corrected rows.
+async function correctUnrepliedStatusDrift(supabase: any, orgId: string): Promise<number> {
+  let corrected = 0;
+  const PAGE_SIZE = 500;
+  let from = 0;
+
+  while (true) {
+    const { data: convs } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("status", "unreplied")
+      .eq("organization_id", orgId)
+      .is("deleted_at", null)
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (!convs || convs.length === 0) break;
+
+    // Fetch last message per conversation in batch
+    for (const c of convs) {
+      const { data: lastMsg } = await supabase
+        .from("messages")
+        .select("sender_type")
+        .eq("conversation_id", c.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastMsg && lastMsg.sender_type === "page") {
+        await supabase.from("conversations")
+          .update({ status: "replied", ai_fail_reason: null })
+          .eq("id", c.id);
+        corrected++;
+      }
+    }
+
+    if (convs.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return corrected;
+}
+
 async function processConversation(supabase: any, conv: any, page: any, supabaseUrl: string, supabaseKey: string, retryMarker?: string, retryCount?: number) {
   try {
     const { data: recentMessages } = await supabase
