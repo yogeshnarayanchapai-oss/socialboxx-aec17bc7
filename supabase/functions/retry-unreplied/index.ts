@@ -739,7 +739,7 @@ serve(async (req) => {
     // Fetch next retryable batch for this job. We scan pages of records so earlier failed rows
     // from this same job do not block later conversations from being processed.
     const retryMarker = `[retried:${jobId}]`;
-    const retryableConvs = await loadRetryableBatch(supabase, orgId, retryMarker);
+    const retryableConvs = await loadRetryableBatch(supabase, orgId, retryMarker, scanMode);
 
     if (retryableConvs.length === 0) {
       // No more conversations — mark job complete and clean up retry markers
