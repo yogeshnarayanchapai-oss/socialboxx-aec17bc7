@@ -506,27 +506,6 @@ serve(async (req) => {
       if (!response.ok) {
         const error = await response.json();
         console.error("Failed to send message:", error);
-        const fbSubcode = error?.error?.error_subcode;
-        const fbMsg = String(error?.error?.message || "");
-        const isOutsideWindow = fbSubcode === 2018278 || fbMsg.toLowerCase().includes("outside of allowed window");
-        if (isOutsideWindow) {
-          // Mark conversation as outside-window so retries skip it
-          await supabase
-            .from("conversations")
-            .update({
-              status: "replied",
-              ai_fail_reason: "Outside of allowed window (24h policy) - cannot reply",
-              last_message_preview: "⚠️ Outside 24h reply window",
-            })
-            .eq("id", conversationId);
-          return new Response(
-            JSON.stringify({
-              error: "Facebook 24-hour reply window has expired. You can no longer message this user until they message you again (Facebook policy).",
-              code: "OUTSIDE_WINDOW",
-            }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
         throw new Error(error.error?.message || "Failed to send message");
       }
 
