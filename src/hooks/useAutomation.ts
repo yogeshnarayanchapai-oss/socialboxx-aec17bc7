@@ -128,9 +128,16 @@ export function useCreateTemplate() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
+      const { data: member } = await supabase
+        .from("organization_members")
+        .select("organization_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!member?.organization_id) throw new Error("No organization found");
+
       const { data, error } = await supabase
         .from("reply_templates")
-        .insert({ ...template, created_by: user.id })
+        .insert({ ...template, created_by: user.id, organization_id: member.organization_id })
         .select()
         .single();
 
