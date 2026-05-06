@@ -44,7 +44,10 @@ function isPermanentlyUnavailable(reason?: string | null) {
   return reasonLower.includes("person not available") ||
     reasonLower.includes("user unavailable") ||
     reasonLower.includes("blocked or deactivated") ||
-    reasonLower.includes("(#551)");
+    reasonLower.includes("(#551)") ||
+    reasonLower.includes("outside of allowed window") ||
+    reasonLower.includes("outside_window") ||
+    reasonLower.includes("2018278");
 }
 
 async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
