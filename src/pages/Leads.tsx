@@ -206,9 +206,12 @@ export default function Leads() {
         full_name: newLead.full_name,
         phone: newLead.phone,
         status: "new",
+        page_id: newLead.page_id || null,
+        product: newLead.product || null,
+        source: newLead.page_id ? (pages.find(p => p.id === newLead.page_id)?.page_name || null) : null,
       });
       setIsAddOpen(false);
-      setNewLead({ full_name: "", phone: "" });
+      setNewLead({ full_name: "", phone: "", page_id: "", product: "" });
       toast.success("Lead created!");
     } catch (error) {
       toast.error("Failed to create lead");
