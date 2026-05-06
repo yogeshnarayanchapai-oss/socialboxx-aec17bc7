@@ -566,6 +566,7 @@ serve(async (req) => {
           last_message_preview: message?.substring(0, 100),
           last_message_at: new Date().toISOString(),
           status: "replied",
+          ai_fail_reason: null,
         })
         .eq("id", conversationId);
 

@@ -297,6 +297,11 @@ export default function Inbox() {
         recipientId: selectedConversation.participant_id || "",
         message: text,
       });
+      // Clear stuck AI state locally so it leaves AI Failed / Unreplied filters immediately
+      if (selectedConversation.status === 'ai_failed' || selectedConversation.status === 'ai_processing' || selectedConversation.status === 'unreplied') {
+        setSelectedConversation({ ...selectedConversation, status: 'replied', ai_fail_reason: null });
+      }
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
     } catch (error) {
       setMessage(text); // restore on failure
       toast.error(error instanceof Error ? error.message : "Failed to send message");
