@@ -160,7 +160,7 @@ export function usePagePerformance() {
         messages: convCountByPage.get(page.id) || 0,
         leads: leadCountByPage.get(page.id) || 0,
         rate: "95%",
-      }));
+      })).sort((a, b) => b.messages - a.messages);
 
       return performance;
     },
