@@ -441,40 +441,45 @@ serve(async (req) => {
 
       if (!conv) throw new Error("Conversation not found");
 
-      const response = await fetch(
-        `https://graph.facebook.com/v19.0/${conv.external_conversation_id}/messages?fields=id,message,from,created_time,attachments&limit=50&access_token=${pageAccessToken}`
-      );
+      // Only call FB Graph if external_conversation_id is a real FB thread id (e.g. "t_xxx").
+      // Webhook-created conversations use "{pageId}_{senderId}" which is NOT a valid FB node.
+      const extId = conv.external_conversation_id || "";
+      const isRealFbThread = extId.startsWith("t_");
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || "Failed to fetch messages");
-      }
+      if (isRealFbThread) {
+        const response = await fetch(
+          `https://graph.facebook.com/v19.0/${extId}/messages?fields=id,message,from,created_time,attachments&limit=50&access_token=${pageAccessToken}`
+        );
 
-      const data = await response.json();
-      const messages = data.data || [];
+        if (response.ok) {
+          const data = await response.json();
+          const messages = data.data || [];
 
-      // Sync messages to database
-      for (const msg of messages) {
-        const isFromPage = msg.from?.id === fbPageId;
-        
-        const { data: existingMsg } = await supabase
-          .from("messages")
-          .select("id")
-          .eq("external_message_id", msg.id)
-          .maybeSingle();
+          for (const msg of messages) {
+            const isFromPage = msg.from?.id === fbPageId;
+            const { data: existingMsg } = await supabase
+              .from("messages")
+              .select("id")
+              .eq("external_message_id", msg.id)
+              .maybeSingle();
 
-        if (!existingMsg) {
-          await supabase
-            .from("messages")
-            .insert({
-              external_message_id: msg.id,
-              conversation_id: conversationId,
-              content: msg.message || "",
-              sender_type: isFromPage ? "page" : "customer",
-              created_at: msg.created_time,
-              media_url: msg.attachments?.data?.[0]?.image_data?.url || 
-                        msg.attachments?.data?.[0]?.file_url || null,
-            });
+            if (!existingMsg) {
+              await supabase
+                .from("messages")
+                .insert({
+                  external_message_id: msg.id,
+                  conversation_id: conversationId,
+                  content: msg.message || "",
+                  sender_type: isFromPage ? "page" : "customer",
+                  created_at: msg.created_time,
+                  media_url: msg.attachments?.data?.[0]?.image_data?.url || 
+                            msg.attachments?.data?.[0]?.file_url || null,
+                });
+            }
+          }
+        } else {
+          const error = await response.json();
+          console.warn("FB fetch_messages failed, returning DB messages only:", error?.error?.message);
         }
       }
 
