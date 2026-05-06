@@ -694,10 +694,10 @@ export default function Inbox() {
         {/* Conversation List */}
         {showConversationList && (
           <div className={cn(
-            "flex-shrink-0 border-r border-border bg-card",
+            "flex-shrink-0 border-r border-border bg-card flex flex-col",
             isMobile ? "w-full" : "w-80 lg:w-96"
           )}>
-            <div className="border-b border-border p-3 space-y-2">
+            <div className="border-b border-border p-3 space-y-2 flex-shrink-0">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input placeholder="Search..." className="pl-9 h-9" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
