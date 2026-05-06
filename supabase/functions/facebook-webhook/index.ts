@@ -150,7 +150,7 @@ async function sendAutoReply(
     const mediaToSend = media || parsed.media;
 
     if (textMessage) {
-      const textResponse = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+      let textResponse = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -159,12 +159,32 @@ async function sendAutoReply(
           access_token: pageAccessToken,
         }),
       });
+      // If outside 24h window, retry with HUMAN_AGENT tag (7-day window)
+      if (!textResponse.ok) {
+        try {
+          const errPeek = await textResponse.clone().json();
+          const subcode = errPeek?.error?.error_subcode;
+          const msgL = String(errPeek?.error?.message || "").toLowerCase();
+          if (subcode === 2018278 || msgL.includes("outside of allowed window") || msgL.includes("outside the allowed window")) {
+            console.log("Outside-window detected, retrying with HUMAN_AGENT tag");
+            textResponse = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                recipient: { id: recipientId },
+                message: { text: textMessage },
+                messaging_type: "MESSAGE_TAG",
+                tag: "HUMAN_AGENT",
+                access_token: pageAccessToken,
+              }),
+            });
+          }
+        } catch (_) { /* ignore */ }
+      }
       if (!textResponse.ok) {
         const errBody = await textResponse.json();
         const fbCode = errBody?.error?.code;
         console.error("Auto-reply text failed:", errBody);
-        // Only true user-unavailable cases are permanent (blocked/deactivated).
-        // Outside-window and other transient errors should be retried later.
         const fbMessage = String(errBody?.error?.message || '').toLowerCase();
         const isPermanentUnavailable = fbCode === 551 || fbMessage.includes('person not available') || fbMessage.includes('user unavailable') || fbMessage.includes('blocked or deactivated');
         if (isPermanentUnavailable) {
