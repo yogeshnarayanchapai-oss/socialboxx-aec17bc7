@@ -357,18 +357,23 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
     if (!sendResponse.ok) {
       const err = await sendResponse.json();
       const fbErrorCode = err?.error?.code;
+      const fbErrorSubcode = err?.error?.error_subcode;
       const fbErrorMessage = String(err?.error?.message || "");
-      const isPermanent = fbErrorCode === 551 || isPermanentlyUnavailable(fbErrorMessage);
-      const errMsg = isPermanent
-        ? "User unavailable on Facebook (blocked or deactivated)"
-        : `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
+      const isOutsideWindow = fbErrorSubcode === 2018278 || fbErrorMessage.toLowerCase().includes("outside of allowed window");
+      const isPermanent = fbErrorCode === 551 || isOutsideWindow || isPermanentlyUnavailable(fbErrorMessage);
+      const errMsg = isOutsideWindow
+        ? "Outside of allowed window (24h policy) - cannot reply"
+        : isPermanent
+          ? "User unavailable on Facebook (blocked or deactivated)"
+          : `Facebook send failed: ${JSON.stringify(err).substring(0, 150)}`;
       const newRetryCount2 = (retryCount || 0) + 1;
       const retryCountTag2 = `[retryCount:${newRetryCount2}]`;
-      const markedErrMsg = (!isPermanent && retryMarker) ? `${retryMarker} ${retryCountTag2} ${errMsg}` : (isPermanent ? null : `${retryCountTag2} ${errMsg}`);
+      const markedErrMsg = (!isPermanent && retryMarker) ? `${retryMarker} ${retryCountTag2} ${errMsg}` : (isPermanent ? errMsg : `${retryCountTag2} ${errMsg}`);
       await supabase.from("conversations").update({
         status: isPermanent ? "replied" : "ai_failed",
-        ai_fail_reason: isPermanent ? null : markedErrMsg,
-        ...(isPermanent ? { last_message_preview: "⚠️ User unavailable on Facebook" } : {}),
+        ai_fail_reason: isPermanent ? markedErrMsg : markedErrMsg,
+        ...(isOutsideWindow ? { last_message_preview: "⚠️ Outside 24h reply window" } : {}),
+        ...(isPermanent && !isOutsideWindow ? { last_message_preview: "⚠️ User unavailable on Facebook" } : {}),
       }).eq("id", conv.id);
       return { processed: isPermanent ? 1 : 0, failed: isPermanent ? 0 : 1, type: "new_reply" };
     }
