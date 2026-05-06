@@ -250,12 +250,19 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
     const isServiceRole = token === supabaseKey;
+    const isAnonKey = anonKey && token === anonKey;
 
-    if (!isServiceRole) {
-      const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-      if (userError || !user) {
-        throw new Error("Unauthorized");
+    if (!isServiceRole && !isAnonKey) {
+      // Validate JWT via claims (doesn't require fresh DB lookup, more reliable than getUser)
+      const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+      if (claimsError || !claimsData?.claims) {
+        // Fallback to getUser for legacy tokens
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        if (userError || !user) {
+          throw new Error("Unauthorized");
+        }
       }
     }
 
