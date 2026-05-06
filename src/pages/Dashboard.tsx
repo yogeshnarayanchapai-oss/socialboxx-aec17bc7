@@ -23,9 +23,9 @@ export default function Dashboard() {
 
   const metrics = [
     {
-      title: "Messages (7d)",
-      value: stats?.totalMessages7d || 0,
-      change: "Last 7 days",
+      title: "Messages Today",
+      value: stats?.totalMessagesToday || 0,
+      change: "Today's count",
       changeType: "neutral" as const,
       icon: MessageSquare,
       href: "/inbox",
@@ -39,6 +39,14 @@ export default function Dashboard() {
       href: "/inbox?filter=unreplied",
     },
     {
+      title: "Total AI Fail",
+      value: stats?.aiFailedCount || 0,
+      change: (stats?.aiFailedCount || 0) > 0 ? "Needs retry" : "All good",
+      changeType: (stats?.aiFailedCount || 0) > 0 ? "negative" as const : "positive" as const,
+      icon: Bot,
+      href: "/inbox?filter=ai_failed",
+    },
+    {
       title: "Leads Pending",
       value: stats?.leadsPending || 0,
       change: "New & Hot leads",
@@ -47,10 +55,10 @@ export default function Dashboard() {
       href: "/leads",
     },
     {
-      title: "Today Follow-ups",
-      value: stats?.todayFollowupTotal || 0,
-      change: `AI: ${stats?.todayFollowupAI || 0} | Auto: ${stats?.todayFollowupAutomation || 0}`,
-      changeType: "neutral" as const,
+      title: "Today Follow-ups & Due",
+      value: (stats?.todayFollowupTotal || 0) + (stats?.followUpsDue || 0),
+      change: `Sent: ${stats?.todayFollowupTotal || 0} | Due: ${stats?.followUpsDue || 0}`,
+      changeType: (stats?.followUpsDue || 0) > 0 ? "negative" as const : "neutral" as const,
       icon: Send,
       href: "/inbox?filter=follow-up",
     },
@@ -61,14 +69,6 @@ export default function Dashboard() {
       changeType: "positive" as const,
       icon: TrendingUp,
       href: "/reports",
-    },
-    {
-      title: "Follow-ups Due",
-      value: stats?.followUpsDue?.toString() || "0",
-      change: stats?.followUpsDue && stats.followUpsDue > 0 ? "Action needed" : "No pending",
-      changeType: (stats?.followUpsDue || 0) > 0 ? "negative" as const : "positive" as const,
-      icon: Clock,
-      href: "/leads?status=follow_up",
     },
   ];
 
