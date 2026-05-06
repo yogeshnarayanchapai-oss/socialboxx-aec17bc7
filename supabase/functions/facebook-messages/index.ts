@@ -136,14 +136,18 @@ serve(async (req) => {
     const isServiceRole = token === supabaseKey;
     const isAnonKey = anonKey && token === anonKey;
 
+    let userId: string | null = null;
     if (!isServiceRole && !isAnonKey) {
       // Prefer JWT claims (no DB lookup, more reliable)
       const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-      if (claimsError || !claimsData?.claims) {
+      if (!claimsError && claimsData?.claims?.sub) {
+        userId = claimsData.claims.sub as string;
+      } else {
         const { data: { user }, error: userError } = await supabase.auth.getUser(token);
         if (userError || !user) {
           throw new Error("Unauthorized");
         }
+        userId = user.id;
       }
     }
 
@@ -547,7 +551,7 @@ serve(async (req) => {
           conversation_id: conversationId,
           content: message,
           sender_type: "page",
-          sent_by: user.id,
+          sent_by: userId,
           media_url: mediaUrl,
         })
         .select()
