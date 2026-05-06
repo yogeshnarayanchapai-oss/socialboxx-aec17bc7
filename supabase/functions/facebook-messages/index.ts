@@ -534,7 +534,7 @@ serve(async (req) => {
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...messagePayload, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
+                body: JSON.stringify({ ...messagePayload, messaging_type: "HUMAN_AGENT" }),
               }
             );
           }
