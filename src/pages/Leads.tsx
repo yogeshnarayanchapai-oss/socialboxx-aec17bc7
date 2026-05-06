@@ -72,7 +72,7 @@ export default function Leads() {
   const [pageSearch, setPageSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
+  const [newLead, setNewLead] = useState({ full_name: "", phone: "", page_id: "", product: "" });
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const isMobile = useIsMobile();
