@@ -131,11 +131,20 @@ serve(async (req) => {
       throw new Error("No authorization header");
     }
 
-    const { data: { user }, error: userError } = await supabase.auth.getUser(
-      authHeader.replace("Bearer ", "")
-    );
-    if (userError || !user) {
-      throw new Error("Unauthorized");
+    const token = authHeader.replace("Bearer ", "");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
+    const isServiceRole = token === supabaseKey;
+    const isAnonKey = anonKey && token === anonKey;
+
+    if (!isServiceRole && !isAnonKey) {
+      // Prefer JWT claims (no DB lookup, more reliable)
+      const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+      if (claimsError || !claimsData?.claims) {
+        const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+        if (userError || !user) {
+          throw new Error("Unauthorized");
+        }
+      }
     }
 
     const { action, pageId, conversationId, recipientId, message, mediaUrl } = await req.json();
