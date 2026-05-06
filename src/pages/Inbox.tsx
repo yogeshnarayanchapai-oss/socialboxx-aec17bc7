@@ -591,7 +591,7 @@ export default function Inbox() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ bulkRetry: true }),
+          body: JSON.stringify({ bulkRetry: true, scan_mode: "all" }),
         }
       );
       const result = await r.json();
