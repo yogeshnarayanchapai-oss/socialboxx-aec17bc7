@@ -72,7 +72,7 @@ export default function Leads() {
   const [pageSearch, setPageSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
+  const [newLead, setNewLead] = useState({ full_name: "", phone: "", page_id: "", product: "" });
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const isMobile = useIsMobile();
@@ -206,9 +206,12 @@ export default function Leads() {
         full_name: newLead.full_name,
         phone: newLead.phone,
         status: "new",
+        page_id: newLead.page_id || null,
+        product: newLead.product || null,
+        source: newLead.page_id ? (pages.find(p => p.id === newLead.page_id)?.page_name || null) : null,
       });
       setIsAddOpen(false);
-      setNewLead({ full_name: "", phone: "" });
+      setNewLead({ full_name: "", phone: "", page_id: "", product: "" });
       toast.success("Lead created!");
     } catch (error) {
       toast.error("Failed to create lead");
@@ -304,6 +307,32 @@ export default function Leads() {
                     value={newLead.phone}
                     onChange={(e) => setNewLead({ ...newLead, phone: e.target.value })}
                     placeholder="Enter phone number"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="page">Page</Label>
+                  <Select
+                    value={newLead.page_id || "none"}
+                    onValueChange={(v) => setNewLead({ ...newLead, page_id: v === "none" ? "" : v })}
+                  >
+                    <SelectTrigger id="page">
+                      <SelectValue placeholder="Select page" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No page</SelectItem>
+                      {pages.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="product">Product</Label>
+                  <Input
+                    id="product"
+                    value={newLead.product}
+                    onChange={(e) => setNewLead({ ...newLead, product: e.target.value })}
+                    placeholder="Product name (optional)"
                   />
                 </div>
                 <Button onClick={handleCreateLead} className="w-full" disabled={createLead.isPending}>
