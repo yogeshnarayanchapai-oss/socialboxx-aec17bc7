@@ -17,7 +17,7 @@ import {
   RefreshCw,
   ArrowLeft,
   Trash2,
-  Link2,
+  FileText,
   FileAudio,
   CalendarIcon,
   Filter,
@@ -648,6 +648,28 @@ export default function Inbox() {
     setMessage(processed);
   };
 
+  const handleSendTemplate = async (content: string) => {
+    if (!selectedConversation) return;
+    const processed = content
+      .replace(/\{\{name\}\}/g, selectedConversation.participant_name || "there")
+      .replace(/\{\{page\}\}/g, selectedConversation.connected_pages?.page_name || "");
+    try {
+      await sendMessage.mutateAsync({
+        conversationId: selectedConversation.id,
+        pageId: selectedConversation.page_id,
+        recipientId: selectedConversation.participant_id || "",
+        message: processed,
+      });
+      if (selectedConversation.status === 'ai_failed' || selectedConversation.status === 'ai_processing' || selectedConversation.status === 'unreplied') {
+        setSelectedConversation({ ...selectedConversation, status: 'replied', ai_fail_reason: null });
+      }
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      toast.success("Template sent!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send template");
+    }
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -1031,10 +1053,32 @@ export default function Inbox() {
                     />
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1 overflow-x-auto">
-                        {/* Link button */}
-                        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setLinkDialogOpen(true)} title="Send link">
-                          <Link2 className="h-4 w-4" />
-                        </Button>
+                        {/* Template button */}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" title="Send template">
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-72 p-2" align="start">
+                            {templates.length === 0 ? (
+                              <p className="text-sm text-muted-foreground p-2">No templates yet. Create some in Automation.</p>
+                            ) : (
+                              <div className="max-h-72 overflow-y-auto flex flex-col gap-1">
+                                {templates.filter(t => t.is_active !== false).map((t) => (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => handleSendTemplate(t.content)}
+                                    className="text-left px-2 py-1.5 rounded hover:bg-accent text-sm"
+                                  >
+                                    <div className="font-medium truncate">{t.name}</div>
+                                    <div className="text-xs text-muted-foreground line-clamp-2">{t.content}</div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
                         {/* Photo button */}
                         <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => photoInputRef.current?.click()} disabled={uploadingMedia} title="Send photo">
                           {uploadingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Image className="h-4 w-4" />}
@@ -1084,26 +1128,6 @@ export default function Inbox() {
           </div>
         )}
       </div>
-
-      {/* Link Dialog */}
-      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Send Link</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="https://..."
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSendLink(); }}
-            />
-            <Button onClick={handleSendLink} disabled={!linkUrl.trim()} className="w-full">
-              Add to Message
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
