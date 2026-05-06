@@ -17,7 +17,7 @@ import {
   RefreshCw,
   ArrowLeft,
   Trash2,
-  Link2,
+  FileText,
   FileAudio,
   CalendarIcon,
   Filter,
