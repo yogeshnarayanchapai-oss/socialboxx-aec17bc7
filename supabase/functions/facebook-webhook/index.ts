@@ -162,10 +162,12 @@ async function sendAutoReply(
       if (!textResponse.ok) {
         const errBody = await textResponse.json();
         const fbCode = errBody?.error?.code;
+        const fbSubcode = errBody?.error?.error_subcode;
         console.error("Auto-reply text failed:", errBody);
         // Only true user-unavailable cases are permanent
         const fbMessage = String(errBody?.error?.message || '').toLowerCase();
-        const isPermanentUnavailable = fbCode === 551 || fbMessage.includes('person not available') || fbMessage.includes('user unavailable') || fbMessage.includes('blocked or deactivated');
+        const isOutsideWindow = fbSubcode === 2018278 || fbMessage.includes('outside of allowed window');
+        const isPermanentUnavailable = fbCode === 551 || isOutsideWindow || fbMessage.includes('person not available') || fbMessage.includes('user unavailable') || fbMessage.includes('blocked or deactivated');
         if (isPermanentUnavailable) {
           return "permanent_fail";
         }
