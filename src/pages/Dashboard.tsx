@@ -113,7 +113,7 @@ export default function Dashboard() {
                 <div className="py-8 text-center text-muted-foreground text-sm">No conversations yet</div>
               ) : (
                 <div className="divide-y divide-border">
-                  {recentConversations.map((conv) => (
+                  {recentConversations.slice(0, 5).map((conv) => (
                     <div key={conv.id} onClick={() => navigate("/inbox")}
                       className="flex items-center justify-between gap-3 px-4 md:px-6 py-3 hover:bg-muted/50 transition-colors cursor-pointer">
                       <div className="flex items-center gap-3 min-w-0">
@@ -135,6 +135,9 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
+                  <button onClick={() => navigate("/inbox")} className="w-full px-4 md:px-6 py-3 text-sm font-medium text-primary hover:bg-muted/50 transition-colors text-center">
+                    See more →
+                  </button>
                 </div>
               )}
             </CardContent>
@@ -151,7 +154,7 @@ export default function Dashboard() {
                 <div className="py-8 text-center text-muted-foreground text-sm">No pages connected yet</div>
               ) : (
                 <div className="space-y-4">
-                  {pagePerformance.map((page) => (
+                  {pagePerformance.slice(0, 5).map((page) => (
                     <div key={page.name} className="flex items-center gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
@@ -164,6 +167,9 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
+                  <button onClick={() => navigate("/pages")} className="w-full pt-2 text-sm font-medium text-primary hover:underline text-center">
+                    See more →
+                  </button>
                 </div>
               )}
             </CardContent>
