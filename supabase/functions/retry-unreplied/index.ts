@@ -41,13 +41,12 @@ function triggerRetryBatch(supabaseUrl: string, supabaseKey: string, jobId: stri
 
 function isPermanentlyUnavailable(reason?: string | null) {
   const reasonLower = (reason || "").toLowerCase();
+  // ONLY truly blocked / deactivated users are permanent.
+  // Outside-window and other transient FB errors should keep retrying.
   return reasonLower.includes("person not available") ||
     reasonLower.includes("user unavailable") ||
     reasonLower.includes("blocked or deactivated") ||
-    reasonLower.includes("(#551)") ||
-    reasonLower.includes("outside of allowed window") ||
-    reasonLower.includes("outside_window") ||
-    reasonLower.includes("2018278");
+    reasonLower.includes("(#551)");
 }
 
 async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
