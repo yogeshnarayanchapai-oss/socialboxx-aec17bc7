@@ -343,7 +343,7 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       return { processed: 0, failed: 1, type: "new_reply" };
     }
 
-    const sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
+    let sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -352,6 +352,31 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         access_token: page.page_access_token,
       }),
     });
+
+    // If outside the 24h standard window, retry with HUMAN_AGENT tag (7-day window)
+    if (!sendResponse.ok) {
+      const errClone = sendResponse.clone();
+      try {
+        const errPeek = await errClone.json();
+        const subcode = errPeek?.error?.error_subcode;
+        const msg = String(errPeek?.error?.message || "").toLowerCase();
+        const isOutsideWindow = subcode === 2018278 || msg.includes("outside of allowed window") || msg.includes("outside the allowed window");
+        if (isOutsideWindow) {
+          console.log(`Outside-window detected for conv ${conv.id}, retrying with HUMAN_AGENT tag`);
+          sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipient: { id: conv.participant_id },
+              message: { text: suggestedReply },
+              messaging_type: "MESSAGE_TAG",
+              tag: "HUMAN_AGENT",
+              access_token: page.page_access_token,
+            }),
+          });
+        }
+      } catch (_) { /* ignore parse */ }
+    }
 
     if (!sendResponse.ok) {
       const err = await sendResponse.json();
