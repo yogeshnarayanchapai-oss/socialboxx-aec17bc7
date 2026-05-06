@@ -288,16 +288,17 @@ export default function Inbox() {
 
   const handleSend = async () => {
     if (!message.trim() || !selectedConversation) return;
+    const text = message.trim();
+    setMessage(""); // clear immediately for instant UX
     try {
       await sendMessage.mutateAsync({
         conversationId: selectedConversation.id,
         pageId: selectedConversation.page_id,
         recipientId: selectedConversation.participant_id || "",
-        message: message.trim(),
+        message: text,
       });
-      setMessage("");
-      toast.success("Message sent!");
     } catch (error) {
+      setMessage(text); // restore on failure
       toast.error(error instanceof Error ? error.message : "Failed to send message");
     }
   };
