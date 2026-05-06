@@ -107,7 +107,29 @@ export function useSendMessage() {
       if (!response.ok) throw new Error(result.error || "Failed to send message");
       return result;
     },
-    onSuccess: (_, variables) => {
+    onMutate: async (variables) => {
+      // Optimistic update: instantly show message in chat
+      const queryKey = ["messages", variables.conversationId];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<any[]>(queryKey);
+      const optimistic = {
+        id: `optimistic-${Date.now()}`,
+        conversation_id: variables.conversationId,
+        sender_type: "page",
+        content: variables.message,
+        media_url: variables.mediaUrl || null,
+        message_type: variables.mediaUrl ? "media" : "text",
+        is_internal_note: false,
+        created_at: new Date().toISOString(),
+        _optimistic: true,
+      };
+      queryClient.setQueryData<any[]>(queryKey, (old = []) => [...old, optimistic]);
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(ctx.queryKey, ctx.previous);
+    },
+    onSettled: (_data, _err, variables) => {
       queryClient.invalidateQueries({ queryKey: ["messages", variables.conversationId] });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
