@@ -504,13 +504,14 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     const body = await req.json();
-    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId, _scanMode: rawScanMode } = body;
+    const { pageId, conversationId, bulkRetry, jobId: pollJobId, _batchJobId, _batchOffset, _autoCron, organization_id: cronOrgId, _scanMode: rawScanMode, scan_mode: publicScanMode } = body;
 
     // Check if this is an internal batch call (no auth needed — uses service key header check)
     const isInternalBatch = !!_batchJobId;
     const isAutoCron = !!_autoCron;
+    const incomingMode = rawScanMode || publicScanMode;
     const scanMode: "failed" | "unreplied" | "all" =
-      rawScanMode === "unreplied" || rawScanMode === "all" ? rawScanMode : "failed";
+      incomingMode === "unreplied" || incomingMode === "all" ? incomingMode : "failed";
 
     // === AUTO CRON MODE: kick off bulk retry for a specific org without user auth ===
     if (isAutoCron && cronOrgId) {
