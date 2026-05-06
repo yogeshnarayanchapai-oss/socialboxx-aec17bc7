@@ -1129,26 +1129,6 @@ export default function Inbox() {
         )}
       </div>
 
-      {/* Link Dialog */}
-      <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Send Link</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="https://..."
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSendLink(); }}
-            />
-            <Button onClick={handleSendLink} disabled={!linkUrl.trim()} className="w-full">
-              Add to Message
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
