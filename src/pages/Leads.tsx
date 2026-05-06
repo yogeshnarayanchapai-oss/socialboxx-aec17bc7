@@ -69,6 +69,7 @@ export default function Leads() {
   const [customDateFrom, setCustomDateFrom] = useState<Date>();
   const [customDateTo, setCustomDateTo] = useState<Date>();
   const [pageFilter, setPageFilter] = useState("all");
+  const [pageSearch, setPageSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newLead, setNewLead] = useState({ full_name: "", phone: "" });
@@ -360,10 +361,22 @@ export default function Leads() {
                 <SelectValue placeholder="Page" />
               </SelectTrigger>
               <SelectContent>
+                <div className="sticky top-0 z-10 bg-popover p-1 border-b">
+                  <Input
+                    autoFocus
+                    placeholder="Search pages..."
+                    value={pageSearch}
+                    onChange={(e) => setPageSearch(e.target.value)}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="h-7 text-xs"
+                  />
+                </div>
                 <SelectItem value="all">All Pages</SelectItem>
-                {pages.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
-                ))}
+                {pages
+                  .filter((p) => p.page_name.toLowerCase().includes(pageSearch.toLowerCase()))
+                  .map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           )}
