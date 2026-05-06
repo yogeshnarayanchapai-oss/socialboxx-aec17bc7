@@ -813,7 +813,7 @@ export default function Inbox() {
               )}
             </div>
 
-            <div className="custom-scrollbar overflow-y-auto" style={{ height: "calc(100% - 90px)" }}>
+            <div className="custom-scrollbar overflow-y-auto flex-1 min-h-0">
               {loadingConversations ? (
                 <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
               ) : conversations.length === 0 ? (
