@@ -521,29 +521,21 @@ serve(async (req) => {
         }
       );
 
-      // If outside 24h window, retry with HUMAN_AGENT tag (7-day window)
-      if (!response.ok) {
-        try {
-          const errPeek = await response.clone().json();
-          const subcode = errPeek?.error?.error_subcode;
-          const msgL = String(errPeek?.error?.message || "").toLowerCase();
-          if (subcode === 2018278 || msgL.includes("outside of allowed window") || msgL.includes("outside the allowed window")) {
-            response = await fetch(
-              `https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...messagePayload, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
-              }
-            );
-          }
-        } catch (_) { /* ignore */ }
-      }
-
       if (!response.ok) {
         const error = await response.json();
         console.error("Failed to send message:", error);
-        throw new Error(error.error?.message || "Failed to send message");
+        const fbMsg = String(error.error?.message || "");
+        const subcode = error.error?.error_subcode;
+        if (
+          subcode === 2018278 ||
+          /outside (of )?(the )?allowed window/i.test(fbMsg) ||
+          /HUMAN_AGENT/i.test(fbMsg)
+        ) {
+          throw new Error(
+            "Cannot send: this conversation is outside Facebook's 24-hour reply window. The user must message your page again before you can reply."
+          );
+        }
+        throw new Error(fbMsg || "Failed to send message");
       }
 
       const result = await response.json();
