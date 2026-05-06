@@ -823,9 +823,14 @@ export default function Inbox() {
                             return preview;
                           })()}
                         </p>
-                        {conv.status === "ai_failed" && (conv as any).ai_fail_reason && (
+                        {conv.status === "ai_failed" && (
                           <p className="mt-0.5 truncate text-xs text-destructive">
-                            ⚠️ {(conv as any).ai_fail_reason}
+                            ⚠️ {(conv as any).ai_fail_reason || "AI reply failed (no reason recorded)"}
+                          </p>
+                        )}
+                        {conv.status === "ai_processing" && (
+                          <p className="mt-0.5 truncate text-xs text-amber-600">
+                            ⏳ AI processing… (stuck — will auto-retry)
                           </p>
                         )}
                       </div>
