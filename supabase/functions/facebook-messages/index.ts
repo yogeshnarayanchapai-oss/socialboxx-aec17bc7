@@ -494,7 +494,7 @@ serve(async (req) => {
         messagePayload.message.text = message;
       }
 
-      const response = await fetch(
+      let response = await fetch(
         `https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`,
         {
           method: "POST",
@@ -502,6 +502,25 @@ serve(async (req) => {
           body: JSON.stringify(messagePayload),
         }
       );
+
+      // If outside 24h window, retry with HUMAN_AGENT tag (7-day window)
+      if (!response.ok) {
+        try {
+          const errPeek = await response.clone().json();
+          const subcode = errPeek?.error?.error_subcode;
+          const msgL = String(errPeek?.error?.message || "").toLowerCase();
+          if (subcode === 2018278 || msgL.includes("outside of allowed window") || msgL.includes("outside the allowed window")) {
+            response = await fetch(
+              `https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ...messagePayload, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
+              }
+            );
+          }
+        } catch (_) { /* ignore */ }
+      }
 
       if (!response.ok) {
         const error = await response.json();
