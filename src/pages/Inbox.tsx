@@ -648,6 +648,28 @@ export default function Inbox() {
     setMessage(processed);
   };
 
+  const handleSendTemplate = async (content: string) => {
+    if (!selectedConversation) return;
+    const processed = content
+      .replace(/\{\{name\}\}/g, selectedConversation.participant_name || "there")
+      .replace(/\{\{page\}\}/g, selectedConversation.connected_pages?.page_name || "");
+    try {
+      await sendMessage.mutateAsync({
+        conversationId: selectedConversation.id,
+        pageId: selectedConversation.page_id,
+        recipientId: selectedConversation.participant_id || "",
+        message: processed,
+      });
+      if (selectedConversation.status === 'ai_failed' || selectedConversation.status === 'ai_processing' || selectedConversation.status === 'unreplied') {
+        setSelectedConversation({ ...selectedConversation, status: 'replied', ai_fail_reason: null });
+      }
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      toast.success("Template sent!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to send template");
+    }
+  };
+
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
