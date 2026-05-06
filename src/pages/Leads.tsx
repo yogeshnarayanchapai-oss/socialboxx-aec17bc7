@@ -309,6 +309,32 @@ export default function Leads() {
                     placeholder="Enter phone number"
                   />
                 </div>
+                <div>
+                  <Label htmlFor="page">Page</Label>
+                  <Select
+                    value={newLead.page_id || "none"}
+                    onValueChange={(v) => setNewLead({ ...newLead, page_id: v === "none" ? "" : v })}
+                  >
+                    <SelectTrigger id="page">
+                      <SelectValue placeholder="Select page" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No page</SelectItem>
+                      {pages.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>{p.page_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="product">Product</Label>
+                  <Input
+                    id="product"
+                    value={newLead.product}
+                    onChange={(e) => setNewLead({ ...newLead, product: e.target.value })}
+                    placeholder="Product name (optional)"
+                  />
+                </div>
                 <Button onClick={handleCreateLead} className="w-full" disabled={createLead.isPending}>
                   {createLead.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Create Lead
