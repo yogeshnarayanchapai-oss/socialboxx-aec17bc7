@@ -310,7 +310,20 @@ serve(async (req) => {
 
     const mergedInstructions = [languageDirective, prefixDirective, phoneDirective, aiInstructions || ""].filter(Boolean).join("\n\n");
 
-    const requiredReplyMode = detectRequiredReplyMode(mergedInstructions, customerMessage || "");
+    // Global language setting takes precedence over instruction-text detection
+    let requiredReplyMode: ReplyScriptMode;
+    if (globalLanguage === "roman-nepali") {
+      requiredReplyMode = "roman-nepali";
+    } else if (globalLanguage === "devanagari-nepali") {
+      requiredReplyMode = "devanagari-nepali";
+    } else if (globalLanguage === "english") {
+      requiredReplyMode = "english";
+    } else if (globalLanguage === "roman-or-devanagari") {
+      // Customer wrote Devanagari → reply Devanagari, otherwise Roman Nepali
+      requiredReplyMode = containsDevanagari(customerMessage || "") ? "devanagari-nepali" : "roman-nepali";
+    } else {
+      requiredReplyMode = detectRequiredReplyMode(mergedInstructions, customerMessage || "");
+    }
     const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", mergedInstructions);
 
     // Try to use cached prompt first
