@@ -289,13 +289,14 @@ serve(async (req) => {
       console.warn("Failed to load global AI settings:", e);
     }
 
-    // Merge global rules into aiInstructions so script-lock + prompt both pick them up
+    const romanNepaliStyleNote = "Use NATURAL spoken Nepali style — the way people actually chat in Nepal. Keep common English loanwords in English (office, shop, online, order, delivery, payment, price, discount, address, mobile, number, message, photo, video, link, website, app, login, account, time, date, holiday, manager, staff, customer, product, brand, size, color, model, stock). Do NOT translate them into formal/Sanskritized Nepali (e.g. write 'office banda x' NOT 'aaja afisha banda chha'; 'order garnu hos' NOT 'aadesh garnu hos'; 'delivery ma 3 din lagcha' NOT 'pathaune ma 3 din lagcha'). Use everyday Nepali grammar words (cha/chha→x or cha, kati, ho, hos, parcha, ramro, hajur, dhanyabad). Sound like a friendly shopkeeper texting on Messenger.";
+
     const languageDirective = globalLanguage === "roman-nepali"
-      ? "GLOBAL LANGUAGE RULE: Reply ONLY in Roman Nepali (Latin script). Never use Devanagari."
+      ? `GLOBAL LANGUAGE RULE: Reply ONLY in Roman Nepali (Latin script). Never use Devanagari. ${romanNepaliStyleNote}`
       : globalLanguage === "devanagari-nepali"
         ? "GLOBAL LANGUAGE RULE: Reply ONLY in Nepali using Devanagari script."
         : globalLanguage === "roman-or-devanagari"
-          ? "GLOBAL LANGUAGE RULE: If the customer's message contains Devanagari (Nepali script) characters, reply in Devanagari Nepali. For ALL other cases (Roman/Latin text, English, mixed, or any other script), reply in Roman Nepali (Latin script). Never mix scripts in one reply."
+          ? `GLOBAL LANGUAGE RULE: If the customer's message contains Devanagari (Nepali script) characters, reply in Devanagari Nepali. For ALL other cases (Roman/Latin text, English, mixed, or any other script), reply in Roman Nepali (Latin script). Never mix scripts in one reply. When replying in Roman Nepali: ${romanNepaliStyleNote}`
           : globalLanguage === "english"
             ? "GLOBAL LANGUAGE RULE: Reply ONLY in English."
             : "GLOBAL LANGUAGE RULE: Reply in the same language the customer wrote in.";
