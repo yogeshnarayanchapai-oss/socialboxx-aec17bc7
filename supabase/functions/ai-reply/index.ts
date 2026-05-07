@@ -491,6 +491,8 @@ Rules for lead_action:
 
 ${languageDirective ? `\n===== GLOBAL AI SETTINGS (HIGHEST PRIORITY) =====\n${languageDirective}\n${phoneDirective}\n===== END GLOBAL AI SETTINGS =====\n` : ''}
 
+${aiInstructions ? `\n===== PAGE OWNER'S INSTRUCTIONS (RE-INFORCED PER TURN — MUST FOLLOW EXACTLY) =====\nThese are written by the page owner for THIS specific page. They take ABSOLUTE priority over the default system prompt. You MUST follow EVERY rule below — including any flow about asking for the customer's phone number first, scripts to use in the first 1-2 messages, what to ask before answering product questions, etc. Do NOT skip steps. Do NOT directly answer the customer's question if these instructions tell you to first ask for a number / introduce / follow a sequence:\n\n${aiInstructions}\n===== END PAGE OWNER'S INSTRUCTIONS =====\n` : ''}
+
 ${longGapConfirmation ? `
 IMPORTANT - LONG GAP DETECTED:
 This customer previously gave their phone number and was marked as a lead. After a gap of 15+ days, they sent a new message. This might be a NEW inquiry.
@@ -498,7 +500,7 @@ You MUST first confirm their number by saying something like: "तपाईं�
 Then address their new message normally.
 ` : ''}
 
-${hasExistingLead ? 'IMPORTANT: This conversation ALREADY has a lead created. The customer\'s phone number has ALREADY been collected. Do NOT ask for their phone number again. Do NOT mention providing contact details. Just answer their query naturally and helpfully. If the customer provides a NEW VALID phone number voluntarily (correct digit count per instructions), set should_create to true. If the number is INVALID, set should_create to false and invalid_number to true.' : 'No lead exists yet for this conversation.'}
+${hasExistingLead ? 'IMPORTANT: This conversation ALREADY has a lead created. The customer\'s phone number has ALREADY been collected. Do NOT ask for their phone number again. Do NOT mention providing contact details. Just answer their query naturally and helpfully. If the customer provides a NEW VALID phone number voluntarily (correct digit count per instructions), set should_create to true. If the number is INVALID, set should_create to false and invalid_number to true.' : 'No lead exists yet for this conversation. If the page owner instructions say to ask for the phone number first (before answering questions), you MUST do that — do NOT directly answer the customer query yet.'}
 
 Conversation so far:
 ${conversationHistory || 'First message from customer.'}`;
