@@ -743,6 +743,7 @@ export default function Settings() {
   const { data: org } = useOrganization(user?.id);
   
   const [localSettings, setLocalSettings] = useState<AppSettings>({});
+  const [newPrefix, setNewPrefix] = useState("");
 
   useEffect(() => {
     if (settings) {
