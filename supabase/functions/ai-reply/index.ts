@@ -420,11 +420,11 @@ Reply templates for reference:
 ${templates.map(t => `- ${t.name}: ${t.content.substring(0, 80)}`).join('\n')}
 ` : ''}
 
-${aiInstructions ? `
+${mergedInstructions ? `
 ===== PAGE OWNER'S INSTRUCTIONS (HIGHEST PRIORITY - OVERRIDE EVERYTHING ABOVE) =====
 Follow these instructions EXACTLY as written. These are from the page owner and take absolute priority over all default guidelines above. If there is any conflict between default guidelines and these instructions, ALWAYS follow these instructions:
 
-${aiInstructions}
+${mergedInstructions}
 ===== END OF PAGE OWNER'S INSTRUCTIONS =====
 ` : ''}
 
