@@ -790,6 +790,7 @@ export default function Settings() {
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList className="flex-wrap">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="ai">AI Settings</TabsTrigger>
             <TabsTrigger value="team">Team Members</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="api">API</TabsTrigger>
