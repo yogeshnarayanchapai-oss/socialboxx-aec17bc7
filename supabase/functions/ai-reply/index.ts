@@ -294,9 +294,11 @@ serve(async (req) => {
       ? "GLOBAL LANGUAGE RULE: Reply ONLY in Roman Nepali (Latin script). Never use Devanagari."
       : globalLanguage === "devanagari-nepali"
         ? "GLOBAL LANGUAGE RULE: Reply ONLY in Nepali using Devanagari script."
-        : globalLanguage === "english"
-          ? "GLOBAL LANGUAGE RULE: Reply ONLY in English."
-          : "GLOBAL LANGUAGE RULE: Reply in the same language the customer wrote in.";
+        : globalLanguage === "roman-or-devanagari"
+          ? "GLOBAL LANGUAGE RULE: If the customer's message contains Devanagari (Nepali script) characters, reply in Devanagari Nepali. For ALL other cases (Roman/Latin text, English, mixed, or any other script), reply in Roman Nepali (Latin script). Never mix scripts in one reply."
+          : globalLanguage === "english"
+            ? "GLOBAL LANGUAGE RULE: Reply ONLY in English."
+            : "GLOBAL LANGUAGE RULE: Reply in the same language the customer wrote in.";
 
     const prefixDirective = globalPhonePrefixes.length
       ? `GLOBAL LEAD PHONE PREFIXES: Treat any number that starts with one of these prefixes as a valid lead phone number, even if it appears in the middle of a sentence: ${globalPhonePrefixes.join(", ")}. Extract the full number and set should_create=true with the captured phone.`

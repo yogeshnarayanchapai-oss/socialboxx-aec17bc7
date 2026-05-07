@@ -961,6 +961,7 @@ export default function Settings() {
                       <SelectItem value="auto">Customer's Language (Auto)</SelectItem>
                       <SelectItem value="roman-nepali">Only Roman Nepali</SelectItem>
                       <SelectItem value="devanagari-nepali">Only Nepali (Devanagari)</SelectItem>
+                      <SelectItem value="roman-or-devanagari">Roman + Devanagari (Smart)</SelectItem>
                       <SelectItem value="english">Only English</SelectItem>
                     </SelectContent>
                   </Select>
