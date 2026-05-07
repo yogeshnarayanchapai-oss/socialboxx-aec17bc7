@@ -48,6 +48,7 @@ const defaultSettings: AppSettings = {
   blacklist_keywords: ["spam", "scam", "unsubscribe", "stop messaging"],
   do_not_contact: [],
   ai_lead_phone_rule: "Nepal 10-digit mobile starting with 97 or 98",
+  ai_lead_phone_prefixes: ["+977", "977", "98", "97", "96"],
   ai_reply_language: "auto",
 };
 
