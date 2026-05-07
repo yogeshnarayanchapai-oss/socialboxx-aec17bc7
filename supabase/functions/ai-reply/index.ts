@@ -267,8 +267,41 @@ serve(async (req) => {
     }
 
     const { conversationId, customerMessage, conversationHistory, pageName, businessDescription, aiInstructions, imageUrls, longGapConfirmation, hasExistingLead, mediaAssets, pageId } = await req.json();
-    const requiredReplyMode = detectRequiredReplyMode(aiInstructions || "", customerMessage || "");
-    const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", aiInstructions || "");
+
+    // Load global AI settings (language + phone rule) from app_settings
+    let globalLanguage = "auto";
+    let globalPhoneRule = "";
+    try {
+      const { data: globalSettings } = await supabase
+        .from("app_settings")
+        .select("setting_key, setting_value")
+        .in("setting_key", ["ai_reply_language", "ai_lead_phone_rule"]);
+      for (const row of globalSettings || []) {
+        const v = typeof row.setting_value === "string" ? row.setting_value : (row.setting_value as any);
+        if (row.setting_key === "ai_reply_language" && v) globalLanguage = String(v);
+        if (row.setting_key === "ai_lead_phone_rule" && v) globalPhoneRule = String(v);
+      }
+    } catch (e) {
+      console.warn("Failed to load global AI settings:", e);
+    }
+
+    // Merge global rules into aiInstructions so script-lock + prompt both pick them up
+    const languageDirective = globalLanguage === "roman-nepali"
+      ? "GLOBAL LANGUAGE RULE: Reply ONLY in Roman Nepali (Latin script). Never use Devanagari."
+      : globalLanguage === "devanagari-nepali"
+        ? "GLOBAL LANGUAGE RULE: Reply ONLY in Nepali using Devanagari script."
+        : globalLanguage === "english"
+          ? "GLOBAL LANGUAGE RULE: Reply ONLY in English."
+          : "GLOBAL LANGUAGE RULE: Reply in the same language the customer wrote in.";
+
+    const phoneDirective = globalPhoneRule
+      ? `GLOBAL LEAD PHONE RULE: A valid lead phone number must match: ${globalPhoneRule}. Only treat customer-sent numbers matching this rule as a valid lead. If a number does not match, set should_create=false and invalid_number=true and politely ask for the correct format.`
+      : "";
+
+    const mergedInstructions = [languageDirective, phoneDirective, aiInstructions || ""].filter(Boolean).join("\n\n");
+
+    const requiredReplyMode = detectRequiredReplyMode(mergedInstructions, customerMessage || "");
+    const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", mergedInstructions);
 
     // Try to use cached prompt first
     let systemPrompt = "";
