@@ -23,6 +23,7 @@ export interface AppSettings {
   blacklist_keywords?: string[];
   do_not_contact?: string[];
   ai_lead_phone_rule?: string;
+  ai_lead_phone_prefixes?: string[];
   ai_reply_language?: string;
 }
 
