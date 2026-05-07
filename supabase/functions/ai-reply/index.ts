@@ -53,7 +53,7 @@ function buildScriptLockPrompt(requiredReplyMode: ReplyScriptMode, customerMessa
   const safeCustomerMessage = customerMessage || "(empty)";
 
   const scriptRule = requiredReplyMode === "roman-nepali"
-    ? "REQUIRED OUTPUT FORMAT FOR THIS TURN: Write the reply in Roman Nepali only, using Latin/English letters. DO NOT use any Devanagari characters at all. Ignore previous assistant replies in conversation history when choosing script."
+    ? "REQUIRED OUTPUT FORMAT FOR THIS TURN: Write the reply in Roman Nepali only, using Latin/English letters. DO NOT use any Devanagari characters at all. Use NATURAL conversational Nepali — keep common English loanwords in English (office, shop, order, delivery, payment, price, online, mobile, number, address, photo, video, link, app, account, time, holiday, manager, customer, product, size, color, model, stock). Example style: write 'aaja office banda x' NOT 'aaja afisha banda chha'; 'order garnu hos' NOT 'aadesh garnu hos'. Sound like a friendly Nepali shopkeeper, not a formal translator. Ignore previous assistant replies in conversation history when choosing script."
     : requiredReplyMode === "devanagari-nepali"
       ? "REQUIRED OUTPUT FORMAT FOR THIS TURN: Write the reply in Nepali using Devanagari script."
       : requiredReplyMode === "english"
