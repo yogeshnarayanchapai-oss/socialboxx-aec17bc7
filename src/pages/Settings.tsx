@@ -790,6 +790,7 @@ export default function Settings() {
         <Tabs defaultValue="general" className="space-y-6">
           <TabsList className="flex-wrap">
             <TabsTrigger value="general">General</TabsTrigger>
+            <TabsTrigger value="ai">AI Settings</TabsTrigger>
             <TabsTrigger value="team">Team Members</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="api">API</TabsTrigger>
@@ -880,6 +881,58 @@ export default function Settings() {
 
           <TabsContent value="team" className="space-y-6">
             <TeamManagementTab />
+          </TabsContent>
+
+          <TabsContent value="ai" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>AI Settings (Global)</CardTitle>
+                <CardDescription>यी rule सबै pages मा लागू हुन्छन्। Code change नगरी यहीँबाट manage गर्नुहोस्।</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="ai-phone-rule">Lead बनाउने Phone Number Rule</Label>
+                  <textarea
+                    id="ai-phone-rule"
+                    className="flex min-h-[90px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="उदाहरण: Nepal 10-digit mobile starting with 97 or 98"
+                    value={localSettings.ai_lead_phone_rule || ""}
+                    onChange={(e) => setLocalSettings({ ...localSettings, ai_lead_phone_rule: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">कस्तो format/starting digit/length वाला number लाई lead मानेर convert गर्ने भनेर AI लाई बताउनुहोस्।</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ai-language">AI Reply Language</Label>
+                  <Select
+                    value={localSettings.ai_reply_language || "auto"}
+                    onValueChange={(value) => setLocalSettings({ ...localSettings, ai_reply_language: value })}
+                  >
+                    <SelectTrigger id="ai-language">
+                      <SelectValue placeholder="Select language" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Customer's Language (Auto)</SelectItem>
+                      <SelectItem value="roman-nepali">Only Roman Nepali</SelectItem>
+                      <SelectItem value="devanagari-nepali">Only Nepali (Devanagari)</SelectItem>
+                      <SelectItem value="english">Only English</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">यो setting global हो — सबै pages मा AI यही language मा reply गर्छ।</p>
+                </div>
+
+                <Button
+                  onClick={() => handleSave({
+                    ai_lead_phone_rule: localSettings.ai_lead_phone_rule,
+                    ai_reply_language: localSettings.ai_reply_language,
+                  })}
+                  disabled={updateSettings.isPending}
+                >
+                  {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Save AI Settings
+                </Button>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <BrandingTab />
