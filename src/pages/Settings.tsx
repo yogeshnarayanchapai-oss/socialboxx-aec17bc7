@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush, Upload, Image as ImageIcon } from "lucide-react";
+import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush, Upload, Image as ImageIcon, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings, useUpdateSettings, type AppSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/hooks/useAuth";
