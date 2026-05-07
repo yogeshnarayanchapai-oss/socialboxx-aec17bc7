@@ -465,6 +465,8 @@ Rules for lead_action:
     // Append dynamic per-message parts to the prompt
     const dynamicParts = `
 
+${languageDirective ? `\n===== GLOBAL AI SETTINGS (HIGHEST PRIORITY) =====\n${languageDirective}\n${phoneDirective}\n===== END GLOBAL AI SETTINGS =====\n` : ''}
+
 ${longGapConfirmation ? `
 IMPORTANT - LONG GAP DETECTED:
 This customer previously gave their phone number and was marked as a lead. After a gap of 15+ days, they sent a new message. This might be a NEW inquiry.
