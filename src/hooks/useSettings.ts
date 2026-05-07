@@ -22,6 +22,8 @@ export interface AppSettings {
   approve_before_send?: boolean;
   blacklist_keywords?: string[];
   do_not_contact?: string[];
+  ai_lead_phone_rule?: string;
+  ai_reply_language?: string;
 }
 
 const defaultSettings: AppSettings = {
