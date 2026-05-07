@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush, Upload, Image as ImageIcon } from "lucide-react";
+import { Loader2, Facebook, Eye, EyeOff, CheckCircle, AlertCircle, Copy, Code, Paintbrush, Upload, Image as ImageIcon, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings, useUpdateSettings, type AppSettings } from "@/hooks/useSettings";
 import { useAuth } from "@/hooks/useAuth";
@@ -743,6 +743,7 @@ export default function Settings() {
   const { data: org } = useOrganization(user?.id);
   
   const [localSettings, setLocalSettings] = useState<AppSettings>({});
+  const [newPrefix, setNewPrefix] = useState("");
 
   useEffect(() => {
     if (settings) {
@@ -891,15 +892,60 @@ export default function Settings() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="ai-phone-rule">Lead बनाउने Phone Number Rule</Label>
+                  <Label>Lead Phone Prefixes</Label>
+                  <div className="flex flex-wrap gap-2 rounded-md border border-input bg-background p-2 min-h-[44px]">
+                    {(localSettings.ai_lead_phone_prefixes || []).map((p, i) => (
+                      <span key={`${p}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-sm">
+                        {p}
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => setLocalSettings({
+                            ...localSettings,
+                            ai_lead_phone_prefixes: (localSettings.ai_lead_phone_prefixes || []).filter((_, idx) => idx !== i),
+                          })}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      placeholder="Type prefix and press Enter (e.g. +977, 98)"
+                      value={newPrefix}
+                      onChange={(e) => setNewPrefix(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const v = newPrefix.trim();
+                          if (!v) return;
+                          const existing = localSettings.ai_lead_phone_prefixes || [];
+                          if (!existing.includes(v)) {
+                            setLocalSettings({ ...localSettings, ai_lead_phone_prefixes: [...existing, v] });
+                          }
+                          setNewPrefix("");
+                        } else if (e.key === "Backspace" && !newPrefix) {
+                          const existing = localSettings.ai_lead_phone_prefixes || [];
+                          if (existing.length) {
+                            setLocalSettings({ ...localSettings, ai_lead_phone_prefixes: existing.slice(0, -1) });
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">यी मध्ये कुनै prefix बाट सुरु हुने number conversation मा आयो भने AI ले lead मानेर convert गर्छ। Text को बीचमा आए पनि match गर्छ।</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ai-phone-rule">Additional Phone Rule (Optional)</Label>
                   <textarea
                     id="ai-phone-rule"
-                    className="flex min-h-[90px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex min-h-[70px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     placeholder="उदाहरण: Nepal 10-digit mobile starting with 97 or 98"
                     value={localSettings.ai_lead_phone_rule || ""}
                     onChange={(e) => setLocalSettings({ ...localSettings, ai_lead_phone_rule: e.target.value })}
                   />
-                  <p className="text-xs text-muted-foreground">कस्तो format/starting digit/length वाला number लाई lead मानेर convert गर्ने भनेर AI लाई बताउनुहोस्।</p>
+                  <p className="text-xs text-muted-foreground">Length/format को extra hint AI लाई दिनुहोस् (optional)।</p>
                 </div>
 
                 <div className="space-y-2">
@@ -924,6 +970,7 @@ export default function Settings() {
                 <Button
                   onClick={() => handleSave({
                     ai_lead_phone_rule: localSettings.ai_lead_phone_rule,
+                    ai_lead_phone_prefixes: localSettings.ai_lead_phone_prefixes,
                     ai_reply_language: localSettings.ai_reply_language,
                   })}
                   disabled={updateSettings.isPending}

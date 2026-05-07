@@ -271,15 +271,19 @@ serve(async (req) => {
     // Load global AI settings (language + phone rule) from app_settings
     let globalLanguage = "auto";
     let globalPhoneRule = "";
+    let globalPhonePrefixes: string[] = [];
     try {
       const { data: globalSettings } = await supabase
         .from("app_settings")
         .select("setting_key, setting_value")
-        .in("setting_key", ["ai_reply_language", "ai_lead_phone_rule"]);
+        .in("setting_key", ["ai_reply_language", "ai_lead_phone_rule", "ai_lead_phone_prefixes"]);
       for (const row of globalSettings || []) {
-        const v = typeof row.setting_value === "string" ? row.setting_value : (row.setting_value as any);
+        const v = row.setting_value as any;
         if (row.setting_key === "ai_reply_language" && v) globalLanguage = String(v);
         if (row.setting_key === "ai_lead_phone_rule" && v) globalPhoneRule = String(v);
+        if (row.setting_key === "ai_lead_phone_prefixes" && Array.isArray(v)) {
+          globalPhonePrefixes = v.map((s: any) => String(s).trim()).filter(Boolean);
+        }
       }
     } catch (e) {
       console.warn("Failed to load global AI settings:", e);
@@ -294,11 +298,15 @@ serve(async (req) => {
           ? "GLOBAL LANGUAGE RULE: Reply ONLY in English."
           : "GLOBAL LANGUAGE RULE: Reply in the same language the customer wrote in.";
 
+    const prefixDirective = globalPhonePrefixes.length
+      ? `GLOBAL LEAD PHONE PREFIXES: Treat any number that starts with one of these prefixes as a valid lead phone number, even if it appears in the middle of a sentence: ${globalPhonePrefixes.join(", ")}. Extract the full number and set should_create=true with the captured phone.`
+      : "";
+
     const phoneDirective = globalPhoneRule
       ? `GLOBAL LEAD PHONE RULE: A valid lead phone number must match: ${globalPhoneRule}. Only treat customer-sent numbers matching this rule as a valid lead. If a number does not match, set should_create=false and invalid_number=true and politely ask for the correct format.`
       : "";
 
-    const mergedInstructions = [languageDirective, phoneDirective, aiInstructions || ""].filter(Boolean).join("\n\n");
+    const mergedInstructions = [languageDirective, prefixDirective, phoneDirective, aiInstructions || ""].filter(Boolean).join("\n\n");
 
     const requiredReplyMode = detectRequiredReplyMode(mergedInstructions, customerMessage || "");
     const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", mergedInstructions);
