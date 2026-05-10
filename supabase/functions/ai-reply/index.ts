@@ -584,12 +584,14 @@ ${conversationHistory || 'First message from customer.'}`;
         }
 
         if (response.status === 429) {
+          notifyAdminAlert("rate_limited", `Model ${model.name} returned 429`, { pageId });
           return new Response(
             JSON.stringify({ error: "Rate limits exceeded, please try again later." }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
         if (response.status === 402) {
+          notifyAdminAlert("credits_depleted", `Model ${model.name} returned 402 (credits depleted)`, { pageId });
           return new Response(
             JSON.stringify({ error: "AI credits depleted. Please add credits to continue." }),
             { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -606,6 +608,7 @@ ${conversationHistory || 'First message from customer.'}`;
     }
 
     if (!response || !response.ok) {
+      notifyAdminAlert("ai_failure", `All AI models failed. Last: ${lastError.substring(0, 300)}`, { pageId });
       throw new Error(`All AI models failed. Last: ${lastError.substring(0, 200)}`);
     }
 
