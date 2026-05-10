@@ -6,6 +6,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Fire-and-forget admin email alert when AI fails
+function notifyAdminAlert(reason: string, detail: string, ctx: { pageId?: string | null; orgId?: string | null } = {}) {
+  try {
+    const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/notify-ai-failure`;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}`, apikey: key },
+      body: JSON.stringify({ reason, detail, pageId: ctx.pageId || null, orgId: ctx.orgId || null }),
+    }).catch((e) => console.warn("notifyAdminAlert failed:", e));
+  } catch (e) {
+    console.warn("notifyAdminAlert exception:", e);
+  }
+}
+
 type ReplyScriptMode = "roman-nepali" | "devanagari-nepali" | "english" | "auto";
 
 function containsDevanagari(text: string): boolean {
