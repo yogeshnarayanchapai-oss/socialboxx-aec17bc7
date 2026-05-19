@@ -987,6 +987,7 @@ export default function Settings() {
 
           <BrandingTab />
           <APITab />
+          <ActivityLogTab />
         </Tabs>
       </div>
     </div>
