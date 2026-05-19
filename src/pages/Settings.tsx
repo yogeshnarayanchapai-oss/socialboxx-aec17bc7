@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFacebookSettings, useUpdateFacebookSettings } from "@/hooks/useAppSettings";
 import { useIsPlatformAdmin, useOrganization } from "@/hooks/useOrganization";
 import { TeamManagementTab } from "@/components/settings/TeamManagementTab";
+import { ActivityLogTab } from "@/components/settings/ActivityLogTab";
 
 // Facebook Integration Settings Component
 function FacebookIntegrationTab() {
@@ -795,6 +796,7 @@ export default function Settings() {
             <TabsTrigger value="team">Team Members</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="api">API</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
             {isPlatformAdmin && <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>}
           </TabsList>
 
@@ -985,6 +987,7 @@ export default function Settings() {
 
           <BrandingTab />
           <APITab />
+          <ActivityLogTab />
         </Tabs>
       </div>
     </div>
