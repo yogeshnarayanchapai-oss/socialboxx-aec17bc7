@@ -796,6 +796,7 @@ export default function Settings() {
             <TabsTrigger value="team">Team Members</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="api">API</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
             {isPlatformAdmin && <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>}
           </TabsList>
 
