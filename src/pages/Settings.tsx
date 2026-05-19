@@ -22,6 +22,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useFacebookSettings, useUpdateFacebookSettings } from "@/hooks/useAppSettings";
 import { useIsPlatformAdmin, useOrganization } from "@/hooks/useOrganization";
 import { TeamManagementTab } from "@/components/settings/TeamManagementTab";
+import { ActivityLogTab } from "@/components/settings/ActivityLogTab";
 
 // Facebook Integration Settings Component
 function FacebookIntegrationTab() {
