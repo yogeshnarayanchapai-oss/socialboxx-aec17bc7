@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      activity_logs: {
+        Row: {
+          action: string
+          created_at: string
+          entity_id: string | null
+          entity_label: string | null
+          entity_type: string
+          id: string
+          metadata: Json
+          organization_id: string
+          user_email: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_id?: string | null
+          entity_label?: string | null
+          entity_type: string
+          id?: string
+          metadata?: Json
+          organization_id: string
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_label?: string | null
+          entity_type?: string
+          id?: string
+          metadata?: Json
+          organization_id?: string
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       api_integration_pages: {
         Row: {
           created_at: string | null
@@ -1004,6 +1043,17 @@ export type Database = {
         Returns: boolean
       }
       is_platform_admin: { Args: { _user_id: string }; Returns: boolean }
+      log_activity: {
+        Args: {
+          _action: string
+          _entity_id: string
+          _entity_label: string
+          _entity_type: string
+          _metadata?: Json
+          _organization_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "manager" | "agent"
