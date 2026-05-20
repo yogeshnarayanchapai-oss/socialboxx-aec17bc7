@@ -802,10 +802,13 @@ serve(async (req) => {
             
             const isNonsenseOrEmoji = isEmojiOrNonsense(messageContent || "");
             const hasLeadTag = conversationTags.includes("lead-created");
-            
-            if (hasLeadTag && isNonsenseOrEmoji) {
-              console.log("Skipping AI reply - lead already created and message is emoji/nonsense");
-              // Mark as replied so it doesn't sit in unreplied with no reason
+            const hasAnyMedia = !!(message as any).media || !!parseMessageContent(messageContent || "").media;
+
+            // Skip AI for pure emoji/sticker/short ack messages (saves AI cost)
+            // - Always skip when lead already created
+            // - Also skip even without lead, as long as there's no media (image questions still need AI)
+            if (isNonsenseOrEmoji && !hasAnyMedia) {
+              console.log(`Skipping AI reply - message is emoji/nonsense (hasLead=${hasLeadTag})`);
               await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
             } else {
               // Skip AI processing if this is NOT the latest message for this sender in this webhook batch
