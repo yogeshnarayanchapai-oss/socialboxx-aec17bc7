@@ -244,6 +244,38 @@ function enforceReplyScript(reply: string, requiredReplyMode: ReplyScriptMode): 
   return reply;
 }
 
+// ===== AI REPLY CACHE HELPERS =====
+function normalizeMessageForCache(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sha1Hex(s: string): Promise<string> {
+  const buf = new TextEncoder().encode(s);
+  const hash = await crypto.subtle.digest("SHA-1", buf);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function isCacheEligible(opts: {
+  pageId?: string | null;
+  normalized: string;
+  imageUrls?: string[];
+  longGapConfirmation?: boolean;
+}): boolean {
+  if (!opts.pageId) return false;
+  if (opts.imageUrls && opts.imageUrls.length > 0) return false;
+  if (opts.longGapConfirmation) return false;
+  const n = opts.normalized;
+  if (!n || n.length < 4 || n.length > 200) return false;
+  // Skip messages containing digits (likely phone numbers / order ids → must go to AI)
+  if (/\d/.test(n)) return false;
+  return true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -341,6 +373,57 @@ serve(async (req) => {
       requiredReplyMode = detectRequiredReplyMode(mergedInstructions, customerMessage || "");
     }
     const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", mergedInstructions);
+
+    // ===== AI REPLY CACHE: lookup before calling AI =====
+    const normalizedMsg = normalizeMessageForCache(customerMessage || "");
+    const cacheEligible = isCacheEligible({
+      pageId,
+      normalized: normalizedMsg,
+      imageUrls,
+      longGapConfirmation,
+    });
+    let cacheKey = "";
+    if (cacheEligible) {
+      const keyInput = `${pageId}|${requiredReplyMode}|${hasExistingLead ? 1 : 0}|${normalizedMsg}`;
+      cacheKey = await sha1Hex(keyInput);
+      try {
+        const { data: cached } = await supabase
+          .from("ai_reply_cache")
+          .select("reply, hit_count")
+          .eq("page_id", pageId)
+          .eq("message_hash", cacheKey)
+          .gte("last_used_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+          .maybeSingle();
+
+        if (cached?.reply) {
+          console.log(`AI cache HIT for page ${pageId} (hits so far: ${cached.hit_count})`);
+          // Fire-and-forget hit counter update
+          supabase
+            .from("ai_reply_cache")
+            .update({
+              hit_count: (cached.hit_count || 1) + 1,
+              last_used_at: new Date().toISOString(),
+            })
+            .eq("page_id", pageId)
+            .eq("message_hash", cacheKey)
+            .then(() => {}, (e) => console.warn("cache hit update failed", e));
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              suggestedReply: cached.reply,
+              leadAction: { should_create: false, phone: null, invalid_number: false, reason: "from-cache" },
+              isComplaint: false,
+              mediaToSend: null,
+              cached: true,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (e) {
+        console.warn("AI cache lookup failed:", e);
+      }
+    }
 
     // Try to use cached prompt first
     let systemPrompt = "";
@@ -777,6 +860,37 @@ ${conversationHistory || 'First message from customer.'}`;
         if (additionalMedia.length > 0) {
           mediaToSend = { ...mediaToSend, additional: additionalMedia };
         }
+      }
+    }
+
+    // ===== AI REPLY CACHE: save reply when safe to reuse =====
+    if (
+      cacheEligible &&
+      cacheKey &&
+      suggestedReply &&
+      suggestedReply.trim().length > 0 &&
+      !leadAction.should_create &&
+      !leadAction.invalid_number &&
+      !isComplaint &&
+      !mediaToSend
+    ) {
+      try {
+        await supabase
+          .from("ai_reply_cache")
+          .upsert(
+            {
+              page_id: pageId,
+              message_hash: cacheKey,
+              message_sample: (customerMessage || "").substring(0, 300),
+              reply: suggestedReply.trim(),
+              hit_count: 1,
+              last_used_at: new Date().toISOString(),
+            },
+            { onConflict: "page_id,message_hash" }
+          );
+        console.log("AI cache SAVED for page", pageId);
+      } catch (e) {
+        console.warn("AI cache save failed:", e);
       }
     }
 

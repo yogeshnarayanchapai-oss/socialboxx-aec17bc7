@@ -53,6 +53,39 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_reply_cache: {
+        Row: {
+          created_at: string
+          hit_count: number
+          id: string
+          last_used_at: string
+          message_hash: string
+          message_sample: string
+          page_id: string
+          reply: string
+        }
+        Insert: {
+          created_at?: string
+          hit_count?: number
+          id?: string
+          last_used_at?: string
+          message_hash: string
+          message_sample: string
+          page_id: string
+          reply: string
+        }
+        Update: {
+          created_at?: string
+          hit_count?: number
+          id?: string
+          last_used_at?: string
+          message_hash?: string
+          message_sample?: string
+          page_id?: string
+          reply?: string
+        }
+        Relationships: []
+      }
       api_integration_pages: {
         Row: {
           created_at: string | null
