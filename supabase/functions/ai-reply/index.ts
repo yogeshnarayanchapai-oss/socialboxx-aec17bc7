@@ -244,6 +244,38 @@ function enforceReplyScript(reply: string, requiredReplyMode: ReplyScriptMode): 
   return reply;
 }
 
+// ===== AI REPLY CACHE HELPERS =====
+function normalizeMessageForCache(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{200D}\u{20E3}]/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function sha1Hex(s: string): Promise<string> {
+  const buf = new TextEncoder().encode(s);
+  const hash = await crypto.subtle.digest("SHA-1", buf);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function isCacheEligible(opts: {
+  pageId?: string | null;
+  normalized: string;
+  imageUrls?: string[];
+  longGapConfirmation?: boolean;
+}): boolean {
+  if (!opts.pageId) return false;
+  if (opts.imageUrls && opts.imageUrls.length > 0) return false;
+  if (opts.longGapConfirmation) return false;
+  const n = opts.normalized;
+  if (!n || n.length < 4 || n.length > 200) return false;
+  // Skip messages containing digits (likely phone numbers / order ids → must go to AI)
+  if (/\d/.test(n)) return false;
+  return true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
