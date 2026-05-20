@@ -863,6 +863,37 @@ ${conversationHistory || 'First message from customer.'}`;
       }
     }
 
+    // ===== AI REPLY CACHE: save reply when safe to reuse =====
+    if (
+      cacheEligible &&
+      cacheKey &&
+      suggestedReply &&
+      suggestedReply.trim().length > 0 &&
+      !leadAction.should_create &&
+      !leadAction.invalid_number &&
+      !isComplaint &&
+      !mediaToSend
+    ) {
+      try {
+        await supabase
+          .from("ai_reply_cache")
+          .upsert(
+            {
+              page_id: pageId,
+              message_hash: cacheKey,
+              message_sample: (customerMessage || "").substring(0, 300),
+              reply: suggestedReply.trim(),
+              hit_count: 1,
+              last_used_at: new Date().toISOString(),
+            },
+            { onConflict: "page_id,message_hash" }
+          );
+        console.log("AI cache SAVED for page", pageId);
+      } catch (e) {
+        console.warn("AI cache save failed:", e);
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
