@@ -374,6 +374,57 @@ serve(async (req) => {
     }
     const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", mergedInstructions);
 
+    // ===== AI REPLY CACHE: lookup before calling AI =====
+    const normalizedMsg = normalizeMessageForCache(customerMessage || "");
+    const cacheEligible = isCacheEligible({
+      pageId,
+      normalized: normalizedMsg,
+      imageUrls,
+      longGapConfirmation,
+    });
+    let cacheKey = "";
+    if (cacheEligible) {
+      const keyInput = `${pageId}|${requiredReplyMode}|${hasExistingLead ? 1 : 0}|${normalizedMsg}`;
+      cacheKey = await sha1Hex(keyInput);
+      try {
+        const { data: cached } = await supabase
+          .from("ai_reply_cache")
+          .select("reply, hit_count")
+          .eq("page_id", pageId)
+          .eq("message_hash", cacheKey)
+          .gte("last_used_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+          .maybeSingle();
+
+        if (cached?.reply) {
+          console.log(`AI cache HIT for page ${pageId} (hits so far: ${cached.hit_count})`);
+          // Fire-and-forget hit counter update
+          supabase
+            .from("ai_reply_cache")
+            .update({
+              hit_count: (cached.hit_count || 1) + 1,
+              last_used_at: new Date().toISOString(),
+            })
+            .eq("page_id", pageId)
+            .eq("message_hash", cacheKey)
+            .then(() => {}, (e) => console.warn("cache hit update failed", e));
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              suggestedReply: cached.reply,
+              leadAction: { should_create: false, phone: null, invalid_number: false, reason: "from-cache" },
+              isComplaint: false,
+              mediaToSend: null,
+              cached: true,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+      } catch (e) {
+        console.warn("AI cache lookup failed:", e);
+      }
+    }
+
     // Try to use cached prompt first
     let systemPrompt = "";
     let usedCache = false;
