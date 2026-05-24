@@ -545,6 +545,28 @@ serve(async (req) => {
         const error = await response.json();
         console.error("Failed to send message:", error);
         const fbMsg = String(error.error?.message || "");
+        const fbCode = error.error?.code;
+        const fbSubcode = error.error?.error_subcode;
+
+        // Token invalidated / expired — mark page so UI can prompt reconnect
+        if (fbCode === 190 || /access token/i.test(fbMsg) || /session has been invalidated/i.test(fbMsg)) {
+          await supabase
+            .from("connected_pages")
+            .update({ connection_status: "token_expired" })
+            .eq("id", page.id);
+
+          return new Response(
+            JSON.stringify({
+              error: "Facebook page token expired or invalidated. Please reconnect this page from the Pages section.",
+              code: "TOKEN_EXPIRED",
+              page_id: page.id,
+              fb_code: fbCode,
+              fb_subcode: fbSubcode,
+            }),
+            { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
         throw new Error(fbMsg || "Failed to send message");
       }
 
