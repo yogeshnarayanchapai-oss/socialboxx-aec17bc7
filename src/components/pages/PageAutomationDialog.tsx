@@ -215,7 +215,7 @@ export function PageAutomationDialog({
       setAiInstructions((page as any).ai_instructions || DEFAULT_AI_INSTRUCTIONS);
       setAiCommentHint((page as any).ai_comment_hint || "");
       setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
-      setDebounceSeconds((page as any).ai_debounce_seconds ?? 30);
+      setDebounceSeconds((page as any).ai_debounce_seconds ?? 5);
 
       // Load AI media assets
       const assets = (page as any).ai_media_assets;
