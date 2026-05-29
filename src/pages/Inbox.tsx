@@ -519,6 +519,28 @@ export default function Inbox() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to sync"); }
   };
 
+  const [syncMissedLoading, setSyncMissedLoading] = useState(false);
+  const handleSyncMissed = async () => {
+    if (pages.length === 0) { toast.error("No pages connected."); return; }
+    setSyncMissedLoading(true);
+    const t = toast.loading("Syncing missed messages from all pages...");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-missed-messages", { body: {} });
+      if (error) throw error;
+      toast.dismiss(t);
+      const msgs = data?.synced_messages ?? 0;
+      const convs = data?.synced_conversations ?? 0;
+      const tmpls = data?.templates_sent ?? 0;
+      toast.success(`Synced ${convs} convos, ${msgs} msgs · ${tmpls} template${tmpls === 1 ? "" : "s"} sent`);
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e instanceof Error ? e.message : "Failed to sync missed messages");
+    } finally {
+      setSyncMissedLoading(false);
+    }
+  };
+
   const retryJobIdRef = useRef<string | null>(null);
   const retryPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
