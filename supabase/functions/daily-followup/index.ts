@@ -125,154 +125,22 @@ serve(async (req) => {
         }
 
         const step = followupSettings.steps[currentStep];
-        console.log(`Generating AI follow-up #${currentStep + 1} for conv ${conv.id}: hint="${step.message_hint}"`);
+        const followupMessage = (step.message_hint || "").trim();
 
-        let followupMessage = "";
-        let aiFailed = false;
-        let aiFailReason = "";
-
-        try {
-          if (!LOVABLE_API_KEY) {
-            aiFailed = true;
-            aiFailReason = "LOVABLE_API_KEY not configured";
-          } else {
-            // Get conversation history
-            const { data: recentMsgs } = await supabase
-              .from("messages")
-              .select("content, sender_type")
-              .eq("conversation_id", conv.id)
-              .order("created_at", { ascending: false })
-              .limit(10);
-
-            const history = (recentMsgs || []).reverse()
-              .map(m => `${m.sender_type === 'customer' ? 'Customer' : 'Business'}: ${m.content}`)
-              .join('\n');
-
-            // Try multiple models with retry
-            const models = [
-              { name: "google/gemini-2.5-flash-lite", tokenParam: "max_tokens", temp: 0.7 },
-              { name: "google/gemini-2.5-flash", tokenParam: "max_tokens", temp: 0.7 },
-              { name: "openai/gpt-5-mini", tokenParam: "max_completion_tokens", temp: 0.6 },
-            ];
-
-            let lastModelError = "";
-
-            for (const model of models) {
-              try {
-                const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    model: model.name,
-                    messages: [
-                      {
-                        role: "system",
-                        content: `You are a follow-up message writer for "${page.page_name}".
-${page.ai_description ? `Business info: ${page.ai_description}` : ''}
-${page.product_name ? `Product: ${page.product_name}` : ''}
-${page.product_description ? `Product details: ${page.product_description}` : ''}
-${page.ai_instructions ? `\nPage Owner Instructions (HIGHEST PRIORITY):\n${page.ai_instructions}` : ''}
-
-LANGUAGE RULE: Match the customer's language from the conversation (Nepali देवनागरी, Roman Nepali, or English).
-
-This is follow-up #${currentStep + 1} of ${followupSettings.steps.length}.
-
-IMPORTANT - READ CAREFULLY:
-The page owner has provided this HINT/GUIDANCE for what the follow-up should achieve:
-"${step.message_hint}"
-
-This hint describes the INTENT of the message — it is NOT the message itself!
-You MUST write a NEW, natural, human-like message inspired by this guidance.
-DO NOT copy or repeat the hint text verbatim.
-DO NOT include instructional language like "Tell Sir" or "ask them to..." — write the actual customer-facing message directly.
-
-${step.media?.url ? `Include this link naturally: ${step.media.url}` : ''}
-
-Rules:
-- Write ONLY the final message to send to the customer (no explanations, no quotes)
-- Sound natural and human-like, NOT robotic
-- Keep it short (1-3 sentences max)
-- Be friendly but not pushy
-- Reference previous conversation context naturally
-- Don't repeat words from previous follow-ups`
-                      },
-                      {
-                        role: "user",
-                        content: `Previous conversation:\n${history}\n\nCustomer name: ${conv.participant_name || 'Customer'}\n\nWrite the follow-up message (just the message text, nothing else):`
-                      },
-                    ],
-                    [model.tokenParam]: 200,
-                    temperature: model.temp,
-                  }),
-                });
-
-                if (aiResponse.ok) {
-                  const aiData = await aiResponse.json();
-                  const generated = aiData.choices?.[0]?.message?.content?.trim();
-                  if (generated && generated.length > 5) {
-                    followupMessage = generated;
-                    console.log(`Follow-up generated with model: ${model.name}`);
-                    break;
-                  } else {
-                    lastModelError = `Model ${model.name} returned empty/short response`;
-                  }
-                } else {
-                  const status = aiResponse.status;
-                  const errText = await aiResponse.text();
-                  lastModelError = `Model ${model.name} failed (${status}): ${errText.substring(0, 100)}`;
-                  console.warn(lastModelError);
-
-                  // Don't retry on payment/rate limit errors
-                  if (status === 402) {
-                    aiFailed = true;
-                    aiFailReason = "AI credits depleted";
-                    break;
-                  }
-                  if (status === 429) {
-                    aiFailed = true;
-                    aiFailReason = "AI rate limit exceeded";
-                    break;
-                  }
-                }
-              } catch (err) {
-                lastModelError = `Model ${model.name} error: ${err instanceof Error ? err.message : String(err)}`;
-                console.warn(lastModelError);
-              }
-            }
-
-            // If all models failed
-            if (!followupMessage && !aiFailed) {
-              aiFailed = true;
-              aiFailReason = `AI generation failed: ${lastModelError}`;
-            }
-          }
-        } catch (error) {
-          aiFailed = true;
-          aiFailReason = `Follow-up error: ${error instanceof Error ? error.message : String(error)}`;
-          console.error(`Error generating followup for conv ${conv.id}:`, error);
-        }
-
-        // If AI failed, mark as ai_failed but KEEP followup step/schedule for retry
-        if (aiFailed || !followupMessage) {
-          console.error(`AI followup failed for conv ${conv.id}: ${aiFailReason}`);
-          // Add FOLLOW-UP tag if not present
-          const currentTags: string[] = conv.tags || [];
-          if (!currentTags.includes("FOLLOW-UP")) {
-            currentTags.push("FOLLOW-UP");
-          }
-          // Keep ai_followup_step and reschedule retry in 1 hour
+        if (!followupMessage) {
+          console.warn(`Skipping conv ${conv.id} - step ${currentStep + 1} has empty template text`);
+          const nextStep = currentStep + 1;
+          const nextStepConfig = followupSettings.steps[nextStep];
           await supabase.from("conversations").update({
-            status: "ai_failed",
-            ai_fail_reason: `Followup #${currentStep + 1} failed: ${aiFailReason}`.substring(0, 200),
-            ai_followup_next_at: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString(),
-            tags: currentTags,
+            ai_followup_step: nextStepConfig ? nextStep : null,
+            ai_followup_next_at: nextStepConfig
+              ? new Date(Date.now() + nextStepConfig.delay_hours * 60 * 60 * 1000).toISOString()
+              : null,
           }).eq("id", conv.id);
-          results.push({ convId: conv.id, page: page.page_name, step: currentStep + 1, status: "ai_failed", reason: aiFailReason });
           continue;
         }
+
+        console.log(`Sending follow-up #${currentStep + 1} for conv ${conv.id} (verbatim template)`);
 
         // Send via Facebook
         try {
