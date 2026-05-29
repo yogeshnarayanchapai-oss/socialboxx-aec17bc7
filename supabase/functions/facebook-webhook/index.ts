@@ -700,6 +700,64 @@ serve(async (req) => {
           const tmplList: any[] = Array.isArray(tmplCfg?.messages) ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media)) : [];
           let templateHandled = false;
           if (page.ai_enabled && !page.automation_enabled && (page as any).first_msg_template_enabled && tmplList.length > 0) {
+            // Lead detection during template phase: if customer sends a phone number
+            // BEFORE AI takes over, still capture it as a lead.
+            const incomingText = (messageContent || message.text || "") as string;
+            const hasLeadTagAlready = conversationTags.includes("lead-created");
+            if (!hasLeadTagAlready) {
+              const detectedPhone = extractPhoneNumber(incomingText);
+              if (detectedPhone) {
+                const digitsOnly = detectedPhone.replace(/\D/g, '');
+                if (digitsOnly.length >= 10) {
+                  const normalizedPhone = digitsOnly.slice(-10);
+                  console.log("Template-phase lead detection, phone:", detectedPhone);
+                  const { data: existingLead } = await supabase
+                    .from("leads")
+                    .select("id")
+                    .eq("organization_id", page.organization_id)
+                    .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+                    .maybeSingle();
+
+                  if (existingLead) {
+                    await supabase.from("leads").update({
+                      conversation_id: conversationId,
+                      last_message: incomingText.substring(0, 200),
+                      updated_at: new Date().toISOString(),
+                    }).eq("id", existingLead.id);
+                  } else {
+                    const { data: conv } = await supabase
+                      .from("conversations")
+                      .select("participant_name")
+                      .eq("id", conversationId)
+                      .single();
+                    const { error: insertErr } = await supabase.from("leads").insert({
+                      phone: detectedPhone,
+                      full_name: conv?.participant_name,
+                      conversation_id: conversationId,
+                      page_id: page.id,
+                      source: page.page_name,
+                      product: (page as any).product_name || null,
+                      last_message: incomingText.substring(0, 200),
+                      status: "new",
+                      organization_id: page.organization_id,
+                      remark: "No Inquiry",
+                    });
+                    if (insertErr) console.error("Template-phase lead creation error:", insertErr);
+                    else console.log("Template-phase lead created:", detectedPhone);
+                  }
+
+                  if (!conversationTags.includes("lead-created")) {
+                    await supabase.from("conversations").update({
+                      tags: [...conversationTags, "lead-created"],
+                      ai_followup_step: null,
+                      ai_followup_next_at: null,
+                    }).eq("id", conversationId);
+                    conversationTags = [...conversationTags, "lead-created"];
+                  }
+                }
+              }
+            }
+
             // How many page (template) replies have we already sent in this conversation?
             const { count: pageMsgCount } = await supabase
               .from("messages")
