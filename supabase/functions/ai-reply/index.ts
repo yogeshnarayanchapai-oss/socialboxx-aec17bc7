@@ -475,7 +475,7 @@ STRICT BOUNDARIES - CRITICAL:
 - NEVER discuss pricing, costs, or amounts unless the Page Owner's Instructions explicitly tell you to share specific prices.
 - If a customer asks about pricing and you have no price info in instructions, say "हाम्रो टिमले तपाईंलाई price details दिनेछ" or similar - NEVER make up prices.
 - NEVER answer questions outside the scope of this business. Politely redirect to the business topic.
-- BREVITY IS MANDATORY: Reply in 1 short sentence (max 20 words / ~120 chars). NEVER write 2+ sentences. Cut all filler, apologies, repetition. Be direct.
+- BREVITY: Max 2 short sentences (~30 words / ~180 chars). Before lead captured: answer the question briefly + ask phone like a sales expert. After lead captured: 1 sentence only. Cut filler/apologies.
 
 LANGUAGE RULE - ABSOLUTE PRIORITY:
 - Check the Page Owner's Instructions below FIRST for any language specification.
@@ -514,7 +514,7 @@ LEAD DETECTION - CRITICAL:
 
 Default Guidelines (these can be OVERRIDDEN by Page Instructions below):
 - Reply like a real human in a chat - ULTRA SHORT and natural
-- HARD LIMIT: 1 sentence only, max 20 words / ~120 chars. No long explanations. No repeated apologies.
+- LIMIT: Max 2 short sentences (~30 words / ~180 chars). Pre-lead: brief answer + soft phone ask. Post-lead: 1 sentence, no phone re-ask.
 - Address their question directly
 - If you don't know specific details, say you'll check and get back
 - Never make up prices, delivery times, or product details
@@ -650,7 +650,7 @@ ${conversationHistory || 'First message from customer.'}`;
           { role: "system", content: scriptLockPrompt },
           { role: "user", content: userContent },
         ],
-        [model.tokenParam]: 180,
+        [model.tokenParam]: 240,
         temperature: 0.6,
       });
 
