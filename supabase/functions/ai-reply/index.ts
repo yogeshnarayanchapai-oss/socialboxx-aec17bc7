@@ -650,7 +650,7 @@ ${conversationHistory || 'First message from customer.'}`;
           { role: "system", content: scriptLockPrompt },
           { role: "user", content: userContent },
         ],
-        [model.tokenParam]: 180,
+        [model.tokenParam]: 240,
         temperature: 0.6,
       });
 
