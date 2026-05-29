@@ -119,7 +119,7 @@ export function PageAutomationDialog({
   const [aiFollowupEnabled, setAiFollowupEnabled] = useState(false);
   const [aiFollowupSteps, setAiFollowupSteps] = useState<AiFollowupStep[]>([]);
   const [aiCommentReplyEnabled, setAiCommentReplyEnabled] = useState(false);
-  const [debounceSeconds, setDebounceSeconds] = useState(30);
+  const [debounceSeconds, setDebounceSeconds] = useState(5);
   const [savingProduct, setSavingProduct] = useState(false);
   const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
   const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
@@ -215,7 +215,7 @@ export function PageAutomationDialog({
       setAiInstructions((page as any).ai_instructions || DEFAULT_AI_INSTRUCTIONS);
       setAiCommentHint((page as any).ai_comment_hint || "");
       setAiCommentReplyEnabled((page as any).ai_comment_reply_enabled || false);
-      setDebounceSeconds((page as any).ai_debounce_seconds ?? 30);
+      setDebounceSeconds((page as any).ai_debounce_seconds ?? 5);
 
       // Load AI media assets
       const assets = (page as any).ai_media_assets;
