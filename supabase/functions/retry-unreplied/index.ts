@@ -296,66 +296,54 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       return { processed: 1, failed: 0, type: "recovered" };
     }
 
-    const combinedCustomerMessage = unrepliedCustomerMessages.join("\n");
-    const conversationHistory = latestMessages
-      .map((m: any) => `${m.sender_type === "customer" ? "Customer" : "Business"}: ${m.content || (m.media_url ? "[sent media]" : "")}`)
-      .join("\n");
-
+    // === SEND FIRST TEMPLATE (NO AI CALL) ===
+    // Conversation has unreplied customer messages and no lead. Per business rule
+    // we send the page's first template (or the auto_reply_first_message fallback)
+    // directly — no AI cost, no AI call.
     const hasLeadTag = conv.tags?.includes("lead-created") || false;
+    if (hasLeadTag) {
+      await supabase.from("conversations").update({
+        status: "replied",
+        ai_fail_reason: null,
+      }).eq("id", conv.id);
+      return { processed: 1, failed: 0, type: "skipped_has_lead" };
+    }
 
-    const aiResponse = await fetch(`${supabaseUrl}/functions/v1/ai-reply`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-      body: JSON.stringify({
-        conversationId: conv.id,
-        customerMessage: combinedCustomerMessage,
-        conversationHistory,
-        pageName: page.page_name,
-        businessDescription: page.ai_description || "",
-        aiInstructions: page.ai_instructions || "",
-        imageUrls: unrepliedImageUrls.length > 0 ? unrepliedImageUrls : undefined,
-        hasExistingLead: hasLeadTag,
-        mediaAssets: page.ai_media_assets || [],
-        pageId: page.id,
-      }),
-    });
+    const tmplCfg: any = (page as any).first_msg_template;
+    const tmplList: any[] = Array.isArray(tmplCfg?.messages)
+      ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media))
+      : [];
+    const firstTmpl = tmplList[0];
+    const templateText: string = (firstTmpl?.text || page.auto_reply_first_message || "").toString().trim();
+    const templateMedia = firstTmpl?.media || null;
 
-    if (!aiResponse.ok) {
-      let failReason = "AI service error";
-      try {
-        const errBody = await aiResponse.json();
-        if (aiResponse.status === 402) failReason = "Credits depleted";
-        else if (aiResponse.status === 429) failReason = "Rate limit exceeded";
-        else if (errBody?.error) failReason = typeof errBody.error === 'string' ? errBody.error.substring(0, 200) : JSON.stringify(errBody.error).substring(0, 200);
-      } catch {}
-      const newRetryCount = (retryCount || 0) + 1;
-      const retryCountTag = `[retryCount:${newRetryCount}]`;
-      const markedReason = retryMarker ? `${retryMarker} ${retryCountTag} ${failReason}` : `${retryCountTag} ${failReason}`;
-      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: markedReason }).eq("id", conv.id);
+    if (!templateText && !templateMedia) {
+      const failReason = retryMarker ? `${retryMarker} No first template configured` : "No first template configured";
+      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conv.id);
       return { processed: 0, failed: 1, type: "new_reply" };
     }
 
-    const aiData = await aiResponse.json();
-    const fallbackReply = (page.auto_reply_followup || page.auto_reply_first_message || "Thank you for your message. Our team will get back to you shortly.").trim();
-    const suggestedReply = String(aiData.suggestedReply || fallbackReply).trim().slice(0, MAX_REPLY_LENGTH);
-
-    if (!suggestedReply) {
-      const failReason = retryMarker ? `${retryMarker} No AI reply generated` : "No AI reply generated";
-      await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conv.id);
-      return { processed: 0, failed: 1, type: "new_reply" };
+    const fbBody: any = {
+      recipient: { id: conv.participant_id },
+      access_token: page.page_access_token,
+    };
+    if (templateMedia?.url) {
+      fbBody.message = {
+        attachment: {
+          type: templateMedia.type === "video" ? "video" : "image",
+          payload: { url: templateMedia.url, is_reusable: true },
+        },
+      };
+    } else {
+      fbBody.message = { text: templateText };
     }
 
     let sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        recipient: { id: conv.participant_id },
-        message: { text: suggestedReply },
-        access_token: page.page_access_token,
-      }),
+      body: JSON.stringify(fbBody),
     });
 
-    // If outside the 24h standard window, retry with HUMAN_AGENT tag (7-day window)
     if (!sendResponse.ok) {
       const errClone = sendResponse.clone();
       try {
@@ -364,28 +352,19 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         const msg = String(errPeek?.error?.message || "").toLowerCase();
         const isOutsideWindow = subcode === 2018278 || msg.includes("outside of allowed window") || msg.includes("outside the allowed window");
         if (isOutsideWindow) {
-          console.log(`Outside-window detected for conv ${conv.id}, retrying with HUMAN_AGENT tag`);
           sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              recipient: { id: conv.participant_id },
-              message: { text: suggestedReply },
-              messaging_type: "MESSAGE_TAG",
-              tag: "HUMAN_AGENT",
-              access_token: page.page_access_token,
-            }),
+            body: JSON.stringify({ ...fbBody, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
           });
         }
-      } catch (_) { /* ignore parse */ }
+      } catch (_) {}
     }
 
     if (!sendResponse.ok) {
       const err = await sendResponse.json();
       const fbErrorCode = err?.error?.code;
       const fbErrorMessage = String(err?.error?.message || "");
-      // Only true blocked/deactivated users are permanent. Everything else (including
-      // outside-of-allowed-window) stays in ai_failed for future retries.
       const isPermanent = fbErrorCode === 551 || isPermanentlyUnavailable(fbErrorMessage);
       const errMsg = isPermanent
         ? "User unavailable on Facebook (blocked or deactivated)"
@@ -401,88 +380,34 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       return { processed: isPermanent ? 1 : 0, failed: isPermanent ? 0 : 1, type: "new_reply" };
     }
 
-    // Send additional media if AI requested
-    const mediaToSend = aiData.mediaToSend;
-    if (mediaToSend?.url) {
-      let mediaPayload: any;
-      if (mediaToSend.type === "image") {
-        mediaPayload = { attachment: { type: "image", payload: { url: mediaToSend.url, is_reusable: true } } };
-      } else if (mediaToSend.type === "video") {
-        mediaPayload = { attachment: { type: "video", payload: { url: mediaToSend.url, is_reusable: true } } };
-      }
-      if (mediaPayload) {
-        await fetch("https://graph.facebook.com/v19.0/me/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recipient: { id: conv.participant_id },
-            message: mediaPayload,
-            access_token: page.page_access_token,
-          }),
-        });
-      }
-    }
-
     await supabase.from("messages").insert({
       conversation_id: conv.id,
-      content: suggestedReply,
+      content: templateText || null,
       sender_type: "page",
-      message_type: "text",
+      message_type: templateMedia ? "media" : "text",
+      media_url: templateMedia?.url || null,
       created_at: new Date().toISOString(),
     });
 
     await supabase.from("conversations").update({
       status: "replied",
       ai_fail_reason: null,
-      last_message_preview: suggestedReply.substring(0, 100),
+      last_message_preview: (templateText || "[Template sent]").substring(0, 100),
       last_message_at: new Date().toISOString(),
     }).eq("id", conv.id);
 
-    // Handle lead creation from AI response
-    const leadAction = aiData.leadAction;
-    if (leadAction?.should_create && leadAction.phone && !leadAction.invalid_number) {
-      const digitsOnly = leadAction.phone.replace(/\D/g, "");
-      if (digitsOnly.length >= 10 && !hasLeadTag) {
-        const normalizedPhone = digitsOnly.slice(-10);
-        const { data: existingLead } = await supabase
-          .from("leads")
-          .select("id")
-          .eq("organization_id", page.organization_id)
-          .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-          .maybeSingle();
-
-        if (!existingLead) {
-          await supabase.from("leads").insert({
-            phone: leadAction.phone,
-            full_name: conv.participant_name,
-            conversation_id: conv.id,
-            page_id: page.id,
-            source: page.page_name,
-            product: page.product_name || null,
-            status: "new",
-            organization_id: page.organization_id,
-            remark: leadAction.reason || "No Inquiry",
-          });
-          await supabase.from("conversations").update({
-            tags: [...(conv.tags || []), "lead-created"],
-          }).eq("id", conv.id);
-        }
-      }
+    // Start auto follow-up sequence (no lead exists)
+    const followupMessages = (page as any).auto_followup_messages;
+    if (Array.isArray(followupMessages) && followupMessages.length > 0) {
+      const firstStep = followupMessages[0];
+      const delayHours = Number(firstStep?.delay_hours ?? firstStep?.delay ?? 6);
+      await supabase.from("conversations").update({
+        auto_followup_step: 0,
+        auto_followup_next_at: new Date(Date.now() + delayHours * 60 * 60 * 1000).toISOString(),
+      }).eq("id", conv.id);
     }
 
-    // Start follow-up if no lead
-    if (!hasLeadTag && !conv.tags?.includes("lead-created")) {
-      const followupSettings = page.ai_followup_settings as any;
-      if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
-        const firstStep = followupSettings.steps[0];
-        await supabase.from("conversations").update({
-          ai_followup_step: 0,
-          ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
-        }).eq("id", conv.id);
-      }
-    }
-
-    console.log(`Reply sent for conv ${conv.id} (${conv.participant_name})`);
+    console.log(`Template sent for conv ${conv.id} (${conv.participant_name})`);
     return { processed: 1, failed: 0, type: "new_reply" };
   } catch (convErr) {
     console.error(`Error processing conv ${conv.id}:`, convErr);
