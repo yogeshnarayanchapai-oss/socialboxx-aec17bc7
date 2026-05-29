@@ -475,7 +475,7 @@ STRICT BOUNDARIES - CRITICAL:
 - NEVER discuss pricing, costs, or amounts unless the Page Owner's Instructions explicitly tell you to share specific prices.
 - If a customer asks about pricing and you have no price info in instructions, say "हाम्रो टिमले तपाईंलाई price details दिनेछ" or similar - NEVER make up prices.
 - NEVER answer questions outside the scope of this business. Politely redirect to the business topic.
-- Keep responses SHORT and cost-efficient (1-2 sentences when possible).
+- BREVITY IS MANDATORY: Reply in 1 short sentence (max 20 words / ~120 chars). NEVER write 2+ sentences. Cut all filler, apologies, repetition. Be direct.
 
 LANGUAGE RULE - ABSOLUTE PRIORITY:
 - Check the Page Owner's Instructions below FIRST for any language specification.
@@ -513,8 +513,8 @@ LEAD DETECTION - CRITICAL:
 - If no specific phone validation rules are in instructions, default: Nepal 10-digit mobile starting with 97 or 98 is valid.
 
 Default Guidelines (these can be OVERRIDDEN by Page Instructions below):
-- Reply like a real human in a chat - SHORT and natural
-- Keep replies 1-3 sentences max
+- Reply like a real human in a chat - ULTRA SHORT and natural
+- HARD LIMIT: 1 sentence only, max 20 words / ~120 chars. No long explanations. No repeated apologies.
 - Address their question directly
 - If you don't know specific details, say you'll check and get back
 - Never make up prices, delivery times, or product details
@@ -650,7 +650,7 @@ ${conversationHistory || 'First message from customer.'}`;
           { role: "system", content: scriptLockPrompt },
           { role: "user", content: userContent },
         ],
-        [model.tokenParam]: 500,
+        [model.tokenParam]: 180,
         temperature: 0.6,
       });
 
