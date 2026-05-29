@@ -521,25 +521,40 @@ serve(async (req) => {
         }
       );
 
-      // If outside 24h window, retry with HUMAN_AGENT tag (7-day window, requires approved Human Agent permission)
+      // Auto-fallback: retry with MESSAGE_TAG + HUMAN_AGENT when:
+      //  - outside 24h window (subcode 2018278), OR
+      //  - Facebook rejects messaging_type (e.g. invalid "HUMAN_AGENT" value, code 100)
       if (!response.ok) {
         try {
           const errPeek = await response.clone().json();
           const subcode = errPeek?.error?.error_subcode;
+          const code = errPeek?.error?.code;
           const msgL = String(errPeek?.error?.message || "").toLowerCase();
-          if (subcode === 2018278 || msgL.includes("outside") && msgL.includes("window")) {
-            console.log("Outside 24h window, retrying with HUMAN_AGENT tag...");
+
+          const outside24h = subcode === 2018278 || (msgL.includes("outside") && msgL.includes("window"));
+          const badMessagingType =
+            code === 100 &&
+            msgL.includes("messaging_type") &&
+            (msgL.includes("must be one of") || msgL.includes("human_agent") || msgL.includes("invalid"));
+
+          if (outside24h || badMessagingType) {
+            console.log(
+              `Retrying send with MESSAGE_TAG + HUMAN_AGENT (reason: ${outside24h ? "outside-24h" : "bad-messaging_type"})...`
+            );
+            // Strip any pre-existing messaging_type/tag fields before retrying with the correct combo
+            const { messaging_type: _mt, tag: _tg, ...cleanPayload } = messagePayload;
             response = await fetch(
               `https://graph.facebook.com/v19.0/me/messages?access_token=${pageAccessToken}`,
               {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ ...messagePayload, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
+                body: JSON.stringify({ ...cleanPayload, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
               }
             );
           }
         } catch (_) { /* ignore */ }
       }
+
 
       if (!response.ok) {
         const error = await response.json();
