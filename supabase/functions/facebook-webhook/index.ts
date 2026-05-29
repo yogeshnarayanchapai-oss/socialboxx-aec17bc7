@@ -15,62 +15,63 @@ function convertNepaliDigits(text: string): string {
   return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
 }
 
-// Phone number extraction - returns all digits from text, excluding surrounding text
+// Strip attachment markers and URLs so their digits don't get parsed as phone numbers
+function sanitizeForPhoneExtraction(text: string): string {
+  if (!text) return "";
+  let t = text;
+  // Remove our own attachment marker lines like "[Customer sent ... attachment: https://...]"
+  t = t.replace(/\[Customer sent[^\]]*\]/gi, " ");
+  t = t.replace(/\[(Sticker|Attachment)[^\]]*\]/gi, " ");
+  // Remove any URLs (http/https/www) - their query strings contain huge digit blobs
+  t = t.replace(/https?:\/\/\S+/gi, " ");
+  t = t.replace(/www\.\S+/gi, " ");
+  return t;
+}
+
+// Pick the best phone-like digit group instead of concatenating ALL digit runs
+function pickPhoneDigits(text: string): string | null {
+  const converted = convertNepaliDigits(text);
+  const groups = converted.match(/\d[\d\s\-]{7,}\d/g);
+  if (!groups) return null;
+  // Try each candidate; prefer ones starting with 9 and ~10 digits
+  const candidates = groups
+    .map(g => g.replace(/\D/g, ''))
+    .filter(d => d.length >= 9 && d.length <= 13);
+  if (candidates.length === 0) return null;
+  // Prefer Nepal mobile (starts with 9, 10 digits) or 977 + 10
+  const nepal = candidates.find(d => d.length === 10 && d.startsWith('9'));
+  if (nepal) return nepal;
+  const nepalCC = candidates.find(d => d.startsWith('977') && d.length === 13);
+  if (nepalCC) return nepalCC;
+  // Otherwise pick the shortest valid candidate (avoid long IDs)
+  candidates.sort((a, b) => a.length - b.length);
+  return candidates[0];
+}
+
+// Phone number extraction - ignores URLs/attachments and picks a real phone group
 function extractPhoneNumber(text: string): string | null {
   if (!text) return null;
+  const cleaned = sanitizeForPhoneExtraction(text);
+  const digits = pickPhoneDigits(cleaned);
+  if (!digits) return null;
   
-  // Convert Nepali digits first
-  const converted = convertNepaliDigits(text);
-  
-  // Extract all digit sequences and join them
-  const digitGroups = converted.match(/\d+/g);
-  if (!digitGroups) return null;
-  
-  const allDigits = digitGroups.join('');
-  
-  // Must have at least 9 digits to be a phone number
-  if (allDigits.length < 9) return null;
-  
-  // Remove country code prefix if present
-  let digits = allDigits;
   if (digits.startsWith('977') && digits.length >= 12) {
-    digits = digits.substring(3);
+    const local = digits.substring(3);
+    if (local.startsWith('9') && local.length === 10) return local;
+    return '+' + digits;
   }
-  
-  // Check if it looks like a Nepal mobile number (starts with 9)
-  if (digits.startsWith('9') && digits.length >= 9) {
-    return digits; // Return ALL digits, no truncation
-  }
-  
-  // For numbers with country code, return with it
-  if (allDigits.startsWith('977') && allDigits.length >= 12) {
-    return '+' + allDigits;
-  }
-  
-  // If at least 9 digits, return as-is
-  if (allDigits.length >= 9) return allDigits;
-  
+  if (digits.startsWith('9') && digits.length === 10) return digits;
+  if (digits.length >= 9 && digits.length <= 11) return digits;
   return null;
 }
 
 // Extract normalized phone for dedup - returns last 10 digits for matching
 function extractNormalizedPhone(text: string): string | null {
-  if (!text) return null;
-  const converted = convertNepaliDigits(text);
-  const digitGroups = converted.match(/\d+/g);
-  if (!digitGroups) return null;
-  
-  let allDigits = digitGroups.join('');
-  if (allDigits.length < 9) return null;
-  
-  // Remove country code
-  if (allDigits.startsWith('977') && allDigits.length >= 12) {
-    allDigits = allDigits.substring(3);
-  }
-  
-  // Return last 10 digits for dedup matching
-  if (allDigits.length >= 10) return allDigits.slice(-10);
-  return allDigits;
+  const raw = extractPhoneNumber(text);
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
 }
 
 interface KeywordRule {
