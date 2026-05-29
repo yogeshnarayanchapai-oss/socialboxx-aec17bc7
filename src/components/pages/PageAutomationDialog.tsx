@@ -1217,10 +1217,10 @@ export function PageAutomationDialog({
                     </div>
                   ))}
                   
-                  {templateMessages.length < 5 && (
+                  {templateMessages.length < 2 && (
                     <Button type="button" variant="outline" size="sm" className="w-full"
                       onClick={() => setTemplateMessages(prev => [...prev, { text: "", media: null }])}>
-                      <Plus className="mr-2 h-4 w-4" />Message थप्नुहोस्
+                      <Plus className="mr-2 h-4 w-4" />Message थप्नुहोस् (अधिकतम 2)
                     </Button>
                   )}
                 </div>
