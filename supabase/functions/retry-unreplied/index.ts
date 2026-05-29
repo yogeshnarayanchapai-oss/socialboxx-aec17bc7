@@ -718,7 +718,7 @@ serve(async (req) => {
     const pageIds = [...new Set(retryableConvs.map(c => c.page_id))];
     const { data: pagesData } = await supabase
       .from("connected_pages")
-      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings, auto_reply_first_message, auto_reply_followup")
+      .select("id, page_id, page_name, page_access_token, ai_enabled, ai_description, ai_instructions, ai_debounce_seconds, ai_media_assets, product_name, organization_id, ai_followup_settings, auto_reply_first_message, auto_reply_followup, first_msg_template, first_msg_template_enabled, auto_followup_messages")
       .in("id", pageIds);
     const pagesMap = new Map((pagesData || []).map(p => [p.id, p]));
 
