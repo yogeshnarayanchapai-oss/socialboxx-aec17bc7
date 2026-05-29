@@ -519,6 +519,28 @@ export default function Inbox() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Failed to sync"); }
   };
 
+  const [syncMissedLoading, setSyncMissedLoading] = useState(false);
+  const handleSyncMissed = async () => {
+    if (pages.length === 0) { toast.error("No pages connected."); return; }
+    setSyncMissedLoading(true);
+    const t = toast.loading("Syncing missed messages from all pages...");
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-missed-messages", { body: {} });
+      if (error) throw error;
+      toast.dismiss(t);
+      const msgs = data?.synced_messages ?? 0;
+      const convs = data?.synced_conversations ?? 0;
+      const tmpls = data?.templates_sent ?? 0;
+      toast.success(`Synced ${convs} convos, ${msgs} msgs · ${tmpls} template${tmpls === 1 ? "" : "s"} sent`);
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e instanceof Error ? e.message : "Failed to sync missed messages");
+    } finally {
+      setSyncMissedLoading(false);
+    }
+  };
+
   const retryJobIdRef = useRef<string | null>(null);
   const retryPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -688,7 +710,22 @@ export default function Inbox() {
 
   return (
     <div className="flex h-[calc(100vh-56px)] md:h-screen flex-col">
-      <PageHeader title="Inbox" description="Manage all your conversations" />
+      <PageHeader
+        title="Inbox"
+        description="Manage all your conversations"
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncMissed}
+            disabled={syncMissedLoading}
+            className="gap-2"
+          >
+            {syncMissedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync missed & send template
+          </Button>
+        }
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Conversation List */}
