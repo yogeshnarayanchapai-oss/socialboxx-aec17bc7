@@ -1119,14 +1119,15 @@ export function PageAutomationDialog({
               <div className={`flex items-center justify-between rounded-lg border-2 p-4 transition-colors ${templateEnabled ? 'border-green-500/50 bg-green-500/5' : 'border-dashed'}`}>
                 <div>
                   <Label className="text-base font-medium">First Message Template</Label>
-                  <p className="text-sm text-muted-foreground">ON भएमा first msg मा AI call नगरी template पठाउँछ, 2nd msg बाट AI call हुन्छ</p>
+                  <p className="text-sm text-muted-foreground">ON भएमा सुरुका customer messages मा AI call नगरी templates पठाउँछ। 1 template = 1st msg मा template, 2nd msg बाट AI। 2 templates = पहिलो 2 customer msgs मा templates, 3rd msg बाट AI।</p>
                 </div>
                 <Switch checked={templateEnabled} onCheckedChange={setTemplateEnabled} />
               </div>
 
               {templateEnabled && (
                 <div className="space-y-4">
-                  <p className="text-xs text-muted-foreground">Fixed messages, photos, audio, video links थप्नुहोस्। यी messages first msg मा auto-send हुन्छन्।</p>
+                  <p className="text-xs text-muted-foreground">अधिकतम 2 templates थप्न मिल्छ। यी क्रमशः सुरुका customer messages मा auto-send हुन्छन्।</p>
+                  
                   
                   {templateMessages.map((tmplMsg, idx) => (
                     <div key={idx} className="space-y-2 rounded-lg border p-3 bg-muted/20">
