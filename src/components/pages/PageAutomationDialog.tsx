@@ -119,7 +119,7 @@ export function PageAutomationDialog({
   const [aiFollowupEnabled, setAiFollowupEnabled] = useState(false);
   const [aiFollowupSteps, setAiFollowupSteps] = useState<AiFollowupStep[]>([]);
   const [aiCommentReplyEnabled, setAiCommentReplyEnabled] = useState(false);
-  const [debounceSeconds, setDebounceSeconds] = useState(30);
+  const [debounceSeconds, setDebounceSeconds] = useState(5);
   const [savingProduct, setSavingProduct] = useState(false);
   const [replyMessages, setReplyMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FIRST_MSG, media: null }]);
   const [followupMessages, setFollowupMessages] = useState<ReplyMessage[]>([{ text: DEFAULT_FOLLOWUP_MSG, media: null }]);
