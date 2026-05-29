@@ -805,11 +805,54 @@ serve(async (req) => {
             const hasAnyMedia = !!(message as any).media || !!parseMessageContent(messageContent || "").media;
 
             // Skip AI for pure emoji/sticker/short ack messages (saves AI cost)
-            // - Always skip when lead already created
-            // - Also skip even without lead, as long as there's no media (image questions still need AI)
+            // - When lead already created: silently mark replied (no need to spam)
+            // - When NO lead yet: send the saved first-message template once (so the
+            //   customer still gets a reply asking for their phone number) instead of
+            //   just ignoring the message.
             if (isNonsenseOrEmoji && !hasAnyMedia) {
               console.log(`Skipping AI reply - message is emoji/nonsense (hasLead=${hasLeadTag})`);
-              await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+
+              if (!hasLeadTag) {
+                // Only send template if we haven't already replied in this conversation
+                const { data: existingPageMsgs2 } = await supabase
+                  .from("messages")
+                  .select("id")
+                  .eq("conversation_id", conversationId)
+                  .eq("sender_type", "page")
+                  .limit(1);
+
+                if (!existingPageMsgs2 || existingPageMsgs2.length === 0) {
+                  const firstTmpl = (page as any).auto_reply_first_message
+                    || ((page as any).first_msg_template?.messages?.[0]?.text)
+                    || "";
+                  if (firstTmpl && firstTmpl.trim().length > 0) {
+                    console.log("Sending saved first-message template for emoji/nonsense (no lead yet)");
+                    const sent = await sendAutoReply(page.page_access_token, senderId, firstTmpl, null);
+                    if (sent && sent !== "permanent_fail") {
+                      await supabase.from("messages").insert({
+                        conversation_id: conversationId,
+                        content: firstTmpl,
+                        sender_type: "page",
+                        message_type: "text",
+                        created_at: new Date().toISOString(),
+                      });
+                      await supabase.from("conversations").update({
+                        status: "replied",
+                        last_message_preview: firstTmpl.substring(0, 100),
+                        last_message_at: new Date().toISOString(),
+                      }).eq("id", conversationId);
+                    } else {
+                      await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+                    }
+                  } else {
+                    await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+                  }
+                } else {
+                  await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+                }
+              } else {
+                await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+              }
             } else {
               // Skip AI processing if this is NOT the latest message for this sender in this webhook batch
               // This prevents sequential debounce sleeps from causing 504 timeouts
