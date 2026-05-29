@@ -1149,28 +1149,44 @@ serve(async (req) => {
                             } else {
 
                             if (hasLeadTag) {
-                              // Lead already exists — create a NEW separate lead with the new phone
-                              console.log("Existing lead detected, creating NEW lead with phone:", rawPhone);
-                              const { data: conv } = await supabase
-                                .from("conversations")
-                                .select("participant_name")
-                                .eq("id", conversationId)
-                                .single();
+                              // Lead tag already set — dedup before inserting (prevent same phone duplicates across messages)
+                              const { data: dupLead } = await supabase
+                                .from("leads")
+                                .select("id")
+                                .eq("organization_id", page.organization_id)
+                                .or(`phone.eq.${rawPhone},phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+                                .limit(1)
+                                .maybeSingle();
 
-                              const { error: insertErr } = await supabase.from("leads").insert({
-                                phone: rawPhone,
-                                full_name: conv?.participant_name,
-                                conversation_id: conversationId,
-                                page_id: page.id,
-                                source: page.page_name,
-                                product: (page as any).product_name || null,
-                                last_message: combinedCustomerMessage?.substring(0, 200),
-                                status: "new",
-                                organization_id: page.organization_id,
-                                remark: finalLeadAction.reason || "No Inquiry",
-                              });
-                              if (insertErr) console.error("New lead creation error:", insertErr);
-                              else console.log("New lead created successfully with phone:", rawPhone);
+                              if (dupLead) {
+                                console.log("Skip duplicate lead (hasLeadTag), phone:", rawPhone);
+                                await supabase.from("leads").update({
+                                  conversation_id: conversationId,
+                                  last_message: combinedCustomerMessage?.substring(0, 200),
+                                  updated_at: new Date().toISOString(),
+                                }).eq("id", dupLead.id);
+                              } else {
+                                console.log("New phone on tagged convo — creating lead:", rawPhone);
+                                const { data: conv } = await supabase
+                                  .from("conversations")
+                                  .select("participant_name")
+                                  .eq("id", conversationId)
+                                  .single();
+
+                                const { error: insertErr } = await supabase.from("leads").insert({
+                                  phone: rawPhone,
+                                  full_name: conv?.participant_name,
+                                  conversation_id: conversationId,
+                                  page_id: page.id,
+                                  source: page.page_name,
+                                  product: (page as any).product_name || null,
+                                  last_message: combinedCustomerMessage?.substring(0, 200),
+                                  status: "new",
+                                  organization_id: page.organization_id,
+                                  remark: finalLeadAction.reason || "No Inquiry",
+                                });
+                                if (insertErr) console.error("New lead creation error:", insertErr);
+                              }
                             } else {
                               // New lead — dedup check then create
                               console.log("Lead detected with phone:", rawPhone);
