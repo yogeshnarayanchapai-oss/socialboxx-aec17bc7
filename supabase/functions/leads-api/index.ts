@@ -125,14 +125,14 @@ serve(async (req) => {
       const url = new URL(req.url);
       const status = url.searchParams.get("status");
       const pageId = url.searchParams.get("page_id");
-      const limit = parseInt(url.searchParams.get("limit") || "100");
+      const limit = parseInt(url.searchParams.get("limit") || "500");
 
       let query = supabase
         .from("leads")
         .select("*")
         .eq("organization_id", orgId)
         .order("created_at", { ascending: false })
-        .limit(Math.min(limit, 500));
+        .limit(Math.min(limit, 1000));
 
       if (status) query = query.eq("status", status);
 
