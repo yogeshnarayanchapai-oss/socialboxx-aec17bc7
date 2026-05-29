@@ -76,6 +76,8 @@ async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: str
       const reason = conv.ai_fail_reason || "";
       if (reason.includes(retryMarker)) continue;
       if (isPermanentlyUnavailable(reason)) continue;
+      // Skip conversations already converted to a lead
+      if (Array.isArray(conv.tags) && conv.tags.includes("lead-created")) continue;
 
       const retryCountMatch = reason.match(/\[retryCount:(\d+)\]/);
       (conv as any)._retryCount = retryCountMatch ? parseInt(retryCountMatch[1], 10) : 0;
