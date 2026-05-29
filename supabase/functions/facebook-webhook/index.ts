@@ -822,23 +822,27 @@ serve(async (req) => {
                   .limit(1);
 
                 if (!existingPageMsgs2 || existingPageMsgs2.length === 0) {
-                  const firstTmpl = (page as any).auto_reply_first_message
-                    || ((page as any).first_msg_template?.messages?.[0]?.text)
-                    || "";
-                  if (firstTmpl && firstTmpl.trim().length > 0) {
-                    console.log("Sending saved first-message template for emoji/nonsense (no lead yet)");
-                    const sent = await sendAutoReply(page.page_access_token, senderId, firstTmpl, null);
+                  // Use the FIRST message from the automation reply template (first_msg_template.messages[0])
+                  const firstTmplMsg = (page as any).first_msg_template?.messages?.[0];
+                  const tmplText = firstTmplMsg?.text || "";
+                  const tmplMedia = firstTmplMsg?.media || null;
+                  if (firstTmplMsg && (tmplText.trim().length > 0 || tmplMedia)) {
+                    console.log("Sending first reply-template message for emoji/nonsense (no lead yet)");
+                    const sent = await sendAutoReply(page.page_access_token, senderId, tmplText, tmplMedia);
                     if (sent && sent !== "permanent_fail") {
-                      await supabase.from("messages").insert({
-                        conversation_id: conversationId,
-                        content: firstTmpl,
-                        sender_type: "page",
-                        message_type: "text",
-                        created_at: new Date().toISOString(),
-                      });
+                      if (tmplText) {
+                        await supabase.from("messages").insert({
+                          conversation_id: conversationId,
+                          content: tmplText,
+                          sender_type: "page",
+                          message_type: tmplMedia ? "media" : "text",
+                          media_url: tmplMedia?.url || null,
+                          created_at: new Date().toISOString(),
+                        });
+                      }
                       await supabase.from("conversations").update({
                         status: "replied",
-                        last_message_preview: firstTmpl.substring(0, 100),
+                        last_message_preview: (tmplText || "[Template sent]").substring(0, 100),
                         last_message_at: new Date().toISOString(),
                       }).eq("id", conversationId);
                     } else {
