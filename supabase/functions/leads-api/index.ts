@@ -56,23 +56,22 @@ serve(async (req) => {
 
       // Resolve pages based on scope_type
       if (integration.scope_type === "group" && integration.group_id) {
-        // Group scope: dynamically get all pages in this group
+        // Group scope: include all pages in this group (regardless of connection status,
+        // so leads from temporarily-disconnected pages are still pulled)
         const { data: groupPages } = await supabase
           .from("connected_pages")
           .select("id")
           .eq("group_id", integration.group_id)
-          .eq("organization_id", orgId)
-          .eq("connection_status", "active");
+          .eq("organization_id", orgId);
 
         allowedPageIds = (groupPages || []).map(p => p.id);
       } else if (integration.scope_type === "ungrouped") {
-        // Ungrouped scope: dynamically get all pages NOT in any group
+        // Ungrouped scope: include all pages NOT in any group (regardless of connection status)
         const { data: ungroupedPages } = await supabase
           .from("connected_pages")
           .select("id")
           .is("group_id", null)
-          .eq("organization_id", orgId)
-          .eq("connection_status", "active");
+          .eq("organization_id", orgId);
 
         allowedPageIds = (ungroupedPages || []).map(p => p.id);
       } else {
