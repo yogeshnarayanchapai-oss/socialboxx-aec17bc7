@@ -375,8 +375,11 @@ serve(async (req) => {
     const scriptLockPrompt = buildScriptLockPrompt(requiredReplyMode, customerMessage || "", mergedInstructions);
 
     // ===== AI REPLY CACHE: lookup before calling AI =====
+    // IMPORTANT: Only cache when a lead already exists. For pre-lead conversations
+    // we must always run AI fresh so the "ask for phone number first" instruction
+    // is enforced — cached generic answers would otherwise skip phone-asking.
     const normalizedMsg = normalizeMessageForCache(customerMessage || "");
-    const cacheEligible = isCacheEligible({
+    const cacheEligible = hasExistingLead && isCacheEligible({
       pageId,
       normalized: normalizedMsg,
       imageUrls,
@@ -384,7 +387,7 @@ serve(async (req) => {
     });
     let cacheKey = "";
     if (cacheEligible) {
-      const keyInput = `${pageId}|${requiredReplyMode}|${hasExistingLead ? 1 : 0}|${normalizedMsg}`;
+      const keyInput = `${pageId}|${requiredReplyMode}|1|${normalizedMsg}`;
       cacheKey = await sha1Hex(keyInput);
       try {
         const { data: cached } = await supabase
