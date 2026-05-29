@@ -766,7 +766,8 @@ serve(async (req) => {
               .eq("sender_type", "page");
 
             const sentSoFar = pageMsgCount || 0;
-            if (sentSoFar < tmplList.length) {
+            // If a lead was just captured in this message, skip remaining templates — let AI handle.
+            if (sentSoFar < tmplList.length && !conversationTags.includes("lead-created")) {
               const tmplMsg = tmplList[sentSoFar];
               console.log(`Sending template #${sentSoFar + 1} of ${tmplList.length}`);
               const sent = await sendAutoReply(page.page_access_token, senderId, tmplMsg.text || "", tmplMsg.media || null);
