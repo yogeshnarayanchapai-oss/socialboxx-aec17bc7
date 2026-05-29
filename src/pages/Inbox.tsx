@@ -710,7 +710,22 @@ export default function Inbox() {
 
   return (
     <div className="flex h-[calc(100vh-56px)] md:h-screen flex-col">
-      <PageHeader title="Inbox" description="Manage all your conversations" />
+      <PageHeader
+        title="Inbox"
+        description="Manage all your conversations"
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncMissed}
+            disabled={syncMissedLoading}
+            className="gap-2"
+          >
+            {syncMissedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Sync missed & send template
+          </Button>
+        }
+      />
 
       <div className="flex flex-1 overflow-hidden">
         {/* Conversation List */}
