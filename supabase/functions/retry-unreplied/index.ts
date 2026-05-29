@@ -478,7 +478,7 @@ serve(async (req) => {
 
       const { data: allFailedConvs } = await supabase
         .from("conversations")
-        .select("id, ai_fail_reason, page_id, status")
+        .select("id, ai_fail_reason, page_id, status, tags")
         .in("status", candidateStatuses)
         .eq("organization_id", cronOrgId)
         .is("deleted_at", null);
@@ -489,8 +489,10 @@ serve(async (req) => {
         });
       }
 
-      const personNotAvailable = allFailedConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
-      const retryableConvs = allFailedConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason));
+      // Skip conversations already converted to a lead
+      const nonLeadConvs = allFailedConvs.filter((c: any) => !(Array.isArray(c.tags) && c.tags.includes("lead-created")));
+      const personNotAvailable = nonLeadConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
+      const retryableConvs = nonLeadConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason));
 
       if (personNotAvailable.length > 0) {
         await supabase.from("conversations")
