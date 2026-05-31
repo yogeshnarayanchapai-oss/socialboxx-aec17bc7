@@ -23,6 +23,7 @@ import { useFacebookSettings, useUpdateFacebookSettings } from "@/hooks/useAppSe
 import { useIsPlatformAdmin, useOrganization } from "@/hooks/useOrganization";
 import { TeamManagementTab } from "@/components/settings/TeamManagementTab";
 import { ActivityLogTab } from "@/components/settings/ActivityLogTab";
+import { FollowupSettingsTab } from "@/components/settings/FollowupSettingsTab";
 
 // Facebook Integration Settings Component
 function FacebookIntegrationTab() {
@@ -793,12 +794,17 @@ export default function Settings() {
           <TabsList className="flex-wrap">
             <TabsTrigger value="general">General</TabsTrigger>
             <TabsTrigger value="ai">AI Settings</TabsTrigger>
+            <TabsTrigger value="followups">Follow-ups</TabsTrigger>
             <TabsTrigger value="team">Team Members</TabsTrigger>
             <TabsTrigger value="branding">Branding</TabsTrigger>
             <TabsTrigger value="api">API</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             {isPlatformAdmin && <TabsTrigger value="facebook">Facebook Integration</TabsTrigger>}
           </TabsList>
+
+          <TabsContent value="followups" className="space-y-6">
+            <FollowupSettingsTab />
+          </TabsContent>
 
           <TabsContent value="general" className="space-y-6">
             <Card>
