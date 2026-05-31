@@ -13,7 +13,6 @@ import {
   ChevronDown,
   Loader2,
   Sparkles,
-  Send,
   RotateCw,
   RefreshCw,
   ArrowLeft,
