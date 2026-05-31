@@ -211,6 +211,8 @@ serve(async (req) => {
                   recipient: { id: conv.participant_id },
                   message: mediaPayload,
                   access_token: page.page_access_token,
+                  messaging_type: "MESSAGE_TAG",
+                  tag: "HUMAN_AGENT",
                 }),
               });
             }
