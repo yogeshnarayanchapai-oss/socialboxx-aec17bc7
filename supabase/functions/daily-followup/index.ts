@@ -142,20 +142,39 @@ serve(async (req) => {
 
         console.log(`Sending follow-up #${currentStep + 1} for conv ${conv.id} (verbatim template)`);
 
-        // Send via Facebook
+        // Send via Facebook — use HUMAN_AGENT tag to bypass 24-hour window (up to 7 days)
+        const buildPayload = (withTag: boolean) => ({
+          recipient: { id: conv.participant_id },
+          message: { text: followupMessage },
+          access_token: page.page_access_token,
+          ...(withTag ? { messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" } : {}),
+        });
+
         try {
-          const sendResponse = await fetch(
+          let sendResponse = await fetch(
             `https://graph.facebook.com/v19.0/me/messages`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                recipient: { id: conv.participant_id },
-                message: { text: followupMessage },
-                access_token: page.page_access_token,
-              }),
+              body: JSON.stringify(buildPayload(true)),
             }
           );
+
+          // Fallback: if HUMAN_AGENT tag is not accepted, retry without tag
+          if (!sendResponse.ok) {
+            const errPeek = await sendResponse.clone().json().catch(() => ({}));
+            const code = errPeek?.error?.code;
+            if (code === 100 || code === 2018001 || code === 2018278) {
+              sendResponse = await fetch(
+                `https://graph.facebook.com/v19.0/me/messages`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(buildPayload(false)),
+                }
+              );
+            }
+          }
 
           if (sendResponse.ok) {
             // Save message
@@ -192,6 +211,8 @@ serve(async (req) => {
                   recipient: { id: conv.participant_id },
                   message: mediaPayload,
                   access_token: page.page_access_token,
+                  messaging_type: "MESSAGE_TAG",
+                  tag: "HUMAN_AGENT",
                 }),
               });
             }
