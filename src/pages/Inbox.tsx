@@ -520,6 +520,20 @@ export default function Inbox() {
   };
 
   const [syncMissedLoading, setSyncMissedLoading] = useState(false);
+  const [followupRunning, setFollowupRunning] = useState(false);
+  const handleStartFollowup = async () => {
+    setFollowupRunning(true);
+    try {
+      const { triggerFollowupNow } = await import("@/hooks/useFollowupSettings");
+      const { sent } = await triggerFollowupNow();
+      toast.success(`Follow-ups sent: ${sent}`);
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to start follow-ups");
+    } finally {
+      setFollowupRunning(false);
+    }
+  };
   const handleSyncMissed = async () => {
     if (pages.length === 0) { toast.error("No pages connected."); return; }
     setSyncMissedLoading(true);
@@ -714,16 +728,28 @@ export default function Inbox() {
         title="Inbox"
         description="Manage all your conversations"
         action={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSyncMissed}
-            disabled={syncMissedLoading}
-            className="gap-2"
-          >
-            {syncMissedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Sync missed & send template
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleStartFollowup}
+              disabled={followupRunning}
+              className="gap-2"
+            >
+              {followupRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Start Follow-ups
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncMissed}
+              disabled={syncMissedLoading}
+              className="gap-2"
+            >
+              {syncMissedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Sync missed & send template
+            </Button>
+          </div>
         }
       />
 
