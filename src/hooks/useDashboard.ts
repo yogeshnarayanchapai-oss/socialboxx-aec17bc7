@@ -195,7 +195,6 @@ export function usePagePerformance() {
           if (!msgsByConvByPage.has(pid)) msgsByConvByPage.set(pid, new Set());
           msgsByConvByPage.get(pid)!.add(row.conversation_id);
         }
-        if (batch.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
 
