@@ -18,7 +18,7 @@ export function useDashboardStats() {
       }
 
       const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const today = new Date(nepalTodayStartISO());
       const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
       const pageFilter = (accessiblePageIds !== null && accessiblePageIds !== undefined) ? accessiblePageIds : null;
@@ -42,12 +42,6 @@ export function useDashboardStats() {
         .gte("created_at", today.toISOString());
       if (pageFilter) todayLeadsQuery = todayLeadsQuery.in("page_id", pageFilter);
 
-      // Unique conversations with customer messages today
-      let todayCustomerMsgQuery = supabase.from("messages")
-        .select("conversation_id")
-        .eq("sender_type", "customer")
-        .gte("created_at", today.toISOString());
-
       const customerMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
         .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "customer");
       const pageMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
@@ -59,15 +53,33 @@ export function useDashboardStats() {
         { data: leads },
         { data: todayFollowups },
         { count: todayLeadsCreated },
-        { data: todayCustomerMsgs },
         { count: incomingMessages },
         { count: outgoingMessages },
       ] = await Promise.all([
         unrepliedQuery, aiFailedQuery, leadsQuery, followupQuery,
-        todayLeadsQuery, todayCustomerMsgQuery, customerMsgQuery, pageMsgQuery,
+        todayLeadsQuery, customerMsgQuery, pageMsgQuery,
       ]);
 
-      const uniqueConvsToday = new Set(todayCustomerMsgs?.map(m => m.conversation_id) || []);
+      // Paginate today's customer messages, scoped to accessible pages via join, to count unique conversations
+      const uniqueConvsToday = new Set<string>();
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      for (let i = 0; i < 50; i++) {
+        let q = supabase.from("messages")
+          .select("conversation_id, conversations!inner(page_id, deleted_at)")
+          .eq("sender_type", "customer")
+          .gte("created_at", today.toISOString())
+          .is("conversations.deleted_at", null)
+          .range(from, from + PAGE_SIZE - 1);
+        if (pageFilter) q = q.in("conversations.page_id", pageFilter);
+        const { data: batch, error } = await q;
+        if (error || !batch || batch.length === 0) break;
+        for (const row of batch as any[]) {
+          if (row.conversation_id) uniqueConvsToday.add(row.conversation_id);
+        }
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
       const totalMessagesToday = uniqueConvsToday.size;
 
       const todayFollowupTotal = todayFollowups?.length || 0;
