@@ -77,7 +77,6 @@ export function useDashboardStats() {
         for (const row of batch as any[]) {
           if (row.conversation_id) uniqueConvsToday.add(row.conversation_id);
         }
-        if (batch.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
       const totalMessagesToday = uniqueConvsToday.size;
