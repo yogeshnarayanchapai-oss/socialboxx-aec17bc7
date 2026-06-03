@@ -212,7 +212,6 @@ export function usePagePerformance() {
         for (const l of batch) {
           if (l.page_id) todayLeadCountByPage.set(l.page_id, (todayLeadCountByPage.get(l.page_id) || 0) + 1);
         }
-        if (batch.length < PAGE_SIZE) break;
         lfrom += PAGE_SIZE;
       }
 
