@@ -97,7 +97,7 @@ export default function Dashboard() {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
             {metrics.map((metric) => (
-              <MetricCard key={metric.title} title={metric.title} value={metric.value} change={metric.change} changeType={metric.changeType} icon={metric.icon} href={metric.href} />
+              <MetricCard key={metric.title} title={metric.title} value={(metric as any).value} change={(metric as any).change} changeType={metric.changeType} icon={metric.icon} href={metric.href} split={(metric as any).split} />
             ))}
           </div>
         )}
