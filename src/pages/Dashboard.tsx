@@ -25,10 +25,18 @@ export default function Dashboard() {
     {
       title: "Messages Today",
       value: stats?.totalMessagesToday || 0,
-      change: "Today's count",
+      change: "Unique customers today",
       changeType: "neutral" as const,
       icon: MessageSquare,
       href: "/inbox",
+    },
+    {
+      title: "Today's Leads",
+      value: stats?.todayLeadsCreated || 0,
+      change: "New leads created today",
+      changeType: "positive" as const,
+      icon: Star,
+      href: "/leads",
     },
     {
       title: "Unreplied",
@@ -61,14 +69,6 @@ export default function Dashboard() {
       changeType: (stats?.followUpsDue || 0) > 0 ? "negative" as const : "neutral" as const,
       icon: Send,
       href: "/inbox?filter=follow-up",
-    },
-    {
-      title: "Reply Rate",
-      value: stats?.replyRate || "0%",
-      change: "Last 7 days",
-      changeType: "positive" as const,
-      icon: TrendingUp,
-      href: "/reports",
     },
   ];
 
@@ -159,7 +159,9 @@ export default function Dashboard() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <p className="font-medium text-sm truncate">{page.name}</p>
-                          <span className="text-xs text-muted-foreground flex-shrink-0">{page.messages} msgs</span>
+                          <span className="text-xs text-muted-foreground flex-shrink-0">
+                            {page.messages} msgs | {page.leads} leads
+                          </span>
                         </div>
                         <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
                           <div className="h-full bg-primary rounded-full transition-all" style={{ width: page.rate }} />
