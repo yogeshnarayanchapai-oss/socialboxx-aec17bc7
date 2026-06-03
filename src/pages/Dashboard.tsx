@@ -9,6 +9,7 @@ import {
   Loader2,
   Bot,
   Zap,
+  Star,
 } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { PageHeader } from "@/components/ui/PageHeader";
