@@ -10,7 +10,7 @@ export function useDashboardStats() {
     queryFn: async () => {
       if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) {
         return {
-          totalMessagesToday: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
+          totalMessagesToday: 0, aiMessagesToday: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
           replyRate: "0%", avgResponseTime: "N/A", todayFollowupTotal: 0,
           todayFollowupAI: 0, todayFollowupAutomation: 0, aiFailedCount: 0,
           todayLeadsCreated: 0,
