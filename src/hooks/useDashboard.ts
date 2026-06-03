@@ -127,6 +127,19 @@ export function useRecentConversations(limit = 5) {
   });
 }
 
+// Nepal Time (UTC+5:45) start of "today" as a UTC ISO string
+function nepalTodayStartISO(): string {
+  const NEPAL_OFFSET_MIN = 5 * 60 + 45;
+  const now = new Date();
+  const nepalNow = new Date(now.getTime() + NEPAL_OFFSET_MIN * 60 * 1000);
+  const y = nepalNow.getUTCFullYear();
+  const m = nepalNow.getUTCMonth();
+  const d = nepalNow.getUTCDate();
+  // Midnight in Nepal expressed as UTC
+  const utcMs = Date.UTC(y, m, d) - NEPAL_OFFSET_MIN * 60 * 1000;
+  return new Date(utcMs).toISOString();
+}
+
 export function usePagePerformance() {
   const { accessiblePageIds, isLoading: isAccessLoading } = useUserAccess();
 
@@ -147,57 +160,58 @@ export function usePagePerformance() {
       if (!pages?.length) return [];
 
       const pageIds = pages.map(p => p.id);
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
+      const todayStartISO = nepalTodayStartISO();
 
-      // Get all conversations for these pages
-      const { data: convs } = await supabase
-        .from("conversations")
-        .select("id, page_id")
-        .in("page_id", pageIds)
-        .is("deleted_at", null);
-
-      const convIds = (convs || []).map(c => c.id);
-
-      // Get today's customer messages for these conversations
-      const { data: todayMsgs } = await supabase
-        .from("messages")
-        .select("conversation_id")
-        .in("conversation_id", convIds)
-        .eq("sender_type", "customer")
-        .gte("created_at", todayStart.toISOString());
-
-      // Get today's leads for these pages
-      const { data: todayLeads } = await supabase
-        .from("leads")
-        .select("page_id")
-        .in("page_id", pageIds)
-        .gte("created_at", todayStart.toISOString());
-
-      // Count unique conversations per page that had customer messages today
-      const msgsByConv = new Map<string, string>();
-      (todayMsgs || []).forEach(m => {
-        msgsByConv.set(m.conversation_id, m.conversation_id);
-      });
-
-      const todayMsgCountByPage = new Map<string, number>();
-      (convs || []).forEach(c => {
-        if (msgsByConv.has(c.id)) {
-          todayMsgCountByPage.set(c.page_id, (todayMsgCountByPage.get(c.page_id) || 0) + 1);
+      // Paginate today's customer messages joined with conversations to filter by page_id
+      // This avoids the .in(conversation_id, [...]) cap when a page has many conversations.
+      const PAGE_SIZE = 1000;
+      const msgsByConvByPage = new Map<string, Set<string>>(); // page_id -> set of conv_ids
+      let from = 0;
+      // safety cap: 50k rows per day
+      for (let i = 0; i < 50; i++) {
+        const { data: batch, error } = await supabase
+          .from("messages")
+          .select("conversation_id, conversations!inner(page_id, deleted_at)")
+          .eq("sender_type", "customer")
+          .gte("created_at", todayStartISO)
+          .in("conversations.page_id", pageIds)
+          .is("conversations.deleted_at", null)
+          .range(from, from + PAGE_SIZE - 1);
+        if (error || !batch || batch.length === 0) break;
+        for (const row of batch as any[]) {
+          const pid = row.conversations?.page_id;
+          if (!pid) continue;
+          if (!msgsByConvByPage.has(pid)) msgsByConvByPage.set(pid, new Set());
+          msgsByConvByPage.get(pid)!.add(row.conversation_id);
         }
-      });
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
 
+      // Today's leads per page (paginated for safety)
       const todayLeadCountByPage = new Map<string, number>();
-      (todayLeads || []).forEach(l => {
-        if (l.page_id) todayLeadCountByPage.set(l.page_id, (todayLeadCountByPage.get(l.page_id) || 0) + 1);
-      });
+      let lfrom = 0;
+      for (let i = 0; i < 50; i++) {
+        const { data: batch, error } = await supabase
+          .from("leads")
+          .select("page_id")
+          .in("page_id", pageIds)
+          .gte("created_at", todayStartISO)
+          .range(lfrom, lfrom + PAGE_SIZE - 1);
+        if (error || !batch || batch.length === 0) break;
+        for (const l of batch) {
+          if (l.page_id) todayLeadCountByPage.set(l.page_id, (todayLeadCountByPage.get(l.page_id) || 0) + 1);
+        }
+        if (batch.length < PAGE_SIZE) break;
+        lfrom += PAGE_SIZE;
+      }
 
       const performance = pages.map(page => ({
         name: page.page_name,
-        messages: todayMsgCountByPage.get(page.id) || 0,
+        messages: msgsByConvByPage.get(page.id)?.size || 0,
         leads: todayLeadCountByPage.get(page.id) || 0,
         rate: "95%",
-      })).sort((a, b) => b.messages - a.messages);
+      })).sort((a, b) => (b.messages + b.leads) - (a.messages + a.leads));
 
       return performance;
     },
