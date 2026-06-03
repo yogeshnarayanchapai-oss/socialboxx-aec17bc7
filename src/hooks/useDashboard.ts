@@ -146,29 +146,56 @@ export function usePagePerformance() {
       const { data: pages } = await query;
       if (!pages?.length) return [];
 
-      // Get all conversations for these pages to count messages properly
       const pageIds = pages.map(p => p.id);
-      
-      const [{ data: convs }, { data: allLeads }] = await Promise.all([
-        supabase.from("conversations").select("id, page_id").in("page_id", pageIds).is("deleted_at", null),
-        supabase.from("leads").select("id, page_id").in("page_id", pageIds),
-      ]);
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
 
-      // Count conversations per page (as a proxy for message volume)
-      const convCountByPage = new Map<string, number>();
-      const leadCountByPage = new Map<string, number>();
-      
-      (convs || []).forEach(c => {
-        convCountByPage.set(c.page_id, (convCountByPage.get(c.page_id) || 0) + 1);
+      // Get all conversations for these pages
+      const { data: convs } = await supabase
+        .from("conversations")
+        .select("id, page_id")
+        .in("page_id", pageIds)
+        .is("deleted_at", null);
+
+      const convIds = (convs || []).map(c => c.id);
+
+      // Get today's customer messages for these conversations
+      const { data: todayMsgs } = await supabase
+        .from("messages")
+        .select("conversation_id")
+        .in("conversation_id", convIds)
+        .eq("sender_type", "customer")
+        .gte("created_at", todayStart.toISOString());
+
+      // Get today's leads for these pages
+      const { data: todayLeads } = await supabase
+        .from("leads")
+        .select("page_id")
+        .in("page_id", pageIds)
+        .gte("created_at", todayStart.toISOString());
+
+      // Count unique conversations per page that had customer messages today
+      const msgsByConv = new Map<string, string>();
+      (todayMsgs || []).forEach(m => {
+        msgsByConv.set(m.conversation_id, m.conversation_id);
       });
-      (allLeads || []).forEach(l => {
-        if (l.page_id) leadCountByPage.set(l.page_id, (leadCountByPage.get(l.page_id) || 0) + 1);
+
+      const todayMsgCountByPage = new Map<string, number>();
+      (convs || []).forEach(c => {
+        if (msgsByConv.has(c.id)) {
+          todayMsgCountByPage.set(c.page_id, (todayMsgCountByPage.get(c.page_id) || 0) + 1);
+        }
+      });
+
+      const todayLeadCountByPage = new Map<string, number>();
+      (todayLeads || []).forEach(l => {
+        if (l.page_id) todayLeadCountByPage.set(l.page_id, (todayLeadCountByPage.get(l.page_id) || 0) + 1);
       });
 
       const performance = pages.map(page => ({
         name: page.page_name,
-        messages: convCountByPage.get(page.id) || 0,
-        leads: leadCountByPage.get(page.id) || 0,
+        messages: todayMsgCountByPage.get(page.id) || 0,
+        leads: todayLeadCountByPage.get(page.id) || 0,
         rate: "95%",
       })).sort((a, b) => b.messages - a.messages);
 
