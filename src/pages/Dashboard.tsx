@@ -25,8 +25,10 @@ export default function Dashboard() {
   const metrics = [
     {
       title: "Messages Today",
-      value: `${(stats?.totalMessagesToday || 0).toLocaleString()} / ${(stats?.aiMessagesToday || 0).toLocaleString()}`,
-      change: "Unique msg / AI replies",
+      split: {
+        primary: { label: "Unique msg", value: stats?.totalMessagesToday || 0 },
+        secondary: { label: "AI replies", value: stats?.aiMessagesToday || 0 },
+      },
       changeType: "neutral" as const,
       icon: MessageSquare,
       href: "/inbox",
