@@ -13,6 +13,7 @@ export function useDashboardStats() {
           totalMessagesToday: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
           replyRate: "0%", avgResponseTime: "N/A", todayFollowupTotal: 0,
           todayFollowupAI: 0, todayFollowupAutomation: 0, aiFailedCount: 0,
+          todayLeadsCreated: 0,
         };
       }
 
@@ -20,15 +21,12 @@ export function useDashboardStats() {
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-      // Build page filter for direct message counting
       const pageFilter = (accessiblePageIds !== null && accessiblePageIds !== undefined) ? accessiblePageIds : null;
 
-      // Count unreplied conversations
       let unrepliedQuery = supabase.from("conversations").select("id", { count: "exact", head: true })
         .is("deleted_at", null).eq("status", "unreplied");
       if (pageFilter) unrepliedQuery = unrepliedQuery.in("page_id", pageFilter);
 
-      // Count AI failed conversations
       let aiFailedQuery = supabase.from("conversations").select("id", { count: "exact", head: true })
         .is("deleted_at", null).eq("status", "ai_failed");
       if (pageFilter) aiFailedQuery = aiFailedQuery.in("page_id", pageFilter);
@@ -40,9 +38,16 @@ export function useDashboardStats() {
         .gte("sent_at", today.toISOString());
       if (pageFilter) followupQuery = followupQuery.in("page_id", pageFilter);
 
-      // Today's messages count (RLS filters by org)
-      const totalMsgTodayQuery = supabase.from("messages").select("id", { count: "exact", head: true })
+      let todayLeadsQuery = supabase.from("leads").select("id", { count: "exact", head: true })
         .gte("created_at", today.toISOString());
+      if (pageFilter) todayLeadsQuery = todayLeadsQuery.in("page_id", pageFilter);
+
+      // Unique conversations with customer messages today
+      let todayCustomerMsgQuery = supabase.from("messages")
+        .select("conversation_id")
+        .eq("sender_type", "customer")
+        .gte("created_at", today.toISOString());
+
       const customerMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
         .gte("created_at", sevenDaysAgo.toISOString()).eq("sender_type", "customer");
       const pageMsgQuery = supabase.from("messages").select("id", { count: "exact", head: true })
@@ -53,13 +58,17 @@ export function useDashboardStats() {
         { count: aiFailedCount },
         { data: leads },
         { data: todayFollowups },
-        { count: totalMessagesToday },
+        { count: todayLeadsCreated },
+        { data: todayCustomerMsgs },
         { count: incomingMessages },
         { count: outgoingMessages },
       ] = await Promise.all([
         unrepliedQuery, aiFailedQuery, leadsQuery, followupQuery,
-        totalMsgTodayQuery, customerMsgQuery, pageMsgQuery,
+        todayLeadsQuery, todayCustomerMsgQuery, customerMsgQuery, pageMsgQuery,
       ]);
+
+      const uniqueConvsToday = new Set(todayCustomerMsgs?.map(m => m.conversation_id) || []);
+      const totalMessagesToday = uniqueConvsToday.size;
 
       const todayFollowupTotal = todayFollowups?.length || 0;
       const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
@@ -76,7 +85,7 @@ export function useDashboardStats() {
       const replyRate = incoming > 0 ? Math.round((outgoing / incoming) * 100) : 0;
 
       return {
-        totalMessagesToday: totalMessagesToday || 0,
+        totalMessagesToday,
         unrepliedCount: unrepliedCount || 0,
         aiFailedCount: aiFailedCount || 0,
         leadsPending,
@@ -86,6 +95,7 @@ export function useDashboardStats() {
         todayFollowupTotal,
         todayFollowupAI,
         todayFollowupAutomation,
+        todayLeadsCreated: todayLeadsCreated || 0,
       };
     },
     enabled: !isAccessLoading && accessiblePageIds !== undefined,
