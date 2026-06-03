@@ -114,6 +114,7 @@ export function useDashboardStats() {
 
       return {
         totalMessagesToday,
+        aiMessagesToday,
         unrepliedCount: unrepliedCount || 0,
         aiFailedCount: aiFailedCount || 0,
         leadsPending,
