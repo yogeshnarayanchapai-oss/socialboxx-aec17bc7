@@ -162,6 +162,11 @@ export default function Dashboard() {
                           <p className="font-medium text-sm truncate">{page.name}</p>
                           <span className="text-xs text-muted-foreground flex-shrink-0">
                             {page.messages} msgs | {page.leads} leads
+                            {page.messages > 0 && (
+                              <span className="ml-1.5 text-emerald-500 font-semibold">
+                                {Math.round((page.leads / page.messages) * 100)}%
+                              </span>
+                            )}
                           </span>
                         </div>
                         <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
