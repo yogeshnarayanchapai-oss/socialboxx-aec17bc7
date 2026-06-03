@@ -56,21 +56,45 @@ export default function Reports() {
 
   const { from, to } = useMemo(() => getDateRange(dateRange), [dateRange]);
 
+  // Fetch all conversations participant ids (paginated) for unique counting
+  const fetchUniqueConversations = async (pageId?: string) => {
+    const PAGE_SIZE = 1000;
+    const seen = new Set<string>();
+    let offset = 0;
+    while (true) {
+      let q = supabase
+        .from("conversations")
+        .select("participant_id,page_id")
+        .is("deleted_at", null)
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (pageId) q = q.eq("page_id", pageId);
+      if (from) q = q.gte("created_at", from).lte("created_at", to);
+      const { data, error } = await q;
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      for (const r of data) {
+        const key = (r.participant_id ?? "") + "|" + (pageId ? "" : r.page_id);
+        if (key) seen.add(key);
+      }
+      if (data.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+    return seen.size;
+  };
+
   // Overall stats
   const { data: overallStats, isLoading } = useQuery({
-    queryKey: ["report-overall", dateRange],
+    queryKey: ["report-overall-unique", dateRange],
     queryFn: async () => {
-      let convQuery = supabase.from("conversations").select("id", { count: "exact", head: true });
       let leadQuery = supabase.from("leads").select("id", { count: "exact", head: true });
+      if (from) leadQuery = leadQuery.gte("created_at", from).lte("created_at", to);
 
-      if (from) {
-        convQuery = convQuery.gte("created_at", from).lte("created_at", to);
-        leadQuery = leadQuery.gte("created_at", from).lte("created_at", to);
-      }
-
-      const [convRes, leadRes] = await Promise.all([convQuery, leadQuery]);
+      const [unique, leadRes] = await Promise.all([
+        fetchUniqueConversations(),
+        leadQuery,
+      ]);
       return {
-        totalConversations: convRes.count || 0,
+        totalConversations: unique,
         totalLeads: leadRes.count || 0,
       };
     },
@@ -78,22 +102,19 @@ export default function Reports() {
 
   // Per-page stats
   const { data: pageStats = [], isLoading: loadingPages } = useQuery({
-    queryKey: ["report-by-page", dateRange, pages.map(p => p.id)],
+    queryKey: ["report-by-page-unique", dateRange, pages.map(p => p.id)],
     queryFn: async () => {
       if (pages.length === 0) return [];
 
       const results = await Promise.all(
         pages.map(async (page) => {
-          let convQuery = supabase.from("conversations").select("id", { count: "exact", head: true }).eq("page_id", page.id);
           let leadQuery = supabase.from("leads").select("id", { count: "exact", head: true }).eq("page_id", page.id);
+          if (from) leadQuery = leadQuery.gte("created_at", from).lte("created_at", to);
 
-          if (from) {
-            convQuery = convQuery.gte("created_at", from).lte("created_at", to);
-            leadQuery = leadQuery.gte("created_at", from).lte("created_at", to);
-          }
-
-          const [convRes, leadRes] = await Promise.all([convQuery, leadQuery]);
-          const conversations = convRes.count || 0;
+          const [conversations, leadRes] = await Promise.all([
+            fetchUniqueConversations(page.id),
+            leadQuery,
+          ]);
           const leads = leadRes.count || 0;
 
           return {
