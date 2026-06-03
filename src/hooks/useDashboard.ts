@@ -77,7 +77,6 @@ export function useDashboardStats() {
         for (const row of batch as any[]) {
           if (row.conversation_id) uniqueConvsToday.add(row.conversation_id);
         }
-        if (batch.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
       const totalMessagesToday = uniqueConvsToday.size;
@@ -196,7 +195,6 @@ export function usePagePerformance() {
           if (!msgsByConvByPage.has(pid)) msgsByConvByPage.set(pid, new Set());
           msgsByConvByPage.get(pid)!.add(row.conversation_id);
         }
-        if (batch.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
 
@@ -214,7 +212,6 @@ export function usePagePerformance() {
         for (const l of batch) {
           if (l.page_id) todayLeadCountByPage.set(l.page_id, (todayLeadCountByPage.get(l.page_id) || 0) + 1);
         }
-        if (batch.length < PAGE_SIZE) break;
         lfrom += PAGE_SIZE;
       }
 
