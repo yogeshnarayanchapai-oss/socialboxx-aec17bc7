@@ -10,7 +10,7 @@ export function useDashboardStats() {
     queryFn: async () => {
       if (accessiblePageIds !== null && accessiblePageIds !== undefined && accessiblePageIds.length === 0) {
         return {
-          totalMessagesToday: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
+          totalMessagesToday: 0, aiMessagesToday: 0, unrepliedCount: 0, leadsPending: 0, followUpsDue: 0,
           replyRate: "0%", avgResponseTime: "N/A", todayFollowupTotal: 0,
           todayFollowupAI: 0, todayFollowupAutomation: 0, aiFailedCount: 0,
           todayLeadsCreated: 0,
@@ -81,6 +81,23 @@ export function useDashboardStats() {
       }
       const totalMessagesToday = uniqueConvsToday.size;
 
+      // AI/page-sent messages today (total written by page) — paginated for accurate counting under page filter
+      let aiMessagesToday = 0;
+      let afrom = 0;
+      for (let i = 0; i < 50; i++) {
+        let aq = supabase.from("messages")
+          .select("id, conversations!inner(page_id, deleted_at)")
+          .eq("sender_type", "page")
+          .gte("created_at", today.toISOString())
+          .is("conversations.deleted_at", null)
+          .range(afrom, afrom + PAGE_SIZE - 1);
+        if (pageFilter) aq = aq.in("conversations.page_id", pageFilter);
+        const { data: batch, error } = await aq;
+        if (error || !batch || batch.length === 0) break;
+        aiMessagesToday += batch.length;
+        afrom += PAGE_SIZE;
+      }
+
       const todayFollowupTotal = todayFollowups?.length || 0;
       const todayFollowupAI = todayFollowups?.filter(f => f.followup_type === "ai").length || 0;
       const todayFollowupAutomation = todayFollowups?.filter(f => f.followup_type === "automation").length || 0;
@@ -97,6 +114,7 @@ export function useDashboardStats() {
 
       return {
         totalMessagesToday,
+        aiMessagesToday,
         unrepliedCount: unrepliedCount || 0,
         aiFailedCount: aiFailedCount || 0,
         leadsPending,
