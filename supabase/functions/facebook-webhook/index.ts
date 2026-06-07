@@ -1294,6 +1294,7 @@ serve(async (req) => {
                       await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conversationId);
                     }
                   }
+                  } // end: if (!handledByTemplate)
                 }
               } catch (aiError) {
                 console.error("AI reply error:", aiError);
