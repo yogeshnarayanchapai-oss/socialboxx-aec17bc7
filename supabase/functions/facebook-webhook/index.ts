@@ -853,6 +853,38 @@ serve(async (req) => {
 
                 console.log("This is the latest customer message, proceeding with AI reply");
 
+                // If any page reply/template was already sent after this latest customer
+                // message, this whole burst is already handled. This prevents older
+                // webhook workers (still waking from debounce) from sending template #2
+                // or an AI reply for the same fast multi-message batch.
+                const { data: latestPageMsgBeforeLock } = await supabase
+                  .from("messages")
+                  .select("created_at")
+                  .eq("conversation_id", conversationId)
+                  .eq("sender_type", "page")
+                  .order("created_at", { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+
+                const { data: latestCustomerMsgWithTimeBeforeLock } = await supabase
+                  .from("messages")
+                  .select("created_at")
+                  .eq("conversation_id", conversationId)
+                  .eq("sender_type", "customer")
+                  .order("created_at", { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+
+                if (
+                  latestPageMsgBeforeLock?.created_at &&
+                  latestCustomerMsgWithTimeBeforeLock?.created_at &&
+                  new Date(latestPageMsgBeforeLock.created_at).getTime() > new Date(latestCustomerMsgWithTimeBeforeLock.created_at).getTime()
+                ) {
+                  console.log("Batch already handled by a page reply after latest customer message, skipping");
+                  await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+                  continue;
+                }
+
                 // No newer messages - we are the last worker. Try atomic lock.
                 // Accept "unreplied" OR "replied" (follow-up may have set it to "replied" during debounce)
                 // Also recover stuck "ai_processing" conversations older than 3 minutes
@@ -885,6 +917,34 @@ serve(async (req) => {
                 if (!lockResult || lockResult.length === 0) {
                   console.log("Another worker already processing or replied, skipping AI reply");
                 } else {
+                  const { data: latestPageMsgAfterLock } = await supabase
+                    .from("messages")
+                    .select("created_at")
+                    .eq("conversation_id", conversationId)
+                    .eq("sender_type", "page")
+                    .order("created_at", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                  const { data: latestCustomerMsgAfterLock } = await supabase
+                    .from("messages")
+                    .select("created_at")
+                    .eq("conversation_id", conversationId)
+                    .eq("sender_type", "customer")
+                    .order("created_at", { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                  if (
+                    latestPageMsgAfterLock?.created_at &&
+                    latestCustomerMsgAfterLock?.created_at &&
+                    new Date(latestPageMsgAfterLock.created_at).getTime() > new Date(latestCustomerMsgAfterLock.created_at).getTime()
+                  ) {
+                    console.log("Batch already handled after lock, releasing without another reply");
+                    await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+                    continue;
+                  }
+
                   // FIRST: if we're still in the first-message template phase, send next template
                   //        instead of calling AI. This runs inside the lock so only ONE worker
                   //        handles the whole batch of incoming customer messages.
