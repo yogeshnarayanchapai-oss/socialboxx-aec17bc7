@@ -884,8 +884,6 @@ serve(async (req) => {
 
                 if (!lockResult || lockResult.length === 0) {
                   console.log("Another worker already processing or replied, skipping AI reply");
-                } else if (tmplEnabledForPage && !conversationTags.includes("lead-created") && (async () => false)) {
-                  // placeholder to keep structure; real template branch below
                 } else {
                   // FIRST: if we're still in the first-message template phase, send next template
                   //        instead of calling AI. This runs inside the lock so only ONE worker
