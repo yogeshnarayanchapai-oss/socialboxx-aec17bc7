@@ -884,7 +884,65 @@ serve(async (req) => {
 
                 if (!lockResult || lockResult.length === 0) {
                   console.log("Another worker already processing or replied, skipping AI reply");
+                } else if (tmplEnabledForPage && !conversationTags.includes("lead-created") && (async () => false)) {
+                  // placeholder to keep structure; real template branch below
                 } else {
+                  // FIRST: if we're still in the first-message template phase, send next template
+                  //        instead of calling AI. This runs inside the lock so only ONE worker
+                  //        handles the whole batch of incoming customer messages.
+                  let handledByTemplate = false;
+                  if (tmplEnabledForPage && !conversationTags.includes("lead-created")) {
+                    const { count: pageMsgCount } = await supabase
+                      .from("messages")
+                      .select("id", { count: "exact", head: true })
+                      .eq("conversation_id", conversationId)
+                      .eq("sender_type", "page");
+                    const sentSoFar = pageMsgCount || 0;
+                    if (sentSoFar < tmplList.length) {
+                      const tmplMsg = tmplList[sentSoFar];
+                      console.log(`Sending template #${sentSoFar + 1} of ${tmplList.length} (locked)`);
+                      const sent = await sendAutoReply(page.page_access_token, senderId, tmplMsg.text || "", tmplMsg.media || null);
+                      if (sent === true) {
+                        if (tmplMsg.text) {
+                          await supabase.from("messages").insert({
+                            conversation_id: conversationId,
+                            content: tmplMsg.text,
+                            sender_type: "page",
+                            message_type: tmplMsg.media ? "media" : "text",
+                            media_url: tmplMsg.media?.url || null,
+                            created_at: new Date().toISOString(),
+                          });
+                        }
+                        await supabase.from("conversations").update({
+                          status: "replied",
+                          last_message_preview: (tmplMsg.text || "[Template sent]").substring(0, 100),
+                          last_message_at: new Date().toISOString(),
+                        }).eq("id", conversationId);
+
+                        // After LAST template, start follow-up tracking
+                        if (sentSoFar + 1 >= tmplList.length) {
+                          const followupSettings = (page as any).ai_followup_settings;
+                          if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
+                            const firstStep = followupSettings.steps[0];
+                            const tags = conversationTags.includes("FOLLOW-UP") ? conversationTags : [...conversationTags, "FOLLOW-UP"];
+                            await supabase.from("conversations").update({
+                              ai_followup_step: 0,
+                              ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
+                              tags,
+                            }).eq("id", conversationId);
+                          }
+                        }
+                      } else if (sent === "permanent_fail") {
+                        await supabase.from("conversations").update({ status: "replied", last_message_preview: "⚠️ User unavailable on Facebook" }).eq("id", conversationId);
+                      } else {
+                        // Release lock so a retry job can pick it up
+                        await supabase.from("conversations").update({ status: "unreplied" }).eq("id", conversationId);
+                      }
+                      handledByTemplate = true;
+                    }
+                  }
+
+                  if (!handledByTemplate) {
                   const { data: recentMessages } = await supabase
                     .from("messages")
                     .select("content, sender_type, created_at, media_url, message_type")
