@@ -60,13 +60,14 @@ export function useDashboardStats() {
         todayLeadsQuery, customerMsgQuery, pageMsgQuery,
       ]);
 
-      // Paginate today's customer messages, scoped to accessible pages via join, to count unique conversations
-      const uniqueConvsToday = new Set<string>();
+      // Paginate today's customer messages, scoped to accessible pages via join, to count unique participants (by name)
+      const uniquePeopleToday = new Set<string>();
+      const seenConvsNoName = new Set<string>();
       const PAGE_SIZE = 1000;
       let from = 0;
       for (let i = 0; i < 50; i++) {
         let q = supabase.from("messages")
-          .select("conversation_id, conversations!inner(page_id, deleted_at)")
+          .select("conversation_id, conversations!inner(page_id, deleted_at, participant_name)")
           .eq("sender_type", "customer")
           .gte("created_at", today.toISOString())
           .is("conversations.deleted_at", null)
@@ -75,11 +76,16 @@ export function useDashboardStats() {
         const { data: batch, error } = await q;
         if (error || !batch || batch.length === 0) break;
         for (const row of batch as any[]) {
-          if (row.conversation_id) uniqueConvsToday.add(row.conversation_id);
+          const name = (row.conversations?.participant_name || "").trim().toLowerCase();
+          if (name) {
+            uniquePeopleToday.add(name);
+          } else if (row.conversation_id) {
+            seenConvsNoName.add(row.conversation_id);
+          }
         }
         from += PAGE_SIZE;
       }
-      const totalMessagesToday = uniqueConvsToday.size;
+      const totalMessagesToday = uniquePeopleToday.size + seenConvsNoName.size;
 
       // AI/page-sent messages today (total written by page) — paginated for accurate counting under page filter
       let aiMessagesToday = 0;
