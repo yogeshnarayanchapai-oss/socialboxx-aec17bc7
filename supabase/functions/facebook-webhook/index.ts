@@ -200,7 +200,8 @@ async function sendAutoReply(
       if (mediaToSend.type === "image") {
         mediaPayload = { attachment: { type: "image", payload: { url: mediaToSend.url, is_reusable: true } } };
       } else if (mediaToSend.type === "video") {
-        mediaPayload = { attachment: { type: "video", payload: { url: mediaToSend.url, is_reusable: true } } };
+        // Send video as a clickable link (button template) instead of native video attachment
+        mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🎥 Video herna tala ko link ma click garnuhos:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Video Hernuhos" }] } } };
       } else if (mediaToSend.type === "audio") {
         mediaPayload = { attachment: { type: "audio", payload: { url: mediaToSend.url, is_reusable: true } } };
       } else if (mediaToSend.type === "link") {
