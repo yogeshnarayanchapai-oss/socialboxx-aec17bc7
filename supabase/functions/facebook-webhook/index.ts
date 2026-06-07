@@ -200,7 +200,8 @@ async function sendAutoReply(
       if (mediaToSend.type === "image") {
         mediaPayload = { attachment: { type: "image", payload: { url: mediaToSend.url, is_reusable: true } } };
       } else if (mediaToSend.type === "video") {
-        mediaPayload = { attachment: { type: "video", payload: { url: mediaToSend.url, is_reusable: true } } };
+        // Send video as a clickable link (button template) instead of native video attachment
+        mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🎥 Video herna tala ko link ma click garnuhos:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Video Hernuhos" }] } } };
       } else if (mediaToSend.type === "audio") {
         mediaPayload = { attachment: { type: "audio", payload: { url: mediaToSend.url, is_reusable: true } } };
       } else if (mediaToSend.type === "link") {
@@ -691,6 +692,58 @@ serve(async (req) => {
             updateData.last_message_preview = (messageContent || message.text)?.substring(0, 100);
           }
           await supabase.from("conversations").update(updateData).eq("id", conversationId);
+
+          // === Audio/Video CALL detection ===
+          // When customer initiates a Messenger audio/video call, reply in a human tone
+          // saying we can't take the call right now and ask them to message instead.
+          const callAttachmentType = (attachmentType || "").toLowerCase();
+          const contentForCallCheck = (messageContent || message.text || "").toLowerCase();
+          const isCallEvent =
+            callAttachmentType === "audio_call" ||
+            callAttachmentType === "video_call" ||
+            callAttachmentType === "call" ||
+            /\b(started (an? )?(audio|video) call|missed (audio|video )?call|called you|call ended|video chat|audio chat)\b/i.test(contentForCallCheck);
+
+          if (isCallEvent) {
+            console.log("Detected audio/video call event from customer, sending human-tone busy reply");
+            // Avoid duplicate replies for back-to-back call events
+            const { data: lastPageMsgCall } = await supabase
+              .from("messages")
+              .select("created_at, content")
+              .eq("conversation_id", conversationId)
+              .eq("sender_type", "page")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            const alreadyRepliedRecently =
+              lastPageMsgCall?.created_at &&
+              new Date(lastPageMsgCall.created_at).getTime() > new Date(timestamp).getTime() - 2 * 60 * 1000 &&
+              (lastPageMsgCall.content || "").includes("call receive");
+
+            if (!alreadyRepliedRecently) {
+              const callReplyText = "Namaste 🙏 Maaf garnuhos, hami ahile background ma vayera audio/video call receive garna sakdainau. Kripaya tapai ko query message mai pathaidinuhos, hami chittai jawaaf dinechhau.";
+              const sent = await sendAutoReply(page.page_access_token, senderId, callReplyText, null);
+              if (sent === true) {
+                await supabase.from("messages").insert({
+                  conversation_id: conversationId,
+                  content: callReplyText,
+                  sender_type: "page",
+                  message_type: "text",
+                  created_at: new Date().toISOString(),
+                });
+                await supabase.from("conversations").update({
+                  status: "replied",
+                  last_message_preview: callReplyText.substring(0, 100),
+                  last_message_at: new Date().toISOString(),
+                }).eq("id", conversationId);
+              }
+            } else {
+              console.log("Already replied to a recent call event, skipping duplicate");
+              await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
+            }
+            // Skip template/AI flow for call events
+            continue;
+          }
 
           // Phone-based lead detection REMOVED — now handled by AI in lead_action
 
