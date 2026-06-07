@@ -863,59 +863,12 @@ serve(async (req) => {
             const hasLeadTag = conversationTags.includes("lead-created");
             const hasAnyMedia = !!(message as any).media || !!parseMessageContent(messageContent || "").media;
 
-            // Skip AI for pure emoji/sticker/short ack messages (saves AI cost)
-            // - When lead already created: silently mark replied (no need to spam)
-            // - When NO lead yet: send the saved first-message template once (so the
-            //   customer still gets a reply asking for their phone number) instead of
-            //   just ignoring the message.
-            if (isNonsenseOrEmoji && !hasAnyMedia) {
-              console.log(`Skipping AI reply - message is emoji/nonsense (hasLead=${hasLeadTag})`);
-
-              if (!hasLeadTag) {
-                // Only send template if we haven't already replied in this conversation
-                const { data: existingPageMsgs2 } = await supabase
-                  .from("messages")
-                  .select("id")
-                  .eq("conversation_id", conversationId)
-                  .eq("sender_type", "page")
-                  .limit(1);
-
-                if (!existingPageMsgs2 || existingPageMsgs2.length === 0) {
-                  // Use the FIRST message from the automation reply template (first_msg_template.messages[0])
-                  const firstTmplMsg = (page as any).first_msg_template?.messages?.[0];
-                  const tmplText = firstTmplMsg?.text || "";
-                  const tmplMedia = firstTmplMsg?.media || null;
-                  if (firstTmplMsg && (tmplText.trim().length > 0 || tmplMedia)) {
-                    console.log("Sending first reply-template message for emoji/nonsense (no lead yet)");
-                    const sent = await sendAutoReply(page.page_access_token, senderId, tmplText, tmplMedia);
-                    if (sent && sent !== "permanent_fail") {
-                      if (tmplText) {
-                        await supabase.from("messages").insert({
-                          conversation_id: conversationId,
-                          content: tmplText,
-                          sender_type: "page",
-                          message_type: tmplMedia ? "media" : "text",
-                          media_url: tmplMedia?.url || null,
-                          created_at: new Date().toISOString(),
-                        });
-                      }
-                      await supabase.from("conversations").update({
-                        status: "replied",
-                        last_message_preview: (tmplText || "[Template sent]").substring(0, 100),
-                        last_message_at: new Date().toISOString(),
-                      }).eq("id", conversationId);
-                    } else {
-                      await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
-                    }
-                  } else {
-                    await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
-                  }
-                } else {
-                  await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
-                }
-              } else {
-                await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
-              }
+            // Skip AI ONLY when lead already created AND message is pure emoji/nonsense (saves cost).
+            // When no lead yet, ALWAYS route through AI so the customer gets a reply or the
+            // conversation lands in ai_failed (never silently marked replied).
+            if (isNonsenseOrEmoji && !hasAnyMedia && hasLeadTag) {
+              console.log(`Skipping AI reply - emoji/nonsense after lead created`);
+              await supabase.from("conversations").update({ status: "replied" }).eq("id", conversationId);
             } else {
               // Skip AI processing if this is NOT the latest message for this sender in this webhook batch
               // This prevents sequential debounce sleeps from causing 504 timeouts
