@@ -759,62 +759,13 @@ serve(async (req) => {
               }
             }
 
-            // How many page (template) replies have we already sent in this conversation?
-            const { count: pageMsgCount } = await supabase
-              .from("messages")
-              .select("id", { count: "exact", head: true })
-              .eq("conversation_id", conversationId)
-              .eq("sender_type", "page");
-
-            const sentSoFar = pageMsgCount || 0;
-            // If a lead was just captured in this message, skip remaining templates — let AI handle.
-            if (sentSoFar < tmplList.length && !conversationTags.includes("lead-created")) {
-              const tmplMsg = tmplList[sentSoFar];
-              console.log(`Sending template #${sentSoFar + 1} of ${tmplList.length}`);
-              const sent = await sendAutoReply(page.page_access_token, senderId, tmplMsg.text || "", tmplMsg.media || null);
-              if (sent && sent !== "permanent_fail") {
-                if (tmplMsg.text) {
-                  await supabase.from("messages").insert({
-                    conversation_id: conversationId,
-                    content: tmplMsg.text,
-                    sender_type: "page",
-                    message_type: tmplMsg.media ? "media" : "text",
-                    media_url: tmplMsg.media?.url || null,
-                    created_at: new Date().toISOString(),
-                  });
-                }
-                await supabase.from("conversations").update({
-                  status: "replied",
-                  last_message_preview: (tmplMsg.text || "[Template sent]").substring(0, 100),
-                  last_message_at: new Date().toISOString(),
-                }).eq("id", conversationId);
-
-                // Start/refresh follow-up tracking after the LAST template
-                if (sentSoFar + 1 >= tmplList.length) {
-                  const followupSettings = (page as any).ai_followup_settings;
-                  if (followupSettings?.enabled && followupSettings.steps?.length > 0) {
-                    const firstStep = followupSettings.steps[0];
-                    const tags = conversationTags.includes("FOLLOW-UP") ? conversationTags : [...conversationTags, "FOLLOW-UP"];
-                    await supabase.from("conversations").update({
-                      ai_followup_step: 0,
-                      ai_followup_next_at: new Date(Date.now() + firstStep.delay_hours * 60 * 60 * 1000).toISOString(),
-                      tags,
-                    }).eq("id", conversationId);
-                  }
-                }
-              } else if (sent === "permanent_fail") {
-                await supabase.from("conversations").update({ status: "replied", last_message_preview: "⚠️ User unavailable on Facebook" }).eq("id", conversationId);
-              }
-              templateHandled = true;
-            }
+            // Template SENDING moved into the debounce+lock block below so that when
+            // multiple messages arrive at once we only send ONE template/AI reply for
+            // the whole batch (prevents the duplicate-reply race).
           }
 
-          // AI reply logic (skip if a template was sent for this customer message)
-          if (templateHandled) {
-            // no-op: template already replied for this customer message
-          }
-          // AI reply logic (skip if template was sent for first message)
-          else if (page.ai_enabled && !page.automation_enabled) {
+          // AI / template reply logic — single entry point per customer message batch
+          if (page.ai_enabled && !page.automation_enabled) {
             console.log("AI enabled for page, checking if reply needed");
 
             // Check if this is a lead conversation with a long gap (15+ days)
