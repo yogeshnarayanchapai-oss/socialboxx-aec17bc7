@@ -699,7 +699,7 @@ serve(async (req) => {
           // From msg N+1 onwards, AI takes over.
           const tmplCfg = (page as any).first_msg_template;
           const tmplList: any[] = Array.isArray(tmplCfg?.messages) ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media)) : [];
-          let templateHandled = false;
+          const tmplEnabledForPage = page.ai_enabled && !page.automation_enabled && (page as any).first_msg_template_enabled && tmplList.length > 0;
           if (page.ai_enabled && !page.automation_enabled && (page as any).first_msg_template_enabled && tmplList.length > 0) {
             // Lead detection during template phase: if customer sends a phone number
             // BEFORE AI takes over, still capture it as a lead.
