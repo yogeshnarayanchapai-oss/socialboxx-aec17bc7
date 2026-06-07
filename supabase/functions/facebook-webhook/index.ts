@@ -203,7 +203,33 @@ async function sendAutoReply(
         // Send video as a clickable link (button template) instead of native video attachment
         mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🎥 Video herna tala ko link ma click garnuhos:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Video Hernuhos" }] } } };
       } else if (mediaToSend.type === "audio") {
-        mediaPayload = { attachment: { type: "audio", payload: { url: mediaToSend.url, is_reusable: true } } };
+        // For audio, upload to FB first to get an attachment_id so it plays inline
+        // as a native voice message instead of being shown as a downloadable file.
+        let audioAttachmentId: string | null = null;
+        try {
+          const uploadRes = await fetch(`https://graph.facebook.com/v19.0/me/message_attachments?access_token=${encodeURIComponent(pageAccessToken)}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: { attachment: { type: "audio", payload: { is_reusable: true, url: mediaToSend.url } } },
+            }),
+          });
+          if (uploadRes.ok) {
+            const uploadJson = await uploadRes.json();
+            audioAttachmentId = uploadJson?.attachment_id || null;
+            console.log("Audio attachment uploaded, id:", audioAttachmentId);
+          } else {
+            console.error("Audio attachment upload failed:", await uploadRes.text());
+          }
+        } catch (e) {
+          console.error("Audio attachment upload error:", e);
+        }
+        if (audioAttachmentId) {
+          mediaPayload = { attachment: { type: "audio", payload: { attachment_id: audioAttachmentId } } };
+        } else {
+          // Fallback to direct URL send
+          mediaPayload = { attachment: { type: "audio", payload: { url: mediaToSend.url, is_reusable: true } } };
+        }
       } else if (mediaToSend.type === "link") {
         mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🔗 Link:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Open Link" }] } } };
       }
