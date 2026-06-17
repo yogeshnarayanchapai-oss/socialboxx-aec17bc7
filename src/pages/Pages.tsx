@@ -263,6 +263,14 @@ export default function Pages() {
                 )}
                 Reconnect
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleSyncPage(page.id, page.page_name)} disabled={syncingPageId === page.id}>
+                {syncingPageId === page.id ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageSquare className="mr-2 h-4 w-4" />
+                )}
+                Sync missed & send template
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => setDeletePageId(page.id)}
