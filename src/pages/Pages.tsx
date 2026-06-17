@@ -108,6 +108,26 @@ export default function Pages() {
     setReconnecting(null);
   };
 
+  const [syncingPageId, setSyncingPageId] = useState<string | null>(null);
+  const handleSyncPage = async (pageId: string, pageName: string) => {
+    setSyncingPageId(pageId);
+    const t = toast.loading(`Syncing ${pageName}...`);
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-missed-messages", { body: { pageId } });
+      if (error) throw error;
+      toast.dismiss(t);
+      const msgs = data?.synced_messages ?? 0;
+      const convs = data?.synced_conversations ?? 0;
+      const tmpls = data?.templates_sent ?? 0;
+      toast.success(`${pageName}: ${convs} convos, ${msgs} msgs · ${tmpls} template${tmpls === 1 ? "" : "s"} sent`);
+    } catch (e) {
+      toast.dismiss(t);
+      toast.error(e instanceof Error ? e.message : "Failed to sync");
+    } finally {
+      setSyncingPageId(null);
+    }
+  };
+
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return;
     try {
