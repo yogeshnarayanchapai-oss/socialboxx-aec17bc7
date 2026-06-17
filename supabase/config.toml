@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.notify-ai-failure]
 verify_jwt = false
+
+[functions.manual-followup]
+verify_jwt = false
