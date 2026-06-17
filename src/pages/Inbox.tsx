@@ -831,11 +831,10 @@ export default function Inbox() {
             <Button
               variant="default"
               size="sm"
-              onClick={handleStartFollowup}
-              disabled={followupRunning}
+              onClick={handleOpenFollowupDialog}
               className="gap-2"
             >
-              {followupRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              <Send className="h-4 w-4" />
               Start Follow-ups
             </Button>
             <Button
