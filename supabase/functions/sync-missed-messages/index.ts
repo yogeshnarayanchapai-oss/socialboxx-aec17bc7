@@ -112,12 +112,21 @@ serve(async (req) => {
     }
     const orgId = orgMember.organization_id as string;
 
-    // 1) Fetch active connected pages for the org
-    const { data: pages, error: pagesErr } = await admin
+    // Optional pageId scope from body
+    let scopePageId: string | null = null;
+    try {
+      const body = await req.json();
+      if (body?.pageId) scopePageId = String(body.pageId);
+    } catch (_) { /* no body */ }
+
+    // 1) Fetch active connected pages for the org (optionally scoped to one page)
+    let pagesQuery = admin
       .from("connected_pages")
       .select("id, page_id, page_name, page_access_token, connection_status, first_msg_template, first_msg_template_enabled, ai_enabled, automation_enabled, auto_reply_first_message")
       .eq("organization_id", orgId)
       .eq("connection_status", "active");
+    if (scopePageId) pagesQuery = pagesQuery.eq("id", scopePageId);
+    const { data: pages, error: pagesErr } = await pagesQuery;
 
     if (pagesErr) throw pagesErr;
     if (!pages || pages.length === 0) {
