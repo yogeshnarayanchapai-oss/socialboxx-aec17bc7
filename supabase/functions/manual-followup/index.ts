@@ -208,6 +208,36 @@ serve(async (req) => {
       });
     }
 
+    // === Count eligible (preview) ===
+    if (action === "count") {
+      const ah = Number(ageHours);
+      if (!ah || ah < 1) throw new Error("Invalid ageHours");
+      const cutoffIso = new Date(Date.now() - ah * 60 * 60 * 1000).toISOString();
+      const { data: candConvs } = await supabase
+        .from("conversations")
+        .select("id, tags")
+        .eq("organization_id", orgId)
+        .eq("status", "replied")
+        .is("deleted_at", null)
+        .lt("last_message_at", cutoffIso)
+        .limit(5000);
+      const filtered = (candConvs || []).filter((c: any) => !(Array.isArray(c.tags) && c.tags.includes("lead-created")));
+      let count = 0;
+      for (const c of filtered) {
+        const { data: lastMsg } = await supabase
+          .from("messages")
+          .select("sender_type")
+          .eq("conversation_id", c.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lastMsg?.sender_type === "page") count++;
+      }
+      return new Response(JSON.stringify({ count }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // === Start ===
     if (action === "start") {
       const ah = Number(ageHours);
