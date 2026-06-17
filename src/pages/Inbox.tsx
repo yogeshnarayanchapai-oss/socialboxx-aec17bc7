@@ -1377,6 +1377,137 @@ export default function Inbox() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Manual Follow-up Dialog */}
+      <Dialog open={followupDialogOpen} onOpenChange={(open) => { setFollowupDialogOpen(open); if (!open) stopFollowupPolling(); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {followupJob?.status === "running" ? (
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              ) : followupJob?.status === "completed" ? (
+                <CheckCircle className="h-5 w-5 text-green-500" />
+              ) : followupJob?.status === "stopped" ? (
+                <XCircle className="h-5 w-5 text-orange-500" />
+              ) : (
+                <Send className="h-5 w-5 text-primary" />
+              )}
+              Manual Follow-up
+            </DialogTitle>
+          </DialogHeader>
+
+          {!followupJob ? (
+            // Setup screen
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Target conversations where AI replied but customer didn't respond for:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { v: 6, l: "6 hours+" },
+                    { v: 24, l: "24 hours+" },
+                    { v: 48, l: "48 hours+" },
+                    { v: 72, l: "72 hours+" },
+                  ].map((opt) => (
+                    <button
+                      key={opt.v}
+                      type="button"
+                      onClick={() => setFollowupAgeHours(opt.v)}
+                      className={cn(
+                        "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                        followupAgeHours === opt.v
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background hover:bg-accent"
+                      )}
+                    >
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Follow-up message</label>
+                <Textarea
+                  placeholder="Type the message to send..."
+                  rows={5}
+                  value={followupMessage}
+                  onChange={(e) => setFollowupMessage(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Will be sent to every matching conversation. Each conversation tracks how many manual follow-ups it has received.</p>
+              </div>
+
+              <Button
+                className="w-full gap-2"
+                onClick={handleStartFollowupJob}
+                disabled={followupStarting || !followupMessage.trim()}
+              >
+                {followupStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Start Follow-up
+              </Button>
+            </div>
+          ) : (
+            // Progress screen
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-md border border-border p-2 text-center">
+                  <div className="text-lg font-bold">{followupJob.total}</div>
+                  <div className="text-[10px] text-muted-foreground">Total</div>
+                </div>
+                <div className="rounded-md border border-border p-2 text-center">
+                  <div className="text-lg font-bold text-green-600">{followupJob.processed}</div>
+                  <div className="text-[10px] text-muted-foreground">Sent</div>
+                </div>
+                <div className="rounded-md border border-border p-2 text-center">
+                  <div className="text-lg font-bold text-destructive">{followupJob.failed}</div>
+                  <div className="text-[10px] text-muted-foreground">Failed</div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Progress
+                  value={followupJob.total > 0 ? ((followupJob.processed + followupJob.failed) / followupJob.total) * 100 : 0}
+                  className="h-2.5"
+                />
+                <p className="text-center text-sm text-muted-foreground">
+                  {followupJob.processed + followupJob.failed} / {followupJob.total}
+                  {followupJob.status === "running" ? " processing..." : followupJob.status === "stopped" ? " — stopped" : " — completed"}
+                </p>
+              </div>
+
+              <div className="rounded-md bg-muted/50 p-2 text-xs">
+                <div><span className="text-muted-foreground">Window:</span> {followupJob.age_hours}h+</div>
+                <div className="mt-1 line-clamp-2"><span className="text-muted-foreground">Message:</span> {followupJob.message_text}</div>
+              </div>
+
+              {Array.isArray(followupJob.errors) && followupJob.errors.length > 0 && (
+                <div className="max-h-32 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs">
+                  <div className="mb-1 font-semibold text-destructive">Errors ({followupJob.errors.length}):</div>
+                  {followupJob.errors.slice(-10).map((er: any, i: number) => (
+                    <div key={i} className="text-destructive/80">• {er.name || er.conv_id}: {er.error}</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                {followupJob.status === "running" ? (
+                  <Button variant="destructive" className="flex-1 gap-2" onClick={handleStopFollowupJob}>
+                    <XCircle className="h-4 w-4" /> Stop
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant="outline" className="flex-1" onClick={handleResetFollowupDialog}>
+                      New Follow-up
+                    </Button>
+                    <Button className="flex-1" onClick={() => { setFollowupDialogOpen(false); handleResetFollowupDialog(); }}>
+                      Close
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
