@@ -837,16 +837,6 @@ export default function Inbox() {
               <Send className="h-4 w-4" />
               Start Follow-ups
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncMissed}
-              disabled={syncMissedLoading}
-              className="gap-2"
-            >
-              {syncMissedLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Sync missed & send template
-            </Button>
           </div>
         }
       />
