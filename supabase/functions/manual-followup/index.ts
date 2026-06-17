@@ -220,7 +220,7 @@ serve(async (req) => {
         .eq("status", "replied")
         .is("deleted_at", null)
         .lt("last_message_at", cutoffIso)
-        .or("tags.is.null,not.tags.cs.{lead-created}");
+        .or("tags.is.null,tags.not.cs.{lead-created}");
       if (error) throw error;
       return new Response(JSON.stringify({ count: count || 0 }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
