@@ -1406,19 +1406,19 @@ export default function Inbox() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Target conversations where AI replied but customer didn't respond for:</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="flex flex-wrap gap-1.5">
                   {[
-                    { v: 6, l: "6 hours+" },
-                    { v: 24, l: "24 hours+" },
-                    { v: 48, l: "48 hours+" },
-                    { v: 72, l: "72 hours+" },
+                    { v: 6, l: "6h+" },
+                    { v: 24, l: "24h+" },
+                    { v: 48, l: "48h+" },
+                    { v: 72, l: "72h+" },
                   ].map((opt) => (
                     <button
                       key={opt.v}
                       type="button"
                       onClick={() => setFollowupAgeHours(opt.v)}
                       className={cn(
-                        "rounded-md border px-3 py-2 text-sm font-medium transition-colors",
+                        "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
                         followupAgeHours === opt.v
                           ? "border-primary bg-primary text-primary-foreground"
                           : "border-border bg-background hover:bg-accent"
@@ -1427,6 +1427,15 @@ export default function Inbox() {
                       {opt.l}
                     </button>
                   ))}
+                </div>
+                <div className="rounded-md bg-muted/60 px-3 py-2 text-xs">
+                  {followupCountLoading ? (
+                    <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Checking eligible conversations...</span>
+                  ) : followupEligibleCount === null ? (
+                    <span className="text-muted-foreground">Select a window to see count</span>
+                  ) : (
+                    <span><span className="font-semibold text-foreground">{followupEligibleCount}</span> conversation{followupEligibleCount === 1 ? "" : "s"} will receive this follow-up</span>
+                  )}
                 </div>
               </div>
 
