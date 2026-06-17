@@ -524,6 +524,8 @@ export default function Inbox() {
   // ============== Manual Follow-up Dialog State ==============
   const [followupDialogOpen, setFollowupDialogOpen] = useState(false);
   const [followupAgeHours, setFollowupAgeHours] = useState<number>(6);
+  const [followupEligibleCount, setFollowupEligibleCount] = useState<number | null>(null);
+  const [followupCountLoading, setFollowupCountLoading] = useState(false);
   const [followupMessage, setFollowupMessage] = useState<string>("");
   const [followupJob, setFollowupJob] = useState<any>(null);
   const [followupStarting, setFollowupStarting] = useState(false);
