@@ -520,20 +520,119 @@ export default function Inbox() {
   };
 
   const [syncMissedLoading, setSyncMissedLoading] = useState(false);
-  const [followupRunning, setFollowupRunning] = useState(false);
-  const handleStartFollowup = async () => {
-    setFollowupRunning(true);
-    try {
-      const { triggerFollowupNow } = await import("@/hooks/useFollowupSettings");
-      const { sent } = await triggerFollowupNow();
-      toast.success(`Follow-ups sent: ${sent}`);
-      queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to start follow-ups");
-    } finally {
-      setFollowupRunning(false);
+
+  // ============== Manual Follow-up Dialog State ==============
+  const [followupDialogOpen, setFollowupDialogOpen] = useState(false);
+  const [followupAgeHours, setFollowupAgeHours] = useState<number>(6);
+  const [followupMessage, setFollowupMessage] = useState<string>("");
+  const [followupJob, setFollowupJob] = useState<any>(null);
+  const [followupStarting, setFollowupStarting] = useState(false);
+  const followupPollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopFollowupPolling = () => {
+    if (followupPollingRef.current) {
+      clearInterval(followupPollingRef.current);
+      followupPollingRef.current = null;
     }
   };
+
+  const callManualFollowup = async (body: any) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("Not authenticated");
+    const r = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/manual-followup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || "Request failed");
+    return j;
+  };
+
+  const startFollowupPolling = (jobId: string) => {
+    stopFollowupPolling();
+    followupPollingRef.current = setInterval(async () => {
+      try {
+        const { job } = await callManualFollowup({ action: "poll", jobId });
+        if (!job) return;
+        setFollowupJob(job);
+        if (job.status !== "running") {
+          stopFollowupPolling();
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        }
+      } catch (e) {
+        console.error("Followup poll error:", e);
+      }
+    }, 2500);
+  };
+
+  useEffect(() => {
+    return () => stopFollowupPolling();
+  }, []);
+
+  const handleOpenFollowupDialog = async () => {
+    setFollowupDialogOpen(true);
+    // Check for currently running job
+    try {
+      const { job } = await callManualFollowup({ action: "poll" });
+      if (job && job.status === "running") {
+        setFollowupJob(job);
+        setFollowupAgeHours(job.age_hours);
+        setFollowupMessage(job.message_text);
+        startFollowupPolling(job.id);
+      } else {
+        setFollowupJob(null);
+      }
+    } catch (e) {
+      console.error("Poll active job failed:", e);
+    }
+  };
+
+  const handleStartFollowupJob = async () => {
+    if (!followupMessage.trim()) {
+      toast.error("Please enter the follow-up message");
+      return;
+    }
+    setFollowupStarting(true);
+    try {
+      const { job } = await callManualFollowup({
+        action: "start",
+        ageHours: followupAgeHours,
+        message: followupMessage.trim(),
+      });
+      setFollowupJob(job);
+      if (job.total === 0) {
+        toast.info("No conversations match that window");
+      } else if (job.status === "running") {
+        startFollowupPolling(job.id);
+        toast.success(`Started: ${job.total} conversations`);
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to start");
+    } finally {
+      setFollowupStarting(false);
+    }
+  };
+
+  const handleStopFollowupJob = async () => {
+    if (!followupJob?.id) return;
+    try {
+      await callManualFollowup({ action: "stop", jobId: followupJob.id });
+      stopFollowupPolling();
+      const { job } = await callManualFollowup({ action: "poll", jobId: followupJob.id });
+      if (job) setFollowupJob(job);
+      toast.info("Follow-up stopped");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to stop");
+    }
+  };
+
+  const handleResetFollowupDialog = () => {
+    setFollowupJob(null);
+    setFollowupMessage("");
+    setFollowupAgeHours(6);
+  };
+
   const handleSyncMissed = async () => {
     if (pages.length === 0) { toast.error("No pages connected."); return; }
     setSyncMissedLoading(true);
