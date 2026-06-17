@@ -408,6 +408,7 @@ export type Database = {
           id: string
           last_message_at: string | null
           last_message_preview: string | null
+          manual_followup_count: number
           organization_id: string | null
           page_id: string
           participant_id: string | null
@@ -430,6 +431,7 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           last_message_preview?: string | null
+          manual_followup_count?: number
           organization_id?: string | null
           page_id: string
           participant_id?: string | null
@@ -452,6 +454,7 @@ export type Database = {
           id?: string
           last_message_at?: string | null
           last_message_preview?: string | null
+          manual_followup_count?: number
           organization_id?: string | null
           page_id?: string
           participant_id?: string | null
@@ -617,6 +620,57 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      manual_followup_jobs: {
+        Row: {
+          age_hours: number
+          created_at: string
+          created_by: string | null
+          errors: Json
+          failed: number
+          finished_at: string | null
+          id: string
+          message_text: string
+          organization_id: string
+          pending_ids: Json
+          processed: number
+          status: string
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          age_hours: number
+          created_at?: string
+          created_by?: string | null
+          errors?: Json
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          message_text: string
+          organization_id: string
+          pending_ids?: Json
+          processed?: number
+          status?: string
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          age_hours?: number
+          created_at?: string
+          created_by?: string | null
+          errors?: Json
+          failed?: number
+          finished_at?: string | null
+          id?: string
+          message_text?: string
+          organization_id?: string
+          pending_ids?: Json
+          processed?: number
+          status?: string
+          total?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
       messages: {
         Row: {
