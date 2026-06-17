@@ -572,6 +572,19 @@ export default function Inbox() {
     return () => stopFollowupPolling();
   }, []);
 
+  // Fetch eligible count when dialog open + setup mode + age changes
+  useEffect(() => {
+    if (!followupDialogOpen || followupJob) return;
+    let cancelled = false;
+    setFollowupCountLoading(true);
+    setFollowupEligibleCount(null);
+    callManualFollowup({ action: "count", ageHours: followupAgeHours })
+      .then((r) => { if (!cancelled) setFollowupEligibleCount(r.count ?? 0); })
+      .catch(() => { if (!cancelled) setFollowupEligibleCount(null); })
+      .finally(() => { if (!cancelled) setFollowupCountLoading(false); });
+    return () => { cancelled = true; };
+  }, [followupDialogOpen, followupJob, followupAgeHours]);
+
   const handleOpenFollowupDialog = async () => {
     setFollowupDialogOpen(true);
     // Check for currently running job
