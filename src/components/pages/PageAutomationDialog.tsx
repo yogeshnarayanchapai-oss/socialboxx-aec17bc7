@@ -1243,7 +1243,7 @@ export function PageAutomationDialog({
                   
                   {templateMessages.length < 2 && (
                     <Button type="button" variant="outline" size="sm" className="w-full"
-                      onClick={() => setTemplateMessages(prev => [...prev, { text: "", media: null }])}>
+                      onClick={() => setTemplateMessages(prev => [...prev, { text: "", medias: [] }])}>
                       <Plus className="mr-2 h-4 w-4" />Message थप्नुहोस् (अधिकतम 2)
                     </Button>
                   )}
