@@ -139,7 +139,8 @@ export function PageAutomationDialog({
   
   // First Message Template state
   const [templateEnabled, setTemplateEnabled] = useState(false);
-  const [templateMessages, setTemplateMessages] = useState<ReplyMessage[]>([{ text: "", media: null }]);
+  const [templateMessages, setTemplateMessages] = useState<TemplateMsg[]>([{ text: "", medias: [] }]);
+
   const [savingTemplate, setSavingTemplate] = useState(false);
   const templateMediaRef = useRef<HTMLInputElement>(null);
   const [uploadingTemplate, setUploadingTemplate] = useState(false);
