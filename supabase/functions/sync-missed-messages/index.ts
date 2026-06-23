@@ -74,6 +74,33 @@ async function sendMessage(
   }
 }
 
+// Multi-media template send: images first, then text, then non-image medias.
+async function sendTemplate(
+  pageAccessToken: string,
+  recipientId: string,
+  text: string,
+  medias: MediaAttachment[],
+): Promise<boolean> {
+  const images = medias.filter(m => m.type === "image" && m.url);
+  const others = medias.filter(m => m.type !== "image" && m.url);
+  if (images.length === 0) {
+    return await sendMessage(pageAccessToken, recipientId, text || "", others[0] || null);
+  }
+  for (const img of images) {
+    const ok = await sendMessage(pageAccessToken, recipientId, "", img);
+    if (!ok) return false;
+  }
+  if (text || others.length > 0) {
+    const ok = await sendMessage(pageAccessToken, recipientId, text || "", others[0] || null);
+    if (!ok) return false;
+  }
+  for (let i = 1; i < others.length; i++) {
+    const ok = await sendMessage(pageAccessToken, recipientId, "", others[i]);
+    if (!ok) return false;
+  }
+  return true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -165,12 +192,19 @@ serve(async (req) => {
       // 3) Template pass: send 1st template to convos with customer msgs but no page reply yet
       const tmplCfg: any = (page as any).first_msg_template;
       const tmplList: any[] = Array.isArray(tmplCfg?.messages)
-        ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media))
+        ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media || (Array.isArray(m.medias) && m.medias.length > 0)))
         : [];
       const tmplEnabled = (page as any).first_msg_template_enabled && page.ai_enabled && !page.automation_enabled && tmplList.length > 0;
       if (!tmplEnabled) continue;
 
       const firstTmpl = tmplList[0];
+      const firstMedias: MediaAttachment[] = (() => {
+        if (Array.isArray(firstTmpl?.medias) && firstTmpl.medias.length > 0) {
+          return firstTmpl.medias.filter((m: any) => m && m.type && m.url);
+        }
+        if (firstTmpl?.media?.url) return [firstTmpl.media];
+        return [];
+      })();
 
       // Find unreplied conversations for this page
       const { data: convos } = await admin
@@ -201,21 +235,21 @@ serve(async (req) => {
           .eq("sender_type", "page");
         if ((pageCount || 0) > 0) continue;
 
-        const ok = await sendMessage(
+        const ok = await sendTemplate(
           page.page_access_token,
           conv.participant_id,
           firstTmpl.text || "",
-          firstTmpl.media || null,
+          firstMedias,
         );
 
         if (ok) {
-          if (firstTmpl.text) {
+          if (firstTmpl.text || firstMedias.length > 0) {
             await admin.from("messages").insert({
               conversation_id: conv.id,
-              content: firstTmpl.text,
+              content: firstTmpl.text || null,
               sender_type: "page",
-              message_type: firstTmpl.media ? "media" : "text",
-              media_url: firstTmpl.media?.url || null,
+              message_type: firstMedias.length > 0 ? "media" : "text",
+              media_url: firstMedias[0]?.url || null,
               created_at: new Date().toISOString(),
             });
           }

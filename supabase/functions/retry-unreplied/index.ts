@@ -311,58 +311,83 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
 
     const tmplCfg: any = (page as any).first_msg_template;
     const tmplList: any[] = Array.isArray(tmplCfg?.messages)
-      ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media))
+      ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media || (Array.isArray(m.medias) && m.medias.length > 0)))
       : [];
     const firstTmpl = tmplList[0];
     const templateText: string = (firstTmpl?.text || page.auto_reply_first_message || "").toString().trim();
-    const templateMedia = firstTmpl?.media || null;
+    // Resolve medias array (multi-image support), fallback to legacy single media
+    const templateMedias: { type: string; url: string }[] = (() => {
+      if (firstTmpl && Array.isArray(firstTmpl.medias) && firstTmpl.medias.length > 0) {
+        return firstTmpl.medias.filter((m: any) => m && m.type && m.url);
+      }
+      if (firstTmpl?.media?.url) return [firstTmpl.media];
+      return [];
+    })();
 
-    if (!templateText && !templateMedia) {
+    if (!templateText && templateMedias.length === 0) {
       const failReason = retryMarker ? `${retryMarker} No first template configured` : "No first template configured";
       await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conv.id);
       return { processed: 0, failed: 1, type: "new_reply" };
     }
 
-    const fbBody: any = {
-      recipient: { id: conv.participant_id },
-      access_token: page.page_access_token,
-    };
-    if (templateMedia?.url) {
-      fbBody.message = {
-        attachment: {
-          type: templateMedia.type === "video" ? "video" : "image",
-          payload: { url: templateMedia.url, is_reusable: true },
-        },
+    // Helper: send one FB message (text or media), with outside-window retry using HUMAN_AGENT tag.
+    const sendOne = async (messageBody: any) => {
+      const fbBody = {
+        recipient: { id: conv.participant_id },
+        message: messageBody,
+        access_token: page.page_access_token,
       };
+      let resp = await fetch("https://graph.facebook.com/v19.0/me/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fbBody),
+      });
+      if (!resp.ok) {
+        try {
+          const errPeek = await resp.clone().json();
+          const subcode = errPeek?.error?.error_subcode;
+          const msg = String(errPeek?.error?.message || "").toLowerCase();
+          if (subcode === 2018278 || msg.includes("outside of allowed window") || msg.includes("outside the allowed window")) {
+            resp = await fetch("https://graph.facebook.com/v19.0/me/messages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...fbBody, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
+            });
+          }
+        } catch (_) {}
+      }
+      return resp;
+    };
+
+    const buildMediaBody = (m: { type: string; url: string }) => {
+      if (m.type === "image") return { attachment: { type: "image", payload: { url: m.url, is_reusable: true } } };
+      if (m.type === "video") return { attachment: { type: "template", payload: { template_type: "button", text: "🎥 Video herna tala ko link ma click garnuhos:", buttons: [{ type: "web_url", url: m.url, title: "Video Hernuhos" }] } } };
+      if (m.type === "audio") return { attachment: { type: "audio", payload: { url: m.url, is_reusable: true } } };
+      return { attachment: { type: "template", payload: { template_type: "button", text: "🔗 Link:", buttons: [{ type: "web_url", url: m.url, title: "Open Link" }] } } };
+    };
+
+    const images = templateMedias.filter(m => m.type === "image");
+    const nonImages = templateMedias.filter(m => m.type !== "image");
+    // Order: if any image, send images first → then text → then non-image medias.
+    // Else (legacy single non-image media), send text first then media.
+    const sendQueue: any[] = [];
+    if (images.length > 0) {
+      for (const img of images) sendQueue.push(buildMediaBody(img));
+      if (templateText) sendQueue.push({ text: templateText });
+      for (const o of nonImages) sendQueue.push(buildMediaBody(o));
     } else {
-      fbBody.message = { text: templateText };
+      if (templateText) sendQueue.push({ text: templateText });
+      for (const o of nonImages) sendQueue.push(buildMediaBody(o));
     }
 
-    let sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(fbBody),
-    });
-
-    if (!sendResponse.ok) {
-      const errClone = sendResponse.clone();
-      try {
-        const errPeek = await errClone.json();
-        const subcode = errPeek?.error?.error_subcode;
-        const msg = String(errPeek?.error?.message || "").toLowerCase();
-        const isOutsideWindow = subcode === 2018278 || msg.includes("outside of allowed window") || msg.includes("outside the allowed window");
-        if (isOutsideWindow) {
-          sendResponse = await fetch("https://graph.facebook.com/v19.0/me/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...fbBody, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT" }),
-          });
-        }
-      } catch (_) {}
+    let sendResponse: Response | null = null;
+    for (const body of sendQueue) {
+      sendResponse = await sendOne(body);
+      if (!sendResponse.ok) break;
     }
 
-    if (!sendResponse.ok) {
-      const err = await sendResponse.json();
+    if (!sendResponse || !sendResponse.ok) {
+      const err = sendResponse ? await sendResponse.json() : { error: { message: "no response" } };
       const fbErrorCode = err?.error?.code;
       const fbErrorMessage = String(err?.error?.message || "");
       const isPermanent = fbErrorCode === 551 || isPermanentlyUnavailable(fbErrorMessage);
@@ -384,8 +409,8 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       conversation_id: conv.id,
       content: templateText || null,
       sender_type: "page",
-      message_type: templateMedia ? "media" : "text",
-      media_url: templateMedia?.url || null,
+      message_type: templateMedias.length > 0 ? "media" : "text",
+      media_url: templateMedias[0]?.url || null,
       created_at: new Date().toISOString(),
     });
 
