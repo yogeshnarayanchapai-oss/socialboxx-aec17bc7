@@ -1159,44 +1159,60 @@ export function PageAutomationDialog({
                         rows={3}
                       />
                       
-                      {tmplMsg.media && (
-                        <div className="flex items-center gap-2 p-2 bg-background rounded-lg">
-                          {tmplMsg.media.type === 'image' && <img src={tmplMsg.media.url} alt="" className="h-12 w-12 object-cover rounded" />}
-                          <span className="text-xs text-muted-foreground flex-1 truncate">{tmplMsg.media.type}: {tmplMsg.media.url.substring(0, 40)}...</span>
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: null } : m))}><X className="h-3 w-3" /></Button>
+                      {tmplMsg.medias.length > 0 && (
+                        <div className="space-y-1">
+                          {tmplMsg.medias.map((mItem, mIdx) => (
+                            <div key={mIdx} className="flex items-center gap-2 p-2 bg-background rounded-lg">
+                              {mItem.type === 'image' && mItem.url && <img src={mItem.url} alt="" className="h-12 w-12 object-cover rounded" />}
+                              <span className="text-xs text-muted-foreground flex-1 truncate">{mItem.type}: {mItem.url ? mItem.url.substring(0, 40) + '...' : '(URL set गर्नुहोस्)'}</span>
+                              {mItem.type === 'video' && (
+                                <Input
+                                  placeholder="Video URL..."
+                                  value={mItem.url}
+                                  className="h-7 w-40 text-xs"
+                                  onChange={(e) => setTemplateMessages(prev => prev.map((m, i) => i === idx
+                                    ? { ...m, medias: m.medias.map((x, xi) => xi === mIdx ? { ...x, url: e.target.value } : x) }
+                                    : m))}
+                                />
+                              )}
+                              <Button variant="ghost" size="icon" className="h-6 w-6"
+                                onClick={() => setTemplateMessages(prev => prev.map((m, i) => i === idx
+                                  ? { ...m, medias: m.medias.filter((_, xi) => xi !== mIdx) }
+                                  : m))}>
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
                         </div>
                       )}
                       
-                      <input ref={idx === 0 ? templateMediaRef : undefined} type="file" accept="image/*,audio/*" className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]; if (!file) return;
-                          setUploadingTemplate(true);
-                          const url = await uploadImage(file);
-                          if (url) {
-                            const mediaType = file.type.startsWith('audio') ? 'audio' : 'image';
-                            setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { type: mediaType as any, url } } : m));
-                          }
-                          setUploadingTemplate(false);
-                        }} />
-                      
                       <div className="flex gap-2 flex-wrap">
-                        <Button type="button" variant={tmplMsg.media?.type === 'image' ? "default" : "outline"} size="sm" className="h-8"
+                        <Button type="button" variant="outline" size="sm" className="h-8"
                           onClick={() => {
                             const input = document.createElement('input');
-                            input.type = 'file'; input.accept = 'image/*';
+                            input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
                             input.onchange = async (ev: any) => {
-                              const file = ev.target.files?.[0]; if (!file) return;
+                              const files: File[] = Array.from(ev.target.files || []);
+                              if (files.length === 0) return;
                               setUploadingTemplate(true);
-                              const url = await uploadImage(file);
-                              if (url) setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { type: 'image', url } } : m));
+                              const uploaded: MediaAttachment[] = [];
+                              for (const file of files) {
+                                const url = await uploadImage(file);
+                                if (url) uploaded.push({ type: 'image', url });
+                              }
+                              if (uploaded.length > 0) {
+                                setTemplateMessages(prev => prev.map((m, i) => i === idx
+                                  ? { ...m, medias: [...m.medias, ...uploaded] }
+                                  : m));
+                              }
                               setUploadingTemplate(false);
                             };
                             input.click();
                           }}
                           disabled={uploadingTemplate}>
-                          {uploadingTemplate ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}Image
+                          {uploadingTemplate ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Upload className="h-3 w-3 mr-1" />}Image (multiple)
                         </Button>
-                        <Button type="button" variant={tmplMsg.media?.type === 'audio' ? "default" : "outline"} size="sm" className="h-8"
+                        <Button type="button" variant="outline" size="sm" className="h-8"
                           onClick={() => {
                             const input = document.createElement('input');
                             input.type = 'file'; input.accept = 'audio/*';
@@ -1204,7 +1220,9 @@ export function PageAutomationDialog({
                               const file = ev.target.files?.[0]; if (!file) return;
                               setUploadingTemplate(true);
                               const url = await uploadImage(file);
-                              if (url) setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { type: 'audio', url } } : m));
+                              if (url) setTemplateMessages(prev => prev.map((m, i) => i === idx
+                                ? { ...m, medias: [...m.medias, { type: 'audio', url }] }
+                                : m));
                               setUploadingTemplate(false);
                             };
                             input.click();
@@ -1212,19 +1230,14 @@ export function PageAutomationDialog({
                           disabled={uploadingTemplate}>
                           <FileAudio className="h-3 w-3 mr-1" />Audio
                         </Button>
-                        <Button type="button" variant={tmplMsg.media?.type === 'video' ? "default" : "outline"} size="sm" className="h-8"
-                          onClick={() => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: tmplMsg.media?.type === 'video' ? null : { type: 'video', url: '' } } : m))}>
+                        <Button type="button" variant="outline" size="sm" className="h-8"
+                          onClick={() => setTemplateMessages(prev => prev.map((m, i) => i === idx
+                            ? { ...m, medias: [...m.medias, { type: 'video', url: '' }] }
+                            : m))}>
                           <Video className="h-3 w-3 mr-1" />Video
                         </Button>
                       </div>
-                      
-                      {tmplMsg.media && (tmplMsg.media.type === 'video') && (
-                        <Input
-                          placeholder="Video URL..."
-                          value={tmplMsg.media.url}
-                          onChange={(e) => setTemplateMessages(prev => prev.map((m, i) => i === idx ? { ...m, media: { ...tmplMsg.media!, url: e.target.value } } : m))}
-                        />
-                      )}
+
                     </div>
                   ))}
                   
