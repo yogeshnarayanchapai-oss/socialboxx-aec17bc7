@@ -252,6 +252,51 @@ async function sendAutoReply(
   }
 }
 
+// Resolve medias[] from a template message, with fallback to legacy single `media`.
+function resolveTemplateMedias(tmplMsg: any): MediaAttachment[] {
+  if (tmplMsg && Array.isArray(tmplMsg.medias) && tmplMsg.medias.length > 0) {
+    return tmplMsg.medias.filter((m: any) => m && m.type && m.url);
+  }
+  if (tmplMsg?.media?.url) return [tmplMsg.media];
+  return [];
+}
+
+// Send a template message. If any image medias exist, all images go FIRST, then text,
+// then any non-image medias (audio/video/link). Otherwise text first then media (legacy).
+async function sendTemplateMessage(
+  pageAccessToken: string,
+  recipientId: string,
+  text: string,
+  medias: MediaAttachment[],
+): Promise<boolean | "permanent_fail"> {
+  const images = medias.filter(m => m.type === "image" && m.url);
+  const others = medias.filter(m => m.type !== "image" && m.url);
+
+  if (images.length === 0) {
+    // No images — fallback to legacy single-media send (text first then optional media)
+    return await sendAutoReply(pageAccessToken, recipientId, text || "", others[0] || null);
+  }
+
+  // 1) Send all images first
+  for (const img of images) {
+    const ok = await sendAutoReply(pageAccessToken, recipientId, "", img);
+    if (ok === "permanent_fail") return "permanent_fail";
+    if (ok === false) return false;
+  }
+  // 2) Then text + first non-image media (if any)
+  if (text || others.length > 0) {
+    const ok = await sendAutoReply(pageAccessToken, recipientId, text || "", others[0] || null);
+    if (ok === "permanent_fail") return "permanent_fail";
+    if (ok === false) return false;
+  }
+  // 3) Send remaining non-image medias one by one
+  for (let i = 1; i < others.length; i++) {
+    const ok = await sendAutoReply(pageAccessToken, recipientId, "", others[i]);
+    if (ok === "permanent_fail") return "permanent_fail";
+    if (ok === false) return false;
+  }
+  return true;
+
 // AI Comment Reply helper
 async function handleCommentReply(
   supabase: any,
