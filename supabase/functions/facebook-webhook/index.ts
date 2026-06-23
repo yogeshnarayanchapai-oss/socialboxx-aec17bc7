@@ -296,6 +296,9 @@ async function sendTemplateMessage(
     if (ok === false) return false;
   }
   return true;
+}
+
+
 
 // AI Comment Reply helper
 async function handleCommentReply(
