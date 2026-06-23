@@ -1082,16 +1082,17 @@ serve(async (req) => {
                     const sentSoFar = pageMsgCount || 0;
                     if (sentSoFar < tmplList.length) {
                       const tmplMsg = tmplList[sentSoFar];
-                      console.log(`Sending template #${sentSoFar + 1} of ${tmplList.length} (locked)`);
-                      const sent = await sendAutoReply(page.page_access_token, senderId, tmplMsg.text || "", tmplMsg.media || null);
+                      const tmplMedias = resolveTemplateMedias(tmplMsg);
+                      console.log(`Sending template #${sentSoFar + 1} of ${tmplList.length} (locked), medias=${tmplMedias.length}`);
+                      const sent = await sendTemplateMessage(page.page_access_token, senderId, tmplMsg.text || "", tmplMedias);
                       if (sent === true) {
-                        if (tmplMsg.text) {
+                        if (tmplMsg.text || tmplMedias.length > 0) {
                           await supabase.from("messages").insert({
                             conversation_id: conversationId,
-                            content: tmplMsg.text,
+                            content: tmplMsg.text || null,
                             sender_type: "page",
-                            message_type: tmplMsg.media ? "media" : "text",
-                            media_url: tmplMsg.media?.url || null,
+                            message_type: tmplMedias.length > 0 ? "media" : "text",
+                            media_url: tmplMedias[0]?.url || null,
                             created_at: new Date().toISOString(),
                           });
                         }
