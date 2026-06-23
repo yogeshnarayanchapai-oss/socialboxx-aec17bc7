@@ -409,8 +409,8 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
       conversation_id: conv.id,
       content: templateText || null,
       sender_type: "page",
-      message_type: templateMedia ? "media" : "text",
-      media_url: templateMedia?.url || null,
+      message_type: templateMedias.length > 0 ? "media" : "text",
+      media_url: templateMedias[0]?.url || null,
       created_at: new Date().toISOString(),
     });
 
