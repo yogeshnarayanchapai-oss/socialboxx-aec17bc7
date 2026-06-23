@@ -822,7 +822,7 @@ serve(async (req) => {
           // (1 template → only 1st customer msg, 2 templates → 1st and 2nd customer msgs).
           // From msg N+1 onwards, AI takes over.
           const tmplCfg = (page as any).first_msg_template;
-          const tmplList: any[] = Array.isArray(tmplCfg?.messages) ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media)) : [];
+          const tmplList: any[] = Array.isArray(tmplCfg?.messages) ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media || (Array.isArray(m.medias) && m.medias.length > 0))) : [];
           const tmplEnabledForPage = page.ai_enabled && !page.automation_enabled && (page as any).first_msg_template_enabled && tmplList.length > 0;
           if (page.ai_enabled && !page.automation_enabled && (page as any).first_msg_template_enabled && tmplList.length > 0) {
             // Lead detection during template phase: if customer sends a phone number
