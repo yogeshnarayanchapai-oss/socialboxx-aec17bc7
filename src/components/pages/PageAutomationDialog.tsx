@@ -1257,9 +1257,14 @@ export function PageAutomationDialog({
                 if (!page) return;
                 setSavingTemplate(true);
                 try {
+                  const messagesToSave = templateMessages.map(m => ({
+                    text: m.text,
+                    medias: m.medias,
+                    media: m.medias[0] || null, // back-compat for any old reader
+                  }));
                   const { error } = await supabase.from("connected_pages").update({
                     first_msg_template_enabled: templateEnabled,
-                    first_msg_template: { messages: templateMessages },
+                    first_msg_template: { messages: messagesToSave },
                   } as any).eq("id", page.id);
                   if (error) throw error;
                   queryClient.invalidateQueries({ queryKey: ["connected-pages"] });
