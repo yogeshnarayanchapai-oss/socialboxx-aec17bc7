@@ -74,6 +74,33 @@ async function sendMessage(
   }
 }
 
+// Multi-media template send: images first, then text, then non-image medias.
+async function sendTemplate(
+  pageAccessToken: string,
+  recipientId: string,
+  text: string,
+  medias: MediaAttachment[],
+): Promise<boolean> {
+  const images = medias.filter(m => m.type === "image" && m.url);
+  const others = medias.filter(m => m.type !== "image" && m.url);
+  if (images.length === 0) {
+    return await sendMessage(pageAccessToken, recipientId, text || "", others[0] || null);
+  }
+  for (const img of images) {
+    const ok = await sendMessage(pageAccessToken, recipientId, "", img);
+    if (!ok) return false;
+  }
+  if (text || others.length > 0) {
+    const ok = await sendMessage(pageAccessToken, recipientId, text || "", others[0] || null);
+    if (!ok) return false;
+  }
+  for (let i = 1; i < others.length; i++) {
+    const ok = await sendMessage(pageAccessToken, recipientId, "", others[i]);
+    if (!ok) return false;
+  }
+  return true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
