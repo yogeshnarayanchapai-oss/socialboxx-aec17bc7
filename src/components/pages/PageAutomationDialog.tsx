@@ -29,6 +29,11 @@ interface ReplyMessage {
   media?: MediaAttachment | null;
 }
 
+interface TemplateMsg {
+  text: string;
+  medias: MediaAttachment[];
+}
+
 interface ExtendedAutoReplyKeyword extends AutoReplyKeyword {
   media?: MediaAttachment;
 }
