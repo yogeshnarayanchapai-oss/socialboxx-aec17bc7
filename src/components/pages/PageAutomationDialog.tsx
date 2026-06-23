@@ -248,9 +248,14 @@ export function PageAutomationDialog({
       setTemplateEnabled((page as any).first_msg_template_enabled || false);
       const tmpl = (page as any).first_msg_template;
       if (tmpl && Array.isArray(tmpl.messages) && tmpl.messages.length > 0) {
-        setTemplateMessages(tmpl.messages.map((m: any) => ({ text: m.text || "", media: m.media || null })));
+        setTemplateMessages(tmpl.messages.map((m: any) => ({
+          text: m.text || "",
+          medias: Array.isArray(m.medias) && m.medias.length > 0
+            ? m.medias
+            : (m.media ? [m.media] : []),
+        })));
       } else {
-        setTemplateMessages([{ text: "", media: null }]);
+        setTemplateMessages([{ text: "", medias: [] }]);
       }
     }
   }, [page, open]);
