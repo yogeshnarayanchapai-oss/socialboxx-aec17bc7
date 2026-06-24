@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
           ${pageId ? `<tr><td style="padding:6px 0;color:#64748b">Page ID</td><td style="padding:6px 0">${pageId}</td></tr>` : ""}
           ${orgId ? `<tr><td style="padding:6px 0;color:#64748b">Org ID</td><td style="padding:6px 0">${orgId}</td></tr>` : ""}
         </table>
-        ${detail ? `<pre style="background:#f1f5f9;padding:12px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-word">${String(detail).slice(0, 1000)}</pre>` : ""}
+        ${detail ? `<div style="margin:16px 0 4px;font-size:12px;color:#64748b;font-weight:600">Exact Failure Reason:</div><pre style="background:#f1f5f9;padding:12px;border-radius:6px;font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:none">${String(detail).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]!)).slice(0, 4000)}</pre>` : ""}
         <p style="margin:20px 0 0;font-size:12px;color:#94a3b8">
           ${reason === "credits_depleted" ? "Kripaya Lovable AI Gateway ma credits add garnu hola." : "Edge Function logs ma detail herna sakinxa."}
         </p>
