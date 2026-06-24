@@ -641,6 +641,8 @@ ${conversationHistory || 'First message from customer.'}`;
 
     let response: Response | null = null;
     let lastError = "";
+    let lastStatus = 0;
+    let lastModel = "";
 
     for (const model of models) {
       const aiRequestBody = JSON.stringify({
@@ -654,6 +656,7 @@ ${conversationHistory || 'First message from customer.'}`;
         temperature: 0.6,
       });
 
+      lastModel = model.name;
       try {
         response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -669,34 +672,48 @@ ${conversationHistory || 'First message from customer.'}`;
           break;
         }
 
+        lastStatus = response.status;
+        lastError = await response.text();
+
         if (response.status === 429) {
-          notifyAdminAlert("rate_limited", `Model ${model.name} returned 429`, { pageId });
+          notifyAdminAlert(
+            "rate_limited",
+            `Model: ${model.name}\nHTTP Status: 429 (Too Many Requests)\nGateway Response:\n${lastError.substring(0, 1500)}`,
+            { pageId }
+          );
           return new Response(
             JSON.stringify({ error: "Rate limits exceeded, please try again later." }),
             { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
         if (response.status === 402) {
-          notifyAdminAlert("credits_depleted", `Model ${model.name} returned 402 (credits depleted)`, { pageId });
+          notifyAdminAlert(
+            "credits_depleted",
+            `Model: ${model.name}\nHTTP Status: 402 (Payment Required - Credits Depleted)\nGateway Response:\n${lastError.substring(0, 1500)}`,
+            { pageId }
+          );
           return new Response(
             JSON.stringify({ error: "AI credits depleted. Please add credits to continue." }),
             { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
-        lastError = await response.text();
         console.warn(`Model ${model.name} failed (${response.status}): ${lastError.substring(0, 200)}`);
         response = null;
       } catch (fetchErr) {
+        lastError = `Network/fetch error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}`;
+        lastStatus = 0;
         console.warn(`Model ${model.name} fetch error:`, fetchErr);
         response = null;
       }
     }
 
     if (!response || !response.ok) {
-      notifyAdminAlert("ai_failure", `All AI models failed. Last: ${lastError.substring(0, 300)}`, { pageId });
-      throw new Error(`All AI models failed. Last: ${lastError.substring(0, 200)}`);
+      const detail = `All AI models failed.\nLast Model: ${lastModel}\nLast HTTP Status: ${lastStatus || "n/a (fetch error)"}\nLast Error/Response:\n${lastError.substring(0, 1500)}`;
+      notifyAdminAlert("ai_failure", detail, { pageId });
+      throw new Error(`All AI models failed. Last (${lastModel}, ${lastStatus}): ${lastError.substring(0, 200)}`);
     }
+
 
     const aiResponse = await response.json();
     const rawContent = aiResponse.choices?.[0]?.message?.content || "";
