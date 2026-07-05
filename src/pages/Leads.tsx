@@ -62,6 +62,7 @@ const statusConfig: Record<string, { label: string; type: "success" | "warning" 
 
 export default function Leads() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
