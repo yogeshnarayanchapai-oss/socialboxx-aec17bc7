@@ -76,6 +76,9 @@ export default function Leads() {
   const [newLead, setNewLead] = useState({ full_name: "", phone: "", page_id: "", product: "" });
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const isMobile = useIsMobile();
 
   // Debounce search input
