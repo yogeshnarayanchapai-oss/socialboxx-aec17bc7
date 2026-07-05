@@ -199,6 +199,83 @@ export default function Leads() {
     toast.success(`${leads.length} leads exported!`);
   };
 
+  const handleDownloadSample = () => {
+    const sampleRows = [
+      { "Full Name": "Ram Bahadur", "Phone": "9800000001", "Page": pages[0]?.page_name || "", "Product": "Sample Product" },
+      { "Full Name": "Sita Sharma", "Phone": "9800000002", "Page": "", "Product": "" },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sampleRows, { header: ["Full Name", "Phone", "Page", "Product"] });
+    ws["!cols"] = [{ wch: 22 }, { wch: 15 }, { wch: 22 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Leads");
+    XLSX.writeFile(wb, "leads-sample.xlsx");
+  };
+
+  const handleImportLeads = async () => {
+    if (!importFile) { toast.error("Please choose a file"); return; }
+    setIsImporting(true);
+    try {
+      const buf = await importFile.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      if (rows.length === 0) { toast.error("File is empty"); setIsImporting(false); return; }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+      const { data: orgId } = await supabase.rpc("get_user_org_id", { _user_id: user.id });
+      if (!orgId) throw new Error("No organization found");
+
+      const pageByName = new Map(pages.map((p) => [p.page_name.trim().toLowerCase(), p]));
+      const inserts: any[] = [];
+      const errors: string[] = [];
+
+      rows.forEach((r, idx) => {
+        const name = String(r["Full Name"] ?? r["Name"] ?? r["full_name"] ?? "").trim();
+        const phone = String(r["Phone"] ?? r["phone"] ?? "").trim();
+        const pageName = String(r["Page"] ?? r["page"] ?? "").trim();
+        const product = String(r["Product"] ?? r["product"] ?? "").trim();
+        if (!name || !phone) { errors.push(`Row ${idx + 2}: missing name or phone`); return; }
+        const matchedPage = pageName ? pageByName.get(pageName.toLowerCase()) : null;
+        inserts.push({
+          full_name: name,
+          phone,
+          status: "new",
+          page_id: matchedPage?.id || null,
+          product: product || null,
+          source: matchedPage?.page_name || null,
+          organization_id: orgId,
+        });
+      });
+
+      if (inserts.length === 0) {
+        toast.error(`No valid rows. ${errors[0] || ""}`);
+        setIsImporting(false);
+        return;
+      }
+
+      const chunkSize = 500;
+      let inserted = 0;
+      for (let i = 0; i < inserts.length; i += chunkSize) {
+        const chunk = inserts.slice(i, i + chunkSize);
+        const { error } = await supabase.from("leads").insert(chunk);
+        if (error) throw error;
+        inserted += chunk.length;
+      }
+
+      toast.success(`Imported ${inserted} leads${errors.length ? ` (${errors.length} skipped)` : ""}`);
+      setImportFile(null);
+      setIsImportOpen(false);
+      // Refresh
+      window.location.reload();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || "Import failed");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleCreateLead = async () => {
     if (!newLead.full_name || !newLead.phone) {
       toast.error("Please fill in all fields");
