@@ -1,5 +1,5 @@
 import { useState, Fragment, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { FileText, ChevronDown, ChevronUp, Users } from "lucide-react";
