@@ -1,9 +1,10 @@
 import { useState, Fragment, useMemo, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { FileText, ChevronDown, ChevronUp, Users } from "lucide-react";
-import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package, Download, CalendarIcon, Filter } from "lucide-react";
+import { Plus, Search, MoreVertical, Phone, MessageSquare, Calendar, Loader2, Trash2, Package, Download, CalendarIcon, Filter, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import { format, startOfDay, endOfDay, subDays } from "date-fns";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ const statusConfig: Record<string, { label: string; type: "success" | "warning" 
 
 export default function Leads() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -75,6 +77,9 @@ export default function Leads() {
   const [newLead, setNewLead] = useState({ full_name: "", phone: "", page_id: "", product: "" });
   const [expandedLead, setExpandedLead] = useState<string | null>(null);
   const [showDuplicates, setShowDuplicates] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const isMobile = useIsMobile();
 
   // Debounce search input
@@ -195,6 +200,83 @@ export default function Leads() {
     toast.success(`${leads.length} leads exported!`);
   };
 
+  const handleDownloadSample = () => {
+    const sampleRows = [
+      { "Full Name": "Ram Bahadur", "Phone": "9800000001", "Page": pages[0]?.page_name || "", "Product": "Sample Product" },
+      { "Full Name": "Sita Sharma", "Phone": "9800000002", "Page": "", "Product": "" },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sampleRows, { header: ["Full Name", "Phone", "Page", "Product"] });
+    ws["!cols"] = [{ wch: 22 }, { wch: 15 }, { wch: 22 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Leads");
+    XLSX.writeFile(wb, "leads-sample.xlsx");
+  };
+
+  const handleImportLeads = async () => {
+    if (!importFile) { toast.error("Please choose a file"); return; }
+    setIsImporting(true);
+    try {
+      const buf = await importFile.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      if (rows.length === 0) { toast.error("File is empty"); setIsImporting(false); return; }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+      const { data: orgId } = await supabase.rpc("get_user_org_id", { _user_id: user.id });
+      if (!orgId) throw new Error("No organization found");
+
+      const pageByName = new Map(pages.map((p) => [p.page_name.trim().toLowerCase(), p]));
+      const inserts: any[] = [];
+      const errors: string[] = [];
+
+      rows.forEach((r, idx) => {
+        const name = String(r["Full Name"] ?? r["Name"] ?? r["full_name"] ?? "").trim();
+        const phone = String(r["Phone"] ?? r["phone"] ?? "").trim();
+        const pageName = String(r["Page"] ?? r["page"] ?? "").trim();
+        const product = String(r["Product"] ?? r["product"] ?? "").trim();
+        if (!name || !phone) { errors.push(`Row ${idx + 2}: missing name or phone`); return; }
+        const matchedPage = pageName ? pageByName.get(pageName.toLowerCase()) : null;
+        inserts.push({
+          full_name: name,
+          phone,
+          status: "new",
+          page_id: matchedPage?.id || null,
+          product: product || null,
+          source: matchedPage?.page_name || null,
+          organization_id: orgId,
+        });
+      });
+
+      if (inserts.length === 0) {
+        toast.error(`No valid rows. ${errors[0] || ""}`);
+        setIsImporting(false);
+        return;
+      }
+
+      const chunkSize = 500;
+      let inserted = 0;
+      for (let i = 0; i < inserts.length; i += chunkSize) {
+        const chunk = inserts.slice(i, i + chunkSize);
+        const { error } = await supabase.from("leads").insert(chunk);
+        if (error) throw error;
+        inserted += chunk.length;
+      }
+
+      toast.success(`Imported ${inserted} leads${errors.length ? ` (${errors.length} skipped)` : ""}`);
+      setImportFile(null);
+      setIsImportOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["lead-stats"] });
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || "Import failed");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
   const handleCreateLead = async () => {
     if (!newLead.full_name || !newLead.phone) {
       toast.error("Please fill in all fields");
@@ -278,6 +360,48 @@ export default function Leads() {
               <span className="hidden sm:inline">Export CSV</span>
               <span className="sm:hidden">CSV</span>
             </Button>
+            <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Upload className="mr-2 h-4 w-4" />
+                  <span className="hidden sm:inline">Import</span>
+                  <span className="sm:hidden">Imp</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Import Leads from Excel</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 mt-2">
+                  <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    <p className="mb-2">
+                      Sample file download garera tyahi format ma bharera upload garnus.
+                      Columns: <b>Full Name</b>, <b>Phone</b> (required), <b>Page</b>, <b>Product</b> (optional).
+                    </p>
+                    <p>Page name exact match hunu parx connected pages sanga; nabhaye blank rakhnus.</p>
+                  </div>
+                  <Button variant="outline" className="w-full" onClick={handleDownloadSample}>
+                    <Download className="mr-2 h-4 w-4" /> Download Sample Excel
+                  </Button>
+                  <div>
+                    <Label htmlFor="import-file">Choose Excel/CSV file</Label>
+                    <Input
+                      id="import-file"
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    />
+                    {importFile && (
+                      <p className="text-xs text-muted-foreground mt-1">Selected: {importFile.name}</p>
+                    )}
+                  </div>
+                  <Button className="w-full" onClick={handleImportLeads} disabled={isImporting || !importFile}>
+                    {isImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Import Leads
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
               <DialogTrigger asChild>
                 <Button size="sm">
