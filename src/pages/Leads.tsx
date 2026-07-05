@@ -267,8 +267,8 @@ export default function Leads() {
       toast.success(`Imported ${inserted} leads${errors.length ? ` (${errors.length} skipped)` : ""}`);
       setImportFile(null);
       setIsImportOpen(false);
-      // Refresh
-      window.location.reload();
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["lead-stats"] });
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message || "Import failed");
