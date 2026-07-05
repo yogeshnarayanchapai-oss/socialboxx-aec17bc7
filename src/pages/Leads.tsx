@@ -360,6 +360,48 @@ export default function Leads() {
               <span className="hidden sm:inline">Export CSV</span>
               <span className="sm:hidden">CSV</span>
             </Button>
+            <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <Upload className="mr-2 h-4 w-4" />
+                  <span className="hidden sm:inline">Import</span>
+                  <span className="sm:hidden">Imp</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Import Leads from Excel</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 mt-2">
+                  <div className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
+                    <p className="mb-2">
+                      Sample file download garera tyahi format ma bharera upload garnus.
+                      Columns: <b>Full Name</b>, <b>Phone</b> (required), <b>Page</b>, <b>Product</b> (optional).
+                    </p>
+                    <p>Page name exact match hunu parx connected pages sanga; nabhaye blank rakhnus.</p>
+                  </div>
+                  <Button variant="outline" className="w-full" onClick={handleDownloadSample}>
+                    <Download className="mr-2 h-4 w-4" /> Download Sample Excel
+                  </Button>
+                  <div>
+                    <Label htmlFor="import-file">Choose Excel/CSV file</Label>
+                    <Input
+                      id="import-file"
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                    />
+                    {importFile && (
+                      <p className="text-xs text-muted-foreground mt-1">Selected: {importFile.name}</p>
+                    )}
+                  </div>
+                  <Button className="w-full" onClick={handleImportLeads} disabled={isImporting || !importFile}>
+                    {isImporting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Import Leads
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
               <DialogTrigger asChild>
                 <Button size="sm">
