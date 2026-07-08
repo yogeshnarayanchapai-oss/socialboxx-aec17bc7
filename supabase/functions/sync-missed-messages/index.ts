@@ -60,11 +60,29 @@ async function sendMessage(
       else if (media.type === "audio") payload = { attachment: { type: "audio", payload: { url: media.url, is_reusable: true } } };
       else if (media.type === "link") payload = { attachment: { type: "template", payload: { template_type: "button", text: "🔗 Link:", buttons: [{ type: "web_url", url: media.url, title: "Open Link" }] } } };
       if (payload) {
-        await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+        let mr = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recipient: { id: recipientId }, message: payload, access_token: pageAccessToken }),
         });
+        if (!mr.ok) {
+          try {
+            const errPeek = await mr.clone().json();
+            const subcode = errPeek?.error?.error_subcode;
+            const msgL = String(errPeek?.error?.message || "").toLowerCase();
+            if (subcode === 2018278 || msgL.includes("outside")) {
+              mr = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ recipient: { id: recipientId }, message: payload, messaging_type: "MESSAGE_TAG", tag: "HUMAN_AGENT", access_token: pageAccessToken }),
+              });
+            }
+          } catch (_) {}
+        }
+        if (!mr.ok) {
+          console.error("send media failed", await mr.text());
+          return false;
+        }
       }
     }
     return true;
@@ -86,15 +104,18 @@ async function sendTemplate(
   if (images.length === 0) {
     return await sendMessage(pageAccessToken, recipientId, text || "", others[0] || null);
   }
-  for (const img of images) {
-    const ok = await sendMessage(pageAccessToken, recipientId, "", img);
+  for (let i = 0; i < images.length; i++) {
+    const ok = await sendMessage(pageAccessToken, recipientId, "", images[i]);
     if (!ok) return false;
+    if (i < images.length - 1) await new Promise(r => setTimeout(r, 900));
   }
   if (text || others.length > 0) {
+    await new Promise(r => setTimeout(r, 900));
     const ok = await sendMessage(pageAccessToken, recipientId, text || "", others[0] || null);
     if (!ok) return false;
   }
   for (let i = 1; i < others.length; i++) {
+    await new Promise(r => setTimeout(r, 900));
     const ok = await sendMessage(pageAccessToken, recipientId, "", others[i]);
     if (!ok) return false;
   }
