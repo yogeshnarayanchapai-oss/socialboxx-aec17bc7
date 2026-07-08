@@ -381,8 +381,9 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
     }
 
     let sendResponse: Response | null = null;
-    for (const body of sendQueue) {
-      sendResponse = await sendOne(body);
+    for (let qi = 0; qi < sendQueue.length; qi++) {
+      if (qi > 0) await new Promise(r => setTimeout(r, 900));
+      sendResponse = await sendOne(sendQueue[qi]);
       if (!sendResponse.ok) break;
     }
 

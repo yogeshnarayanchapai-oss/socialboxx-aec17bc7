@@ -234,7 +234,7 @@ async function sendAutoReply(
         mediaPayload = { attachment: { type: "template", payload: { template_type: "button", text: "🔗 Link:", buttons: [{ type: "web_url", url: mediaToSend.url, title: "Open Link" }] } } };
       }
       if (mediaPayload) {
-        await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+        let mResp = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -243,6 +243,31 @@ async function sendAutoReply(
             access_token: pageAccessToken,
           }),
         });
+        if (!mResp.ok) {
+          try {
+            const errPeek = await mResp.clone().json();
+            const subcode = errPeek?.error?.error_subcode;
+            const msgL = String(errPeek?.error?.message || "").toLowerCase();
+            if (subcode === 2018278 || msgL.includes("outside of allowed window") || msgL.includes("outside the allowed window")) {
+              mResp = await fetch(`https://graph.facebook.com/v19.0/me/messages`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recipient: { id: recipientId },
+                  message: mediaPayload,
+                  messaging_type: "MESSAGE_TAG",
+                  tag: "HUMAN_AGENT",
+                  access_token: pageAccessToken,
+                }),
+              });
+            }
+          } catch (_) {}
+        }
+        if (!mResp.ok) {
+          const errBody = await mResp.text();
+          console.error("Auto-reply media failed:", errBody);
+          return false;
+        }
       }
     }
     return true;
@@ -277,20 +302,23 @@ async function sendTemplateMessage(
     return await sendAutoReply(pageAccessToken, recipientId, text || "", others[0] || null);
   }
 
-  // 1) Send all images first
-  for (const img of images) {
-    const ok = await sendAutoReply(pageAccessToken, recipientId, "", img);
+  // 1) Send all images first (with delay to avoid FB throttling on rapid sends)
+  for (let i = 0; i < images.length; i++) {
+    const ok = await sendAutoReply(pageAccessToken, recipientId, "", images[i]);
     if (ok === "permanent_fail") return "permanent_fail";
     if (ok === false) return false;
+    if (i < images.length - 1) await new Promise(r => setTimeout(r, 900));
   }
   // 2) Then text + first non-image media (if any)
   if (text || others.length > 0) {
+    await new Promise(r => setTimeout(r, 900));
     const ok = await sendAutoReply(pageAccessToken, recipientId, text || "", others[0] || null);
     if (ok === "permanent_fail") return "permanent_fail";
     if (ok === false) return false;
   }
   // 3) Send remaining non-image medias one by one
   for (let i = 1; i < others.length; i++) {
+    await new Promise(r => setTimeout(r, 900));
     const ok = await sendAutoReply(pageAccessToken, recipientId, "", others[i]);
     if (ok === "permanent_fail") return "permanent_fail";
     if (ok === false) return false;
