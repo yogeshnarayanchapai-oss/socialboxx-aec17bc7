@@ -47,9 +47,100 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const { _batchOffset, restoreMode, dateFilter } = body;
-    const offset = _batchOffset || 0;
+    // === COMPLAIN MODE: scan conversations (any tag except lead-created) for missed phones ===
+    if (body.complainMode) {
+      console.log(`Complain-mode backfill: offset=${offset}`);
+      const { data: convs } = await supabase
+        .from("conversations")
+        .select("id, participant_name, page_id, organization_id, tags")
+        .is("deleted_at", null)
+        .not("tags", "cs", '{"lead-created"}')
+        .order("created_at", { ascending: false })
+        .range(offset, offset + 199);
+
+      if (!convs || convs.length === 0) {
+        return new Response(JSON.stringify({ success: true, message: "Complain backfill done", offset }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let created = 0, scanned = 0;
+      for (const conv of convs) {
+        scanned++;
+        const { data: msgs } = await supabase
+          .from("messages")
+          .select("content")
+          .eq("conversation_id", conv.id)
+          .eq("sender_type", "customer")
+          .order("created_at", { ascending: true });
+
+        let foundPhone: string | null = null;
+        const inquiryTexts: string[] = [];
+        for (const m of (msgs || [])) {
+          const c = m.content || "";
+          if (!foundPhone) {
+            const p = extractPhoneNumber(c);
+            if (p) foundPhone = p;
+          }
+          const stripped = c.replace(/[\s\-\(\)\.\+]/g, '');
+          if (c.trim().length > 0 && !/^\d{9,}$/.test(stripped) && !c.includes("facebook.com") && !c.includes("fbcdn")) {
+            inquiryTexts.push(c);
+          }
+        }
+        if (!foundPhone) continue;
+
+        const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
+        const { data: dup } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("organization_id", conv.organization_id)
+          .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+          .maybeSingle();
+        if (dup) {
+          await supabase.from("leads").update({ conversation_id: conv.id, updated_at: new Date().toISOString() }).eq("id", dup.id);
+        } else {
+          const { data: pageInfo } = await supabase
+            .from("connected_pages").select("page_name, product_name").eq("id", conv.page_id).single();
+          const remark = inquiryTexts.length > 0 ? inquiryTexts.join(' | ').substring(0, 500) : "No Inquiry";
+          await supabase.from("leads").insert({
+            phone: foundPhone,
+            full_name: conv.participant_name || "Unknown",
+            conversation_id: conv.id,
+            page_id: conv.page_id,
+            source: pageInfo?.page_name || "Unknown",
+            product: pageInfo?.product_name || null,
+            last_message: (msgs || [])[((msgs || []).length) - 1]?.content?.substring(0, 200),
+            status: "new",
+            organization_id: conv.organization_id,
+            remark,
+          });
+          created++;
+        }
+        const tags = conv.tags || [];
+        if (!tags.includes("lead-created")) {
+          await supabase.from("conversations").update({
+            tags: [...tags, "lead-created"],
+            ai_followup_step: null,
+            ai_followup_next_at: null,
+          }).eq("id", conv.id);
+        }
+      }
+
+      console.log(`Complain batch offset=${offset}: scanned=${scanned}, created=${created}`);
+      if (convs.length === 200) {
+        fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
+          body: JSON.stringify({ complainMode: true, _batchOffset: offset + 200 }),
+        }).catch(() => {});
+      }
+      return new Response(JSON.stringify({ success: true, scanned, created, offset }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // === RESTORE MODE: recreate leads from conversations with lead-created tag but no lead ===
+
     if (restoreMode) {
       console.log(`Restore mode: offset=${offset}, dateFilter=${dateFilter || 'none'}`);
       
