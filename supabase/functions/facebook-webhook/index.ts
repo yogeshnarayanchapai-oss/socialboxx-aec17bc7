@@ -847,6 +847,67 @@ serve(async (req) => {
             continue;
           }
 
+          // === UNIVERSAL PHONE → LEAD CAPTURE ===
+          // Runs BEFORE template/AI branches so that even complaint conversations
+          // (or any flow that might otherwise skip lead extraction) still capture
+          // a phone number the moment the customer sends it.
+          try {
+            const incomingTextForLead = (messageContent || message.text || "") as string;
+            const hasLeadTagAlready = conversationTags.includes("lead-created");
+            if (!hasLeadTagAlready && incomingTextForLead) {
+              const detectedPhone = extractPhoneNumber(incomingTextForLead);
+              if (detectedPhone) {
+                const digitsOnly = detectedPhone.replace(/\D/g, '');
+                if (digitsOnly.length >= 10) {
+                  const normalizedPhone = digitsOnly.slice(-10);
+                  const { data: existingLead } = await supabase
+                    .from("leads")
+                    .select("id")
+                    .eq("organization_id", page.organization_id)
+                    .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+                    .maybeSingle();
+
+                  if (existingLead) {
+                    await supabase.from("leads").update({
+                      conversation_id: conversationId,
+                      last_message: incomingTextForLead.substring(0, 200),
+                      updated_at: new Date().toISOString(),
+                    }).eq("id", existingLead.id);
+                  } else {
+                    const { data: convForLead } = await supabase
+                      .from("conversations")
+                      .select("participant_name")
+                      .eq("id", conversationId)
+                      .single();
+                    const { error: leadInsertErr } = await supabase.from("leads").insert({
+                      phone: detectedPhone,
+                      full_name: convForLead?.participant_name,
+                      conversation_id: conversationId,
+                      page_id: page.id,
+                      source: page.page_name,
+                      product: (page as any).product_name || null,
+                      last_message: incomingTextForLead.substring(0, 200),
+                      status: "new",
+                      organization_id: page.organization_id,
+                      remark: "No Inquiry",
+                    });
+                    if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
+                    else console.log("Universal lead captured (pre-AI):", detectedPhone);
+                  }
+
+                  await supabase.from("conversations").update({
+                    tags: [...conversationTags, "lead-created"],
+                    ai_followup_step: null,
+                    ai_followup_next_at: null,
+                  }).eq("id", conversationId);
+                  conversationTags = [...conversationTags, "lead-created"];
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Universal lead capture failed:", e);
+          }
+
           // Phone-based lead detection REMOVED — now handled by AI in lead_action
 
           // First Message Template: if enabled, send the Nth template for the Nth customer message
