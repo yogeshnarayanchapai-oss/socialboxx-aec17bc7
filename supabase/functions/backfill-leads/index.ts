@@ -48,18 +48,26 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { _batchOffset, restoreMode, dateFilter } = body;
     const offset = _batchOffset || 0;
-    // === COMPLAIN MODE: scan conversations (any tag except lead-created) for missed phones ===
+    // === COMPLAIN MODE: scan recent conversations (today + yesterday, Nepal TZ) for missed phones ===
     if (body.complainMode) {
-      console.log(`Complain-mode backfill: offset=${offset}`);
+      // Nepal midnight = UTC 18:15 previous day. Default: yesterday 00:00 Nepal onward.
+      const now = new Date();
+      const nepalNow = new Date(now.getTime() + (5 * 60 + 45) * 60 * 1000);
+      const yStart = new Date(Date.UTC(nepalNow.getUTCFullYear(), nepalNow.getUTCMonth(), nepalNow.getUTCDate() - 1, 0, 0, 0));
+      // shift back to UTC by subtracting 5h45m
+      const sinceCutoff = body.sinceDate || new Date(yStart.getTime() - (5 * 60 + 45) * 60 * 1000).toISOString();
+      console.log(`Complain-mode backfill: offset=${offset}, since=${sinceCutoff}`);
       const { data: convs } = await supabase
         .from("conversations")
         .select("id, participant_name, page_id, organization_id, tags")
         .is("deleted_at", null)
         .contains("tags", ["COMPLAIN"])
+        .gte("created_at", sinceCutoff)
         .order("created_at", { ascending: false })
         .range(offset, offset + 199);
 
       if (!convs || convs.length === 0) {
+        console.log(`Complain backfill done at offset=${offset}`);
         return new Response(JSON.stringify({ success: true, message: "Complain backfill done", offset }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -132,7 +140,7 @@ serve(async (req) => {
         fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-          body: JSON.stringify({ complainMode: true, _batchOffset: offset + 200 }),
+          body: JSON.stringify({ complainMode: true, _batchOffset: offset + 200, sinceDate: sinceCutoff }),
         }).catch(() => {});
       }
       return new Response(JSON.stringify({ success: true, scanned, created, offset }), {
