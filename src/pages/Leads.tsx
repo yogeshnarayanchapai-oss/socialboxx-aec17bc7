@@ -764,17 +764,17 @@ export default function Leads() {
         ) : (
           <div className="rounded-lg border border-border bg-card overflow-hidden">
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Phone</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Remark</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Follow-up</TableHead>
-                    <TableHead>Created</TableHead>
+                    <TableHead className="w-[180px]">Name</TableHead>
+                    <TableHead className="w-[130px]">Phone</TableHead>
+                    <TableHead className="w-[140px]">Product</TableHead>
+                    <TableHead className="w-[240px]">Remark</TableHead>
+                    <TableHead className="w-[140px]">Source</TableHead>
+                    <TableHead className="w-[110px]">Status</TableHead>
+                    <TableHead className="w-[110px]">Follow-up</TableHead>
+                    <TableHead className="w-[100px]">Created</TableHead>
                     <TableHead className="w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -787,34 +787,34 @@ export default function Leads() {
                     </TableRow>
                   ) : (
                     leads.map((lead) => (
-                      <TableRow key={lead.id} className="cursor-pointer hover:bg-muted/50">
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">
+                      <TableRow key={lead.id} className="cursor-pointer hover:bg-muted/50 align-top">
+                        <TableCell className="max-w-0">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-sm">
                               {lead.full_name?.split(" ").map((n) => n[0]).join("").substring(0, 2) || "?"}
                             </div>
-                            <div>
-                              <p className="font-medium">{lead.full_name || "Unknown"}</p>
-                              <p className="text-xs text-muted-foreground line-clamp-1">
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{lead.full_name || "Unknown"}</p>
+                              <p className="text-xs text-muted-foreground truncate">
                                 {lead.last_message || "No messages"}
                               </p>
                             </div>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                            <span className="text-sm">{lead.phone || "—"}</span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <Phone className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            <span className="text-sm truncate">{lead.phone || "—"}</span>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{lead.product || "—"}</span>
+                          <span className="text-sm block truncate" title={lead.product || ""}>{lead.product || "—"}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{lead.remark || "No Inquiry"}</span>
+                          <span className="text-sm block truncate" title={lead.remark || ""}>{lead.remark || "No Inquiry"}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm">{lead.source || lead.connected_pages?.page_name || "—"}</span>
+                          <span className="text-sm block truncate" title={lead.source || lead.connected_pages?.page_name || ""}>{lead.source || lead.connected_pages?.page_name || "—"}</span>
                         </TableCell>
                         <TableCell>
                           <DropdownMenu>
