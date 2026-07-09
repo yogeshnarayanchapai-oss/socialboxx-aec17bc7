@@ -47,6 +47,7 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const { _batchOffset, restoreMode, dateFilter } = body;
+    const offset = _batchOffset || 0;
     // === COMPLAIN MODE: scan conversations (any tag except lead-created) for missed phones ===
     if (body.complainMode) {
       console.log(`Complain-mode backfill: offset=${offset}`);
