@@ -55,7 +55,7 @@ serve(async (req) => {
         .from("conversations")
         .select("id, participant_name, page_id, organization_id, tags")
         .is("deleted_at", null)
-        .not("tags", "cs", '{"lead-created"}')
+        .contains("tags", ["COMPLAIN"])
         .order("created_at", { ascending: false })
         .range(offset, offset + 199);
 
