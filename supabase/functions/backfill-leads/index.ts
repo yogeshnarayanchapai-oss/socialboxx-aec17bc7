@@ -140,7 +140,7 @@ serve(async (req) => {
         fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-          body: JSON.stringify({ complainMode: true, _batchOffset: offset + 200 }),
+          body: JSON.stringify({ complainMode: true, _batchOffset: offset + 200, sinceDate: sinceCutoff }),
         }).catch(() => {});
       }
       return new Response(JSON.stringify({ success: true, scanned, created, offset }), {
