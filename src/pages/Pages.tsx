@@ -38,6 +38,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useConnectedPages } from "@/hooks/usePages";
+import { useUserAccess } from "@/hooks/useUserAccess";
 import { FacebookConnectWizard } from "@/components/facebook/FacebookConnectWizard";
 import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
