@@ -1,0 +1,1 @@
+UPDATE public.leads SET remark = 'No Inquiry' WHERE remark ILIKE 'customer provided%' OR remark ILIKE 'the customer%' OR remark ILIKE 'valid %' OR remark ILIKE 'provided %' OR length(remark) > 25;

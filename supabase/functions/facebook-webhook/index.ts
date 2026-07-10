@@ -16,10 +16,25 @@ function convertNepaliDigits(text: string): string {
 }
 
 // Cap any remark to at most 2 words (short label like "Complain", "Price Ask")
+// Rejects generic/filler phrases like "Customer Provided", "Valid Number", URLs, etc.
+const REMARK_BLOCKLIST = new Set([
+  "customer", "user", "the", "a", "an", "valid", "invalid", "provided",
+  "number", "phone", "mobile", "nepali", "digit", "buyer", "client",
+  "lead", "reply", "message", "response", "yes", "no", "ok", "okay",
+  "hello", "hi", "hey", "sent", "gave",
+]);
 function capRemark(text: string | null | undefined, fallback = "No Inquiry"): string {
   const raw = (text || "").toString().trim();
   if (!raw) return fallback;
-  const words = raw.split(/\s+/).slice(0, 2);
+  // If it's a URL or contains one, fall back
+  if (/https?:\/\/|www\./i.test(raw)) return fallback;
+  // Strip punctuation, keep letters/digits/spaces/hyphen
+  const cleaned = raw.replace(/[^\p{L}\p{N}\s-]/gu, " ").trim();
+  const allWords = cleaned.split(/\s+/).filter(Boolean);
+  if (allWords.length === 0) return fallback;
+  const firstLower = allWords[0].toLowerCase();
+  if (REMARK_BLOCKLIST.has(firstLower)) return fallback;
+  const words = allWords.slice(0, 2);
   return words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -1484,7 +1499,7 @@ serve(async (req) => {
                                         body: JSON.stringify({
                                           model: "google/gemini-2.5-flash-lite",
                                           messages: [
-                                            { role: "system", content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary." },
+                                            { role: "system", content: "Classify the customer's inquiry into a SHORT 2-WORD label ONLY. Allowed examples: 'Price Ask', 'Size Ask', 'Color Ask', 'Delivery Ask', 'Product Inquiry', 'Complain', 'Order Confirm', 'No Inquiry', 'Stock Ask', 'Payment Ask', 'Location Ask'. Rules: MAX 2 words. NEVER start with 'Customer', 'User', 'Valid', 'Provided', 'The', 'A'. NEVER output a sentence, URL, or number. If unclear, output exactly: No Inquiry. Only output the 2-word label." },
                                             { role: "user", content: `Customer messages:\n${inquiryTexts.join('\n')}` }
                                           ],
                                         }),
@@ -1492,12 +1507,12 @@ serve(async (req) => {
                                       if (aiSummaryResponse.ok) {
                                         const summaryData = await aiSummaryResponse.json();
                                         const summary = summaryData.choices?.[0]?.message?.content?.trim();
-                                        remark = summary && summary.length > 0 ? summary.substring(0, 200) : inquiryTexts.join(' | ').substring(0, 500);
+                                        remark = capRemark(summary, "No Inquiry");
                                       } else {
-                                        remark = inquiryTexts.join(' | ').substring(0, 500);
+                                        remark = "No Inquiry";
                                       }
                                     } catch {
-                                      remark = inquiryTexts.join(' | ').substring(0, 500);
+                                      remark = "No Inquiry";
                                     }
                                   }
                                 }
