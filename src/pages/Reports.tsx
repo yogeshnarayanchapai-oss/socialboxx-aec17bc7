@@ -137,12 +137,13 @@ export default function Reports() {
 
   // Per-product stats
   const { data: productStats = [], isLoading: loadingProducts } = useQuery({
-    queryKey: ["report-by-product", dateRange],
+    queryKey: ["report-by-product", dateRange, accessiblePageIds],
     queryFn: async () => {
       let query = supabase.from("leads").select("product, status, api_synced");
       if (from) {
         query = query.gte("created_at", from).lte("created_at", to);
       }
+      if (accessiblePageIds.length > 0) query = query.in("page_id", accessiblePageIds);
       const { data, error } = await query;
       if (error) throw error;
 
@@ -161,6 +162,7 @@ export default function Reports() {
         .map(([name, stats]) => ({ name, ...stats }))
         .sort((a, b) => b.total - a.total);
     },
+    enabled: accessiblePageIds.length > 0,
   });
 
   const dateLabel = {
