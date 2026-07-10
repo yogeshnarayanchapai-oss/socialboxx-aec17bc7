@@ -69,6 +69,7 @@ export default function Reports() {
         .is("deleted_at", null)
         .range(offset, offset + PAGE_SIZE - 1);
       if (pageId) q = q.eq("page_id", pageId);
+      else if (accessiblePageIds.length > 0) q = q.in("page_id", accessiblePageIds);
       if (from) q = q.gte("created_at", from).lte("created_at", to);
       const { data, error } = await q;
       if (error) throw error;
