@@ -1330,17 +1330,20 @@ serve(async (req) => {
                           .order("created_at", { ascending: false })
                           .limit(3);
                         
-                        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-                        const isDuplicateReply = recentReplies?.some(r => 
-                          r.created_at > fiveMinAgo && 
+                        // Only guard against true race-condition duplicates (within 45s).
+                        // A longer window blocked legit repeat answers when the customer kept
+                        // asking the same question. Atomic lock + burst check already handle real races.
+                        const dedupCutoff = new Date(Date.now() - 45 * 1000).toISOString();
+                        const isDuplicateReply = recentReplies?.some(r =>
+                          r.created_at > dedupCutoff &&
                           r.content && suggestedReply &&
-                          (r.content === suggestedReply || 
+                          (r.content === suggestedReply ||
                            r.content.substring(0, 80) === suggestedReply.substring(0, 80))
                         );
-                        
+
                         if (isDuplicateReply) {
-                          console.log("DUPLICATE REPLY PREVENTED - same reply already sent in last 5 minutes");
-                          await supabase.from("conversations").update({ 
+                          console.log("DUPLICATE REPLY PREVENTED - identical reply within last 45s (race)");
+                          await supabase.from("conversations").update({
                             status: "replied",
                             ai_fail_reason: null,
                           }).eq("id", conversationId);
