@@ -868,42 +868,28 @@ serve(async (req) => {
                   // Only mark as complain lead when a prior lead already existed on this convo
                   // AND the convo has COMPLAIN tag. First-ever lead on a complain convo stays "No Inquiry".
                   const markComplain = isComplainConv && hasLeadTagAlready;
-                  const { data: existingLead } = await supabase
-                    .from("leads")
-                    .select("id, remark")
-                    .eq("organization_id", page.organization_id)
-                    .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-                    .maybeSingle();
-
-                  if (existingLead) {
-                    const updatePayload: any = {
-                      conversation_id: conversationId,
-                      last_message: incomingTextForLead.substring(0, 200),
-                      updated_at: new Date().toISOString(),
-                    };
-                    if (markComplain) updatePayload.remark = "Complain";
-                    await supabase.from("leads").update(updatePayload).eq("id", existingLead.id);
-                  } else {
-                    const { data: convForLead } = await supabase
-                      .from("conversations")
-                      .select("participant_name")
-                      .eq("id", conversationId)
-                      .single();
-                    const { error: leadInsertErr } = await supabase.from("leads").insert({
-                      phone: detectedPhone,
-                      full_name: convForLead?.participant_name,
-                      conversation_id: conversationId,
-                      page_id: page.id,
-                      source: page.page_name,
-                      product: (page as any).product_name || null,
-                      last_message: incomingTextForLead.substring(0, 200),
-                      status: "new",
-                      organization_id: page.organization_id,
-                      remark: markComplain ? "Complain" : "No Inquiry",
-                    });
-                    if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
-                    else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
-                  }
+                  // Always insert a NEW lead row per phone submission — customer
+                  // resending the same number (esp. across complain flows) must
+                  // create a separate row each time so nothing gets missed.
+                  const { data: convForLead } = await supabase
+                    .from("conversations")
+                    .select("participant_name")
+                    .eq("id", conversationId)
+                    .single();
+                  const { error: leadInsertErr } = await supabase.from("leads").insert({
+                    phone: detectedPhone,
+                    full_name: convForLead?.participant_name,
+                    conversation_id: conversationId,
+                    page_id: page.id,
+                    source: page.page_name,
+                    product: (page as any).product_name || null,
+                    last_message: incomingTextForLead.substring(0, 200),
+                    status: "new",
+                    organization_id: page.organization_id,
+                    remark: markComplain ? "Complain" : "No Inquiry",
+                  });
+                  if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
+                  else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
 
                   if (!hasLeadTagAlready) {
                     await supabase.from("conversations").update({

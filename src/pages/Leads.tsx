@@ -794,7 +794,14 @@ export default function Leads() {
                               {lead.full_name?.split(" ").map((n) => n[0]).join("").substring(0, 2) || "?"}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-medium truncate">{lead.full_name || "Unknown"}</p>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <p className="font-medium truncate">{lead.full_name || "Unknown"}</p>
+                                {lead.remark === "Complain" && (
+                                  <span className="flex-shrink-0 rounded-full bg-destructive/10 text-destructive text-[10px] font-semibold px-1.5 py-0.5 uppercase tracking-wide">
+                                    Complain
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-muted-foreground truncate">
                                 {lead.last_message || "No messages"}
                               </p>
