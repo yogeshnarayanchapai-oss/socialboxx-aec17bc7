@@ -53,6 +53,7 @@ function conversionRate(leads: number, conversations: number): string {
 export default function Reports() {
   const [dateRange, setDateRange] = useState<DateRange>("7d");
   const { data: pages = [] } = useConnectedPages();
+  const accessiblePageIds = useMemo(() => pages.map((p) => p.id), [pages]);
 
   const { from, to } = useMemo(() => getDateRange(dateRange), [dateRange]);
 
