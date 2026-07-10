@@ -1428,7 +1428,7 @@ serve(async (req) => {
                                   last_message: combinedCustomerMessage?.substring(0, 200),
                                   status: "new",
                                   organization_id: page.organization_id,
-                                  remark: finalLeadAction.reason || "No Inquiry",
+                                  remark: capRemark(finalLeadAction.reason, "No Inquiry"),
                                 });
                                 if (insertErr) console.error("New lead creation error:", insertErr);
                               }
