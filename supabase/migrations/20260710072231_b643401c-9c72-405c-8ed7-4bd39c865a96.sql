@@ -1,0 +1,1 @@
+UPDATE public.conversations SET tags = array_append(tags,'lead-created') WHERE id IN ('70c59406-eb2c-4673-acf3-afaeab4ae806','78cb6a24-4797-4812-a9d5-e9b9d46aeac6','f11012fe-1ea3-4c29-b9b6-0b816146d89f') AND NOT (tags @> ARRAY['lead-created']);
