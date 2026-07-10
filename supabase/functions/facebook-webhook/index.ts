@@ -1512,7 +1512,7 @@ serve(async (req) => {
                                   last_message: combinedCustomerMessage?.substring(0, 200),
                                   status: "new",
                                   organization_id: page.organization_id,
-                                  remark,
+                                  remark: capRemark(remark, "No Inquiry"),
                                 });
                                 if (insertErr) {
                                   console.error("Lead creation error:", insertErr);
