@@ -232,8 +232,8 @@ export default function Pages() {
                 Page Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              {/* Group management */}
-              {groups.length > 0 && (
+              {/* Group management (admin only) */}
+              {isAdmin && groups.length > 0 && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <FolderOpen className="mr-2 h-4 w-4" />
