@@ -54,6 +54,7 @@ const platformItems = [
 
 export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
+  const { isAdmin } = useUserAccess();
   const disconnectPage = useDisconnectPage();
   const queryClient = useQueryClient();
   
