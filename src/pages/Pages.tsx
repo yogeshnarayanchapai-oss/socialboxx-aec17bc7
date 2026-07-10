@@ -38,6 +38,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { useConnectedPages } from "@/hooks/usePages";
+import { useUserAccess } from "@/hooks/useUserAccess";
 import { FacebookConnectWizard } from "@/components/facebook/FacebookConnectWizard";
 import { PageAutomationDialog } from "@/components/pages/PageAutomationDialog";
 import { useDisconnectPage } from "@/hooks/useFacebookOAuth";
@@ -53,6 +54,7 @@ const platformItems = [
 
 export default function Pages() {
   const { data: pages = [], isLoading, refetch } = useConnectedPages();
+  const { isAdmin } = useUserAccess();
   const disconnectPage = useDisconnectPage();
   const queryClient = useQueryClient();
   
@@ -230,8 +232,8 @@ export default function Pages() {
                 Page Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              {/* Group management */}
-              {groups.length > 0 && (
+              {/* Group management (admin only) */}
+              {isAdmin && groups.length > 0 && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <FolderOpen className="mr-2 h-4 w-4" />
@@ -271,14 +273,18 @@ export default function Pages() {
                 )}
                 Sync missed & send template
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={() => setDeletePageId(page.id)}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </DropdownMenuItem>
+              {isAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setDeletePageId(page.id)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -322,14 +328,16 @@ export default function Pages() {
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
         action={
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowNewGroupDialog(true)}>
-              <FolderPlus className="mr-2 h-4 w-4" />Group
-            </Button>
-            <Button onClick={() => setIsWizardOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />Connect New Page
-            </Button>
-          </div>
+          isAdmin ? (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowNewGroupDialog(true)}>
+                <FolderPlus className="mr-2 h-4 w-4" />Group
+              </Button>
+              <Button onClick={() => setIsWizardOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />Connect New Page
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 

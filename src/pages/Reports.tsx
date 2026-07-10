@@ -53,6 +53,7 @@ function conversionRate(leads: number, conversations: number): string {
 export default function Reports() {
   const [dateRange, setDateRange] = useState<DateRange>("7d");
   const { data: pages = [] } = useConnectedPages();
+  const accessiblePageIds = useMemo(() => pages.map((p) => p.id), [pages]);
 
   const { from, to } = useMemo(() => getDateRange(dateRange), [dateRange]);
 
@@ -68,6 +69,7 @@ export default function Reports() {
         .is("deleted_at", null)
         .range(offset, offset + PAGE_SIZE - 1);
       if (pageId) q = q.eq("page_id", pageId);
+      else if (accessiblePageIds.length > 0) q = q.in("page_id", accessiblePageIds);
       if (from) q = q.gte("created_at", from).lte("created_at", to);
       const { data, error } = await q;
       if (error) throw error;
@@ -84,10 +86,11 @@ export default function Reports() {
 
   // Overall stats
   const { data: overallStats, isLoading } = useQuery({
-    queryKey: ["report-overall-unique", dateRange],
+    queryKey: ["report-overall-unique", dateRange, accessiblePageIds],
     queryFn: async () => {
       let leadQuery = supabase.from("leads").select("id", { count: "exact", head: true });
       if (from) leadQuery = leadQuery.gte("created_at", from).lte("created_at", to);
+      if (accessiblePageIds.length > 0) leadQuery = leadQuery.in("page_id", accessiblePageIds);
 
       const [unique, leadRes] = await Promise.all([
         fetchUniqueConversations(),
@@ -98,6 +101,7 @@ export default function Reports() {
         totalLeads: leadRes.count || 0,
       };
     },
+    enabled: accessiblePageIds.length > 0,
   });
 
   // Per-page stats
@@ -133,12 +137,13 @@ export default function Reports() {
 
   // Per-product stats
   const { data: productStats = [], isLoading: loadingProducts } = useQuery({
-    queryKey: ["report-by-product", dateRange],
+    queryKey: ["report-by-product", dateRange, accessiblePageIds],
     queryFn: async () => {
       let query = supabase.from("leads").select("product, status, api_synced");
       if (from) {
         query = query.gte("created_at", from).lte("created_at", to);
       }
+      if (accessiblePageIds.length > 0) query = query.in("page_id", accessiblePageIds);
       const { data, error } = await query;
       if (error) throw error;
 
@@ -157,6 +162,7 @@ export default function Reports() {
         .map(([name, stats]) => ({ name, ...stats }))
         .sort((a, b) => b.total - a.total);
     },
+    enabled: accessiblePageIds.length > 0,
   });
 
   const dateLabel = {
