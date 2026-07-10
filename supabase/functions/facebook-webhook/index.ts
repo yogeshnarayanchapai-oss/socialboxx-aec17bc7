@@ -15,6 +15,16 @@ function convertNepaliDigits(text: string): string {
   return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
 }
 
+// Cap any remark to at most 2 words (short label like "Complain", "Price Ask")
+function capRemark(text: string | null | undefined, fallback = "No Inquiry"): string {
+  const raw = (text || "").toString().trim();
+  if (!raw) return fallback;
+  const words = raw.split(/\s+/).slice(0, 2);
+  return words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+
+
 // Strip attachment markers and URLs so their digits don't get parsed as phone numbers
 function sanitizeForPhoneExtraction(text: string): string {
   if (!text) return "";
@@ -1418,7 +1428,7 @@ serve(async (req) => {
                                   last_message: combinedCustomerMessage?.substring(0, 200),
                                   status: "new",
                                   organization_id: page.organization_id,
-                                  remark: finalLeadAction.reason || "No Inquiry",
+                                  remark: capRemark(finalLeadAction.reason, "No Inquiry"),
                                 });
                                 if (insertErr) console.error("New lead creation error:", insertErr);
                               }
@@ -1502,7 +1512,7 @@ serve(async (req) => {
                                   last_message: combinedCustomerMessage?.substring(0, 200),
                                   status: "new",
                                   organization_id: page.organization_id,
-                                  remark,
+                                  remark: capRemark(remark, "No Inquiry"),
                                 });
                                 if (insertErr) {
                                   console.error("Lead creation error:", insertErr);
