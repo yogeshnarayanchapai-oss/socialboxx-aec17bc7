@@ -1499,7 +1499,7 @@ serve(async (req) => {
                                         body: JSON.stringify({
                                           model: "google/gemini-2.5-flash-lite",
                                           messages: [
-                                            { role: "system", content: "You are an inquiry summarizer. Given customer chat messages, extract what the customer is inquiring about and write a very short summary (max 10 words) in English starting with 'Inquiry for...'. If no clear inquiry, respond with 'No Inquiry'. Only output the summary." },
+                                            { role: "system", content: "Classify the customer's inquiry into a SHORT 2-WORD label ONLY. Allowed examples: 'Price Ask', 'Size Ask', 'Color Ask', 'Delivery Ask', 'Product Inquiry', 'Complain', 'Order Confirm', 'No Inquiry', 'Stock Ask', 'Payment Ask', 'Location Ask'. Rules: MAX 2 words. NEVER start with 'Customer', 'User', 'Valid', 'Provided', 'The', 'A'. NEVER output a sentence, URL, or number. If unclear, output exactly: No Inquiry. Only output the 2-word label." },
                                             { role: "user", content: `Customer messages:\n${inquiryTexts.join('\n')}` }
                                           ],
                                         }),
@@ -1507,12 +1507,12 @@ serve(async (req) => {
                                       if (aiSummaryResponse.ok) {
                                         const summaryData = await aiSummaryResponse.json();
                                         const summary = summaryData.choices?.[0]?.message?.content?.trim();
-                                        remark = summary && summary.length > 0 ? summary.substring(0, 200) : inquiryTexts.join(' | ').substring(0, 500);
+                                        remark = capRemark(summary, "No Inquiry");
                                       } else {
-                                        remark = inquiryTexts.join(' | ').substring(0, 500);
+                                        remark = "No Inquiry";
                                       }
                                     } catch {
-                                      remark = inquiryTexts.join(' | ').substring(0, 500);
+                                      remark = "No Inquiry";
                                     }
                                   }
                                 }
