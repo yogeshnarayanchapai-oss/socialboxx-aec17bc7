@@ -107,7 +107,7 @@ LEAD DETECTION:
 - If invalid number, set should_create=false, invalid_number=true, ask for correct number.
 
 RESPONSE FORMAT (JSON only):
-{"reply":"...","lead_action":{"should_create":bool,"phone":"..." or null,"invalid_number":bool,"reason":"MAX 2 WORDS label like: Price Ask, Size Ask, Color Ask, Delivery Ask, Complain, Order Confirm, No Inquiry"},"is_complaint":bool,"send_media":[] or [0,1]}`;
+{"reply":"...","lead_action":{"should_create":bool,"phone":"..." or null,"invalid_number":bool,"reason":"STRICT 2-WORD label ONLY. Allowed: Price Ask | Size Ask | Color Ask | Delivery Ask | Stock Ask | Payment Ask | Location Ask | Product Inquiry | Order Confirm | Complain | No Inquiry. NEVER write a sentence. NEVER start with Customer/User/Valid/Provided/The/A. If unclear, output exactly: No Inquiry"},"is_complaint":bool,"send_media":[] or [0,1]}`;
 
     // Upsert into cache
     const { error: upsertError } = await supabase
