@@ -880,11 +880,10 @@ serve(async (req) => {
             const incomingTextForLead = (messageContent || message.text || "") as string;
             const hasLeadTagAlready = conversationTags.includes("lead-created");
             const isComplainConv = conversationTags.includes("COMPLAIN");
-            // Skip only when a lead already exists AND this convo is NOT complain-tagged.
-            // If COMPLAIN tag is present, we still want to capture subsequent phone numbers
-            // and flag them with a "Complain" remark.
-            const shouldSkip = hasLeadTagAlready && !isComplainConv;
-            if (!shouldSkip && incomingTextForLead) {
+            // Always capture — customer resending phone (or sending after any prior
+            // reply/complain) must create a new lead row so nothing gets missed.
+            if (incomingTextForLead) {
+
               const detectedPhone = extractPhoneNumber(incomingTextForLead);
               if (detectedPhone) {
                 const digitsOnly = detectedPhone.replace(/\D/g, '');
