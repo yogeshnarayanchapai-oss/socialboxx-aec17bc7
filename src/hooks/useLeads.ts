@@ -26,6 +26,7 @@ export function useLeads(filters?: {
       let query = supabase
         .from("leads")
         .select("*, connected_pages:page_id(page_name)")
+        .order("updated_at", { ascending: false, nullsFirst: false })
         .order("created_at", { ascending: false });
 
       // Filter by accessible pages for non-admins
@@ -42,11 +43,14 @@ export function useLeads(filters?: {
       if (filters?.pageId) {
         query = query.eq("page_id", filters.pageId);
       }
-      if (filters?.dateFrom) {
-        query = query.gte("created_at", filters.dateFrom);
-      }
-      if (filters?.dateTo) {
-        query = query.lte("created_at", filters.dateTo);
+      if (filters?.dateFrom && filters?.dateTo) {
+        query = query.or(
+          `and(created_at.gte.${filters.dateFrom},created_at.lte.${filters.dateTo}),and(updated_at.gte.${filters.dateFrom},updated_at.lte.${filters.dateTo})`
+        );
+      } else if (filters?.dateFrom) {
+        query = query.or(`created_at.gte.${filters.dateFrom},updated_at.gte.${filters.dateFrom}`);
+      } else if (filters?.dateTo) {
+        query = query.or(`created_at.lte.${filters.dateTo},updated_at.lte.${filters.dateTo}`);
       }
 
       const { data, error } = await query;
