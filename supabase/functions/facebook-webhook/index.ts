@@ -15,6 +15,16 @@ function convertNepaliDigits(text: string): string {
   return text.replace(/[०-९]/g, (d) => nepaliDigits[d] || d);
 }
 
+// Cap any remark to at most 2 words (short label like "Complain", "Price Ask")
+function capRemark(text: string | null | undefined, fallback = "No Inquiry"): string {
+  const raw = (text || "").toString().trim();
+  if (!raw) return fallback;
+  const words = raw.split(/\s+/).slice(0, 2);
+  return words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+
+
 // Strip attachment markers and URLs so their digits don't get parsed as phone numbers
 function sanitizeForPhoneExtraction(text: string): string {
   if (!text) return "";
