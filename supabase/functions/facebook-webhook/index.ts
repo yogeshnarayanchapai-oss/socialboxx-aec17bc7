@@ -854,25 +854,35 @@ serve(async (req) => {
           try {
             const incomingTextForLead = (messageContent || message.text || "") as string;
             const hasLeadTagAlready = conversationTags.includes("lead-created");
-            if (!hasLeadTagAlready && incomingTextForLead) {
+            const isComplainConv = conversationTags.includes("COMPLAIN");
+            // Skip only when a lead already exists AND this convo is NOT complain-tagged.
+            // If COMPLAIN tag is present, we still want to capture subsequent phone numbers
+            // and flag them with a "Complain" remark.
+            const shouldSkip = hasLeadTagAlready && !isComplainConv;
+            if (!shouldSkip && incomingTextForLead) {
               const detectedPhone = extractPhoneNumber(incomingTextForLead);
               if (detectedPhone) {
                 const digitsOnly = detectedPhone.replace(/\D/g, '');
                 if (digitsOnly.length >= 10) {
                   const normalizedPhone = digitsOnly.slice(-10);
+                  // Only mark as complain lead when a prior lead already existed on this convo
+                  // AND the convo has COMPLAIN tag. First-ever lead on a complain convo stays "No Inquiry".
+                  const markComplain = isComplainConv && hasLeadTagAlready;
                   const { data: existingLead } = await supabase
                     .from("leads")
-                    .select("id")
+                    .select("id, remark")
                     .eq("organization_id", page.organization_id)
                     .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
                     .maybeSingle();
 
                   if (existingLead) {
-                    await supabase.from("leads").update({
+                    const updatePayload: any = {
                       conversation_id: conversationId,
                       last_message: incomingTextForLead.substring(0, 200),
                       updated_at: new Date().toISOString(),
-                    }).eq("id", existingLead.id);
+                    };
+                    if (markComplain) updatePayload.remark = "Complain";
+                    await supabase.from("leads").update(updatePayload).eq("id", existingLead.id);
                   } else {
                     const { data: convForLead } = await supabase
                       .from("conversations")
@@ -889,18 +899,20 @@ serve(async (req) => {
                       last_message: incomingTextForLead.substring(0, 200),
                       status: "new",
                       organization_id: page.organization_id,
-                      remark: "No Inquiry",
+                      remark: markComplain ? "Complain" : "No Inquiry",
                     });
                     if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
-                    else console.log("Universal lead captured (pre-AI):", detectedPhone);
+                    else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
                   }
 
-                  await supabase.from("conversations").update({
-                    tags: [...conversationTags, "lead-created"],
-                    ai_followup_step: null,
-                    ai_followup_next_at: null,
-                  }).eq("id", conversationId);
-                  conversationTags = [...conversationTags, "lead-created"];
+                  if (!hasLeadTagAlready) {
+                    await supabase.from("conversations").update({
+                      tags: [...conversationTags, "lead-created"],
+                      ai_followup_step: null,
+                      ai_followup_next_at: null,
+                    }).eq("id", conversationId);
+                    conversationTags = [...conversationTags, "lead-created"];
+                  }
                 }
               }
             }
