@@ -328,14 +328,16 @@ export default function Pages() {
         title="Connected Pages"
         description="Manage your Facebook Pages connections"
         action={
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setShowNewGroupDialog(true)}>
-              <FolderPlus className="mr-2 h-4 w-4" />Group
-            </Button>
-            <Button onClick={() => setIsWizardOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />Connect New Page
-            </Button>
-          </div>
+          isAdmin ? (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowNewGroupDialog(true)}>
+                <FolderPlus className="mr-2 h-4 w-4" />Group
+              </Button>
+              <Button onClick={() => setIsWizardOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />Connect New Page
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 
