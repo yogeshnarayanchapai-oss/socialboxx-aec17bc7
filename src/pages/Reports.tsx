@@ -86,10 +86,11 @@ export default function Reports() {
 
   // Overall stats
   const { data: overallStats, isLoading } = useQuery({
-    queryKey: ["report-overall-unique", dateRange],
+    queryKey: ["report-overall-unique", dateRange, accessiblePageIds],
     queryFn: async () => {
       let leadQuery = supabase.from("leads").select("id", { count: "exact", head: true });
       if (from) leadQuery = leadQuery.gte("created_at", from).lte("created_at", to);
+      if (accessiblePageIds.length > 0) leadQuery = leadQuery.in("page_id", accessiblePageIds);
 
       const [unique, leadRes] = await Promise.all([
         fetchUniqueConversations(),
@@ -100,6 +101,7 @@ export default function Reports() {
         totalLeads: leadRes.count || 0,
       };
     },
+    enabled: accessiblePageIds.length > 0,
   });
 
   // Per-page stats
