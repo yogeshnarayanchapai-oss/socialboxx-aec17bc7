@@ -182,7 +182,7 @@ export default function Leads() {
       lead.full_name || "",
       lead.phone || "",
       lead.product || "",
-      lead.remark || "No Inquiry",
+      lead.remark && lead.remark !== "No Inquiry" ? lead.remark : "",
       lead.source || lead.connected_pages?.page_name || "",
       lead.status,
       lead.followup_due_date ? new Date(lead.followup_due_date).toLocaleDateString() : "",
@@ -740,7 +740,7 @@ export default function Leads() {
                         )}
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Remark</span>
-                          <span className="font-medium text-right max-w-[60%]">{lead.remark && lead.remark !== "No Inquiry" ? lead.remark : "—"}</span>
+                          <span className="font-medium text-right max-w-[60%]">{lead.remark && lead.remark !== "No Inquiry" ? lead.remark : ""}</span>
                         </div>
                         {lead.followup_due_date && (
                           <div className="flex justify-between">
@@ -818,7 +818,7 @@ export default function Leads() {
                           <span className="text-sm block truncate" title={lead.product || ""}>{lead.product || "—"}</span>
                         </TableCell>
                         <TableCell>
-                          <span className="text-sm block truncate" title={lead.remark && lead.remark !== "No Inquiry" ? lead.remark : ""}>{lead.remark && lead.remark !== "No Inquiry" ? lead.remark : "—"}</span>
+                          <span className="text-sm block truncate" title={lead.remark && lead.remark !== "No Inquiry" ? lead.remark : ""}>{lead.remark && lead.remark !== "No Inquiry" ? lead.remark : ""}</span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm block truncate" title={lead.source || lead.connected_pages?.page_name || ""}>{lead.source || lead.connected_pages?.page_name || "—"}</span>
