@@ -1465,6 +1465,12 @@ serve(async (req) => {
                                   updated_at: new Date().toISOString(),
                                 }).eq("id", dupLead.id);
                               } else {
+                                const dupToday = await isDuplicateLeadToday(
+                                  supabase, page.organization_id, conversationId, rawPhone
+                                );
+                                if (dupToday) {
+                                  console.log("Skip duplicate same-day lead (AI hasLeadTag):", rawPhone);
+                                } else {
                                 console.log("New phone on tagged convo — creating lead:", rawPhone);
                                 const { data: conv } = await supabase
                                   .from("conversations")
@@ -1485,7 +1491,9 @@ serve(async (req) => {
                                   remark: capRemark(finalLeadAction.reason, "No Inquiry"),
                                 });
                                 if (insertErr) console.error("New lead creation error:", insertErr);
+                                }
                               }
+
                             } else {
                               // New lead — dedup check then create
                               console.log("Lead detected with phone:", rawPhone);
