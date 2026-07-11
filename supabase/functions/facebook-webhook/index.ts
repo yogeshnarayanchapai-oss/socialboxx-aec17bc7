@@ -38,6 +38,38 @@ function capRemark(text: string | null | undefined, fallback = "No Inquiry"): st
   return words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Block duplicate lead if same phone was already captured for this
+// conversation within the last 24h (prevents 1 person spamming the same
+// number producing hundreds of lead rows in a single day).
+async function isDuplicateLeadToday(
+  supabase: any,
+  orgId: string,
+  conversationId: string,
+  phone: string,
+): Promise<boolean> {
+  try {
+    const digits = (phone || "").replace(/\D/g, "");
+    const normalized = digits.slice(-10);
+    if (!normalized) return false;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("conversation_id", conversationId)
+      .or(`phone.eq.${phone},phone.eq.${normalized},phone.ilike.%${normalized}%`)
+      .gte("created_at", since)
+      .limit(1)
+      .maybeSingle();
+    return !!data;
+  } catch {
+    return false;
+  }
+}
+
+
+
+
 
 
 // Strip attachment markers and URLs so their digits don't get parsed as phone numbers
@@ -889,12 +921,15 @@ serve(async (req) => {
                 const digitsOnly = detectedPhone.replace(/\D/g, '');
                 if (digitsOnly.length >= 10) {
                   const normalizedPhone = digitsOnly.slice(-10);
-                  // Only mark as complain lead when a prior lead already existed on this convo
-                  // AND the convo has COMPLAIN tag. First-ever lead on a complain convo stays "No Inquiry".
+                  // Block same-day duplicates: if this conversation already got
+                  // a lead for this phone in the last 24h, skip re-inserting.
+                  const isDupToday = await isDuplicateLeadToday(
+                    supabase, page.organization_id, conversationId, detectedPhone
+                  );
+                  if (isDupToday) {
+                    console.log("Skip duplicate same-day lead (universal):", detectedPhone);
+                  } else {
                   const markComplain = isComplainConv && hasLeadTagAlready;
-                  // Always insert a NEW lead row per phone submission — customer
-                  // resending the same number (esp. across complain flows) must
-                  // create a separate row each time so nothing gets missed.
                   const { data: convForLead } = await supabase
                     .from("conversations")
                     .select("participant_name")
@@ -914,6 +949,8 @@ serve(async (req) => {
                   });
                   if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
                   else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
+                  }
+
 
                   if (!hasLeadTagAlready) {
                     await supabase.from("conversations").update({
@@ -1428,6 +1465,12 @@ serve(async (req) => {
                                   updated_at: new Date().toISOString(),
                                 }).eq("id", dupLead.id);
                               } else {
+                                const dupToday = await isDuplicateLeadToday(
+                                  supabase, page.organization_id, conversationId, rawPhone
+                                );
+                                if (dupToday) {
+                                  console.log("Skip duplicate same-day lead (AI hasLeadTag):", rawPhone);
+                                } else {
                                 console.log("New phone on tagged convo — creating lead:", rawPhone);
                                 const { data: conv } = await supabase
                                   .from("conversations")
@@ -1448,7 +1491,9 @@ serve(async (req) => {
                                   remark: capRemark(finalLeadAction.reason, "No Inquiry"),
                                 });
                                 if (insertErr) console.error("New lead creation error:", insertErr);
+                                }
                               }
+
                             } else {
                               // New lead — dedup check then create
                               console.log("Lead detected with phone:", rawPhone);
