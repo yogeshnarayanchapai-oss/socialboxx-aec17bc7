@@ -921,12 +921,15 @@ serve(async (req) => {
                 const digitsOnly = detectedPhone.replace(/\D/g, '');
                 if (digitsOnly.length >= 10) {
                   const normalizedPhone = digitsOnly.slice(-10);
-                  // Only mark as complain lead when a prior lead already existed on this convo
-                  // AND the convo has COMPLAIN tag. First-ever lead on a complain convo stays "No Inquiry".
+                  // Block same-day duplicates: if this conversation already got
+                  // a lead for this phone in the last 24h, skip re-inserting.
+                  const isDupToday = await isDuplicateLeadToday(
+                    supabase, page.organization_id, conversationId, detectedPhone
+                  );
+                  if (isDupToday) {
+                    console.log("Skip duplicate same-day lead (universal):", detectedPhone);
+                  } else {
                   const markComplain = isComplainConv && hasLeadTagAlready;
-                  // Always insert a NEW lead row per phone submission — customer
-                  // resending the same number (esp. across complain flows) must
-                  // create a separate row each time so nothing gets missed.
                   const { data: convForLead } = await supabase
                     .from("conversations")
                     .select("participant_name")
@@ -946,6 +949,8 @@ serve(async (req) => {
                   });
                   if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
                   else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
+                  }
+
 
                   if (!hasLeadTagAlready) {
                     await supabase.from("conversations").update({
