@@ -38,6 +38,38 @@ function capRemark(text: string | null | undefined, fallback = "No Inquiry"): st
   return words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Block duplicate lead if same phone was already captured for this
+// conversation within the last 24h (prevents 1 person spamming the same
+// number producing hundreds of lead rows in a single day).
+async function isDuplicateLeadToday(
+  supabase: any,
+  orgId: string,
+  conversationId: string,
+  phone: string,
+): Promise<boolean> {
+  try {
+    const digits = (phone || "").replace(/\D/g, "");
+    const normalized = digits.slice(-10);
+    if (!normalized) return false;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("leads")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("conversation_id", conversationId)
+      .or(`phone.eq.${phone},phone.eq.${normalized},phone.ilike.%${normalized}%`)
+      .gte("created_at", since)
+      .limit(1)
+      .maybeSingle();
+    return !!data;
+  } catch {
+    return false;
+  }
+}
+
+
+
+
 
 
 // Strip attachment markers and URLs so their digits don't get parsed as phone numbers
