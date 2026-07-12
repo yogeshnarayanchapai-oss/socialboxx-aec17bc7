@@ -1236,7 +1236,7 @@ serve(async (req) => {
                   //        instead of calling AI. This runs inside the lock so only ONE worker
                   //        handles the whole batch of incoming customer messages.
                   let handledByTemplate = false;
-                  if (tmplEnabledForPage && !conversationTags.includes("lead-created")) {
+                  if (tmplEnabledForPage) {
                     const { count: pageMsgCount } = await supabase
                       .from("messages")
                       .select("id", { count: "exact", head: true })
@@ -1654,6 +1654,37 @@ serve(async (req) => {
                         else if (aiResponse.status === 429) failReason = "Rate limit exceeded";
                         else if (errBody?.error) failReason = errBody.error.substring(0, 100);
                       } catch {}
+
+                      if (aiResponse.status === 402) {
+                        const fallbackTemplate = tmplList[0];
+                        const fallbackMedias = resolveTemplateMedias(fallbackTemplate);
+                        const fallbackText = (fallbackTemplate?.text || page.auto_reply_first_message || "").toString().trim();
+                        if (fallbackText || fallbackMedias.length > 0) {
+                          console.log("AI credits depleted — sending configured template fallback");
+                          const sent = await sendTemplateMessage(page.page_access_token, senderId, fallbackText, fallbackMedias);
+                          if (sent === true) {
+                            await supabase.from("messages").insert({
+                              conversation_id: conversationId,
+                              content: fallbackText || null,
+                              sender_type: "page",
+                              message_type: fallbackMedias.length > 0 ? "media" : "text",
+                              media_url: fallbackMedias[0]?.url || null,
+                              created_at: new Date().toISOString(),
+                            });
+                            await supabase.from("conversations").update({
+                              status: "replied",
+                              ai_fail_reason: null,
+                              last_message_preview: (fallbackText || "[Template sent]").substring(0, 100),
+                              last_message_at: new Date().toISOString(),
+                            }).eq("id", conversationId);
+                            continue;
+                          }
+                          if (sent === "permanent_fail") {
+                            await supabase.from("conversations").update({ status: "replied", ai_fail_reason: null, last_message_preview: "⚠️ User unavailable on Facebook" }).eq("id", conversationId);
+                            continue;
+                          }
+                        }
+                      }
                       await supabase.from("conversations").update({ status: "ai_failed", ai_fail_reason: failReason }).eq("id", conversationId);
                     }
                   }

@@ -56,6 +56,15 @@ function isPermanentlyUnavailable(reason?: string | null) {
     reasonLower.includes("(#551)");
 }
 
+function isRetryBlockedUntilPageFix(reason?: string | null) {
+  const reasonLower = (reason || "").toLowerCase();
+  return reasonLower.includes("cannot tag messages with 'human_agent' without prior approval") ||
+    reasonLower.includes("session has been invalidated") ||
+    reasonLower.includes("error validating access token") ||
+    reasonLower.includes("must be an administrator, editor, or moderator") ||
+    reasonLower.includes("two-factor authentication");
+}
+
 async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: string, scanMode: "failed" | "unreplied" | "all" = "failed") {
   const candidates: any[] = [];
   let from = 0;
@@ -83,8 +92,8 @@ async function loadRetryableBatch(supabase: any, orgId: string, retryMarker: str
       const reason = conv.ai_fail_reason || "";
       if (reason.includes(retryMarker)) continue;
       if (isPermanentlyUnavailable(reason)) continue;
-      // Skip conversations already converted to a lead
-      if (Array.isArray(conv.tags) && conv.tags.includes("lead-created")) continue;
+      // Skip only failures that need page reconnect / Meta permission, not credit refill.
+      if (isRetryBlockedUntilPageFix(reason)) continue;
 
       const retryCountMatch = reason.match(/\[retryCount:(\d+)\]/);
       (conv as any)._retryCount = retryCountMatch ? parseInt(retryCountMatch[1], 10) : 0;
@@ -218,7 +227,7 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
     // === AUTO LEAD CREATION FROM PHONE ===
     // If any customer message contains a Nepal phone number, create a lead and
     // mark the conversation as replied — bypassing the AI call entirely.
-    const hasLeadTagAlready = conv.tags?.includes("lead-created") || false;
+    let hasLeadTagAlready = conv.tags?.includes("lead-created") || false;
     if (!hasLeadTagAlready) {
       const allCustomerTexts = (recentMessages || [])
         .filter((m: any) => m.sender_type === "customer" && m.content)
@@ -268,13 +277,11 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
         const newTags = [...(conv.tags || []).filter((t: string) => t !== "new" && t !== "follow-up")];
         if (!newTags.includes("lead-created")) newTags.push("lead-created");
         await supabase.from("conversations").update({
-          status: "replied",
-          ai_fail_reason: null,
           tags: newTags,
         }).eq("id", conv.id);
 
         console.log(`Auto-lead created from retry for conv ${conv.id} phone ${foundPhone}`);
-        return { processed: 1, failed: 0, type: "auto_lead" };
+        hasLeadTagAlready = true;
       }
     }
 
@@ -308,18 +315,9 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
     }
 
     // === SEND FIRST TEMPLATE (NO AI CALL) ===
-    // Conversation has unreplied customer messages and no lead. Per business rule
+    // Conversation has unreplied customer messages. Per business rule
     // we send the page's first template (or the auto_reply_first_message fallback)
     // directly — no AI cost, no AI call.
-    const hasLeadTag = conv.tags?.includes("lead-created") || false;
-    if (hasLeadTag) {
-      await supabase.from("conversations").update({
-        status: "replied",
-        ai_fail_reason: null,
-      }).eq("id", conv.id);
-      return { processed: 1, failed: 0, type: "skipped_has_lead" };
-    }
-
     const tmplCfg: any = (page as any).first_msg_template;
     const tmplList: any[] = Array.isArray(tmplCfg?.messages)
       ? tmplCfg.messages.filter((m: any) => m && (m.text || m.media || (Array.isArray(m.medias) && m.medias.length > 0)))
@@ -491,10 +489,13 @@ serve(async (req) => {
       if (existingJob) {
         const lastUpdatedAt = existingJob.updated_at ? new Date(existingJob.updated_at).getTime() : 0;
         const isStale = Date.now() - lastUpdatedAt > 45_000;
-        if (isStale) triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id, scanMode);
-        return new Response(JSON.stringify({ message: "Job already running", jobId: existingJob.id }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        if (isStale) {
+          await supabase.from("retry_jobs").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", existingJob.id);
+        } else {
+          return new Response(JSON.stringify({ message: "Job already running", jobId: existingJob.id }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
 
       // Pre-pass: correct status drift for unreplied where page already replied.
@@ -526,10 +527,8 @@ serve(async (req) => {
         });
       }
 
-      // Skip conversations already converted to a lead
-      const nonLeadConvs = allFailedConvs.filter((c: any) => !(Array.isArray(c.tags) && c.tags.includes("lead-created")));
-      const personNotAvailable = nonLeadConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
-      const retryableConvs = nonLeadConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason));
+      const personNotAvailable = allFailedConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
+      const retryableConvs = allFailedConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason) && !isRetryBlockedUntilPageFix(c.ai_fail_reason));
 
       if (personNotAvailable.length > 0) {
         await supabase.from("conversations")
@@ -611,12 +610,12 @@ serve(async (req) => {
           const isStale = existingJob.processed < existingJob.total && (Date.now() - lastUpdatedAt > 45_000);
 
           if (isStale) {
-            await triggerRetryBatch(supabaseUrl, supabaseKey, existingJob.id);
+            await supabase.from("retry_jobs").update({ status: "completed", updated_at: new Date().toISOString() }).eq("id", existingJob.id);
+          } else {
+            return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, ...existingJob }), {
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
           }
-
-          return new Response(JSON.stringify({ jobId: existingJob.id, existing: true, resumed: isStale, ...existingJob }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
         }
 
         // Fetch all AI failed conversations
@@ -633,10 +632,8 @@ serve(async (req) => {
           });
         }
 
-        // Skip conversations already converted to a lead
-        const nonLeadConvs = allFailedConvs.filter((c: any) => !(Array.isArray(c.tags) && c.tags.includes("lead-created")));
-        const personNotAvailable = nonLeadConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
-        const retryableConvs = nonLeadConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason));
+        const personNotAvailable = allFailedConvs.filter(c => isPermanentlyUnavailable(c.ai_fail_reason));
+        const retryableConvs = allFailedConvs.filter(c => !isPermanentlyUnavailable(c.ai_fail_reason) && !isRetryBlockedUntilPageFix(c.ai_fail_reason));
 
         // Mark unavailable as replied
         if (personNotAvailable.length > 0) {
