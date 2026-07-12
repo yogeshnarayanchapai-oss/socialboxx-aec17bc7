@@ -19,6 +19,13 @@ function extractNepalPhone(text: string): string | null {
   return match ? match[1] : null;
 }
 
+function isDuplicateLeadInsertError(error: any): boolean {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  return code === "23505" || message.includes("duplicate key") || details.includes("duplicate key");
+}
+
 const PRIVATE_ATTACHMENT_HOSTS = /(fbcdn\.net|fbsbx\.com|scontent|lookaside\.facebook\.com)/i;
 const DOCUMENT_ATTACHMENT_EXTENSIONS = /\.(pdf|doc|docx|xls|xlsx|csv|ppt|pptx|zip|rar|7z|txt)(\?|$)/i;
 const AUDIO_VIDEO_EXTENSIONS = /\.(mp4|mov|avi|webm|mkv|mp3|wav|ogg|m4a|aac)(\?|$)/i;
@@ -240,7 +247,7 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
             : "No Inquiry";
           const lastCustomerMsg = allCustomerTexts.slice(-1)[0]?.substring(0, 200) || null;
 
-          await supabase.from("leads").insert({
+          const { error: insertError } = await supabase.from("leads").insert({
             phone: foundPhone,
             full_name: conv.participant_name,
             conversation_id: conv.id,
@@ -252,6 +259,10 @@ async function processConversation(supabase: any, conv: any, page: any, supabase
             remark,
             last_message: lastCustomerMsg,
           });
+          if (insertError) {
+            if (isDuplicateLeadInsertError(insertError)) console.log("Skip DB-blocked duplicate lead (retry):", foundPhone);
+            else throw insertError;
+          }
         }
 
         const newTags = [...(conv.tags || []).filter((t: string) => t !== "new" && t !== "follow-up")];

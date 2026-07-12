@@ -28,6 +28,13 @@ function extractPhoneNumber(text: string): string | null {
   return null;
 }
 
+function isDuplicateLeadInsertError(error: any): boolean {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  return code === "23505" || message.includes("duplicate key") || details.includes("duplicate key");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -111,7 +118,7 @@ serve(async (req) => {
           const { data: pageInfo } = await supabase
             .from("connected_pages").select("page_name, product_name").eq("id", conv.page_id).single();
           const remark = inquiryTexts.length > 0 ? inquiryTexts.join(' | ').substring(0, 500) : "No Inquiry";
-          await supabase.from("leads").insert({
+          const { error: insertError } = await supabase.from("leads").insert({
             phone: foundPhone,
             full_name: conv.participant_name || "Unknown",
             conversation_id: conv.id,
@@ -123,7 +130,12 @@ serve(async (req) => {
             organization_id: conv.organization_id,
             remark,
           });
-          created++;
+          if (insertError) {
+            if (isDuplicateLeadInsertError(insertError)) console.log("Skip DB-blocked duplicate lead (complain backfill):", foundPhone);
+            else throw insertError;
+          } else {
+            created++;
+          }
         }
         const tags = conv.tags || [];
         if (!tags.includes("lead-created")) {
@@ -243,7 +255,7 @@ serve(async (req) => {
 
         const lastMsg = (msgs || [])[(msgs || []).length - 1]?.content?.substring(0, 200);
 
-        await supabase.from("leads").insert({
+        const { error: insertError } = await supabase.from("leads").insert({
           phone: foundPhone,
           full_name: conv.participant_name || "Unknown",
           conversation_id: conv.id,
@@ -255,7 +267,14 @@ serve(async (req) => {
           organization_id: conv.organization_id,
           remark,
         });
-        created++;
+        if (insertError) {
+          if (isDuplicateLeadInsertError(insertError)) {
+            console.log("Skip DB-blocked duplicate lead (restore backfill):", foundPhone);
+            skipped++;
+          } else throw insertError;
+        } else {
+          created++;
+        }
       }
 
       console.log(`Restore batch: created=${created}, skipped=${skipped}, remaining=${totalRemaining - created - skipped}`);
@@ -377,7 +396,7 @@ serve(async (req) => {
             .eq("id", conv.page_id)
             .single();
 
-          await supabase.from("leads").insert({
+          const { error: insertError } = await supabase.from("leads").insert({
             phone: foundPhone,
             full_name: conv.participant_name || "Unknown",
             conversation_id: conv.id,
@@ -389,7 +408,14 @@ serve(async (req) => {
             organization_id: conv.organization_id,
             remark,
           });
-          created++;
+          if (insertError) {
+            if (isDuplicateLeadInsertError(insertError)) {
+              console.log("Skip DB-blocked duplicate lead (normal backfill):", foundPhone);
+              existing++;
+            } else throw insertError;
+          } else {
+            created++;
+          }
         }
 
         // Tag conversation
