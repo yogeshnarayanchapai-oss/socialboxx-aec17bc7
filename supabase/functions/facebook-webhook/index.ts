@@ -38,6 +38,13 @@ function capRemark(text: string | null | undefined, fallback = "No Inquiry"): st
   return words.join(" ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function isDuplicateLeadInsertError(error: any): boolean {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+  const details = String(error?.details || "").toLowerCase();
+  return code === "23505" || message.includes("duplicate key") || details.includes("duplicate key");
+}
+
 // Block duplicate lead if same phone was already captured for this
 // conversation within the last 24h (prevents 1 person spamming the same
 // number producing hundreds of lead rows in a single day).
@@ -947,8 +954,10 @@ serve(async (req) => {
                     organization_id: page.organization_id,
                     remark: markComplain ? "Complain" : "No Inquiry",
                   });
-                  if (leadInsertErr) console.error("Universal lead capture error:", leadInsertErr);
-                  else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
+                  if (leadInsertErr) {
+                    if (isDuplicateLeadInsertError(leadInsertErr)) console.log("Skip DB-blocked duplicate lead (universal):", detectedPhone);
+                    else console.error("Universal lead capture error:", leadInsertErr);
+                  } else console.log("Universal lead captured (pre-AI):", detectedPhone, "complain?", markComplain);
                   }
 
 
@@ -1018,7 +1027,10 @@ serve(async (req) => {
                       organization_id: page.organization_id,
                       remark: "No Inquiry",
                     });
-                    if (insertErr) console.error("Template-phase lead creation error:", insertErr);
+                    if (insertErr) {
+                      if (isDuplicateLeadInsertError(insertErr)) console.log("Skip DB-blocked duplicate lead (template):", detectedPhone);
+                      else console.error("Template-phase lead creation error:", insertErr);
+                    }
                     else console.log("Template-phase lead created:", detectedPhone);
                   }
 
@@ -1490,7 +1502,10 @@ serve(async (req) => {
                                   organization_id: page.organization_id,
                                   remark: capRemark(finalLeadAction.reason, "No Inquiry"),
                                 });
-                                if (insertErr) console.error("New lead creation error:", insertErr);
+                                if (insertErr) {
+                                  if (isDuplicateLeadInsertError(insertErr)) console.log("Skip DB-blocked duplicate lead (AI hasLeadTag):", rawPhone);
+                                  else console.error("New lead creation error:", insertErr);
+                                }
                                 }
                               }
 
@@ -1577,7 +1592,8 @@ serve(async (req) => {
                                   remark: capRemark(remark, "No Inquiry"),
                                 });
                                 if (insertErr) {
-                                  console.error("Lead creation error:", insertErr);
+                                  if (isDuplicateLeadInsertError(insertErr)) console.log("Skip DB-blocked duplicate lead (AI):", rawPhone);
+                                  else console.error("Lead creation error:", insertErr);
                                 }
                               }
 
