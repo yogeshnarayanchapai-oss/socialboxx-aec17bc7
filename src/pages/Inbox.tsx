@@ -933,16 +933,26 @@ export default function Inbox() {
                       <SelectValue placeholder="Page" />
                     </SelectTrigger>
                     <SelectContent>
-                      <div className="sticky top-0 z-10 bg-popover p-1 border-b">
+                      <div
+                        className="sticky top-0 z-10 bg-popover p-1 border-b"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onPointerMove={(e) => e.stopPropagation()}
+                        onPointerUp={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                      >
                         <Input
                           autoFocus
                           placeholder="Search pages..."
                           value={pageSearch}
                           onChange={(e) => setPageSearch(e.target.value)}
                           onKeyDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
                           className="h-7 text-xs"
                         />
                       </div>
+
                       <SelectItem value="all">All Pages</SelectItem>
                       {pages
                         .filter((p) => p.page_name.toLowerCase().includes(pageSearch.toLowerCase()))
