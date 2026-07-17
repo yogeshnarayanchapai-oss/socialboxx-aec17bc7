@@ -767,15 +767,15 @@ export default function Leads() {
               <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[180px]">Name</TableHead>
-                    <TableHead className="w-[130px]">Phone</TableHead>
-                    <TableHead className="w-[140px]">Product</TableHead>
-                    <TableHead className="w-[240px]">Remark</TableHead>
+                    <TableHead className="w-[220px]">Name</TableHead>
+                    <TableHead className="w-[150px]">Phone</TableHead>
+                    <TableHead className="w-[180px]">Product</TableHead>
+                    <TableHead className="w-[180px]">Remark</TableHead>
                     <TableHead className="w-[140px]">Source</TableHead>
-                    <TableHead className="w-[110px]">Status</TableHead>
-                    <TableHead className="w-[110px]">Follow-up</TableHead>
+                    <TableHead className="w-[90px]">Status</TableHead>
                     <TableHead className="w-[100px]">Created</TableHead>
                     <TableHead className="w-12"></TableHead>
+
                   </TableRow>
                 </TableHeader>
                 <TableBody>
