@@ -767,21 +767,21 @@ export default function Leads() {
               <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-[180px]">Name</TableHead>
-                    <TableHead className="w-[130px]">Phone</TableHead>
-                    <TableHead className="w-[140px]">Product</TableHead>
-                    <TableHead className="w-[240px]">Remark</TableHead>
+                    <TableHead className="w-[220px]">Name</TableHead>
+                    <TableHead className="w-[150px]">Phone</TableHead>
+                    <TableHead className="w-[180px]">Product</TableHead>
+                    <TableHead className="w-[180px]">Remark</TableHead>
                     <TableHead className="w-[140px]">Source</TableHead>
-                    <TableHead className="w-[110px]">Status</TableHead>
-                    <TableHead className="w-[110px]">Follow-up</TableHead>
+                    <TableHead className="w-[90px]">Status</TableHead>
                     <TableHead className="w-[100px]">Created</TableHead>
                     <TableHead className="w-12"></TableHead>
+
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {leads.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No leads found
                       </TableCell>
                     </TableRow>
@@ -842,16 +842,7 @@ export default function Leads() {
                           </DropdownMenu>
                         </TableCell>
                         <TableCell>
-                          {lead.followup_due_date ? (
-                            <div className="flex items-center gap-1.5 text-sm">
-                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                              {new Date(lead.followup_due_date).toLocaleDateString()}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
+
                           <span className="text-sm text-muted-foreground">
                             {new Date(lead.created_at).toLocaleDateString()}
                           </span>
