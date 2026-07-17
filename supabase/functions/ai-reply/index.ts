@@ -553,10 +553,13 @@ ${mergedInstructions}
 ===== END OF PAGE OWNER'S INSTRUCTIONS =====
 ` : ''}
 
-COMPLAINT DETECTION - CRITICAL:
-- Detect if the customer is making a COMPLAINT. Examples: product not working, defective item, wants refund/return, unsatisfied with service/product, damaged goods, wrong item received, poor quality.
-- Set "is_complaint" to true ONLY when the customer is genuinely complaining about a product/service issue.
-- Normal questions, inquiries, or price negotiations are NOT complaints.
+COMPLAINT DETECTION - CRITICAL (STRICT - POST-DELIVERY ONLY):
+- Set "is_complaint" to true ONLY when BOTH conditions are met:
+  1. There is CLEAR EVIDENCE in this conversation that the customer has ALREADY RECEIVED / been delivered / purchased the product (e.g. "samaan aayo", "product aayo", "received", "delivered vayo", "parcel aayo", "kal/aaja/yesterday aayo", "paayen", talks about USING the item, mentions order id/courier/parcel actually delivered, shows photo of received item).
+  2. AND the customer is complaining about that already-received product/service (defective, damaged, wrong item delivered, not working after receiving, poor quality after use, wants refund/return/exchange for a delivered item).
+- If the customer has NOT yet received the product (still asking price/availability/delivery time/size/color, negotiating, pre-purchase doubts, general inquiry, or just using words like "complain/problem/galat/naramro/kharab" without proof of delivery) → is_complaint MUST be false.
+- Pre-purchase questions, price negotiations, delivery delay inquiries before receiving, or simply using the word "complain" without evidence of delivery → is_complaint = false.
+- When in doubt, is_complaint = false.
 
 RESPONSE FORMAT - VERY IMPORTANT:
 You MUST respond in this EXACT JSON format:
