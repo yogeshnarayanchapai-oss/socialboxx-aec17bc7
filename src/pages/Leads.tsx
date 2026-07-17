@@ -781,7 +781,7 @@ export default function Leads() {
                 <TableBody>
                   {leads.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         No leads found
                       </TableCell>
                     </TableRow>
