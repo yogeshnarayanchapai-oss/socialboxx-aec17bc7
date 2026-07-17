@@ -93,7 +93,7 @@ ${templates && templates.length > 0 ? `Templates: ${templates.map(t => `${t.name
 
 ${aiInstructions ? `===PAGE OWNER INSTRUCTIONS (HIGHEST PRIORITY)===\\n${aiInstructions}\\n===END===` : ''}
 
-COMPLAINT DETECTION: Set is_complaint=true only for genuine product/service complaints.
+COMPLAINT DETECTION (STRICT): Set is_complaint=true ONLY if the conversation shows the customer has ALREADY RECEIVED/been delivered the product (e.g. "samaan aayo", "received", "delivered", "parcel aayo", "paayen", uses it) AND is complaining about that delivered product (defective/damaged/wrong item/refund/return/exchange). Pre-purchase inquiries, price/size/color/delivery-time questions, or just using the word "complain/problem" without proof of delivery = false. When in doubt = false.
 
 SALES BEHAVIOR (when lead not yet captured):
 - ALWAYS answer the customer's actual question/concern FIRST in a brief, helpful way (price/details/availability per instructions).
