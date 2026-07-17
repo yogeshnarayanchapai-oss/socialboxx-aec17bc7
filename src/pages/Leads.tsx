@@ -842,16 +842,7 @@ export default function Leads() {
                           </DropdownMenu>
                         </TableCell>
                         <TableCell>
-                          {lead.followup_due_date ? (
-                            <div className="flex items-center gap-1.5 text-sm">
-                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                              {new Date(lead.followup_due_date).toLocaleDateString()}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
+
                           <span className="text-sm text-muted-foreground">
                             {new Date(lead.created_at).toLocaleDateString()}
                           </span>
