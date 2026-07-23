@@ -164,52 +164,44 @@ serve(async (req) => {
 
     if (restoreMode) {
       console.log(`Restore mode: offset=${offset}, dateFilter=${dateFilter || 'none'}`);
-      
-      // First get conversation IDs that already have leads to exclude them
-      const { data: existingLeadConvs } = await supabase
-        .from("leads")
-        .select("conversation_id")
-        .not("conversation_id", "is", null);
-      
-      const existingConvIds = new Set((existingLeadConvs || []).map((l: any) => l.conversation_id));
-      
+
+      // Fetch tagged conversations FIRST (bounded), then check each one for an
+      // existing lead individually. Previously we pulled leads.conversation_id
+      // globally, which hit Supabase's implicit 1000-row cap and made restore
+      // mode believe most tagged conversations had no lead — causing an
+      // infinite chain that inserted phone-less leads over and over.
       let query = supabase
         .from("conversations")
         .select("id, participant_name, page_id, organization_id, tags")
         .contains("tags", ["lead-created"])
         .is("deleted_at", null)
         .order("created_at", { ascending: true })
-        .range(0, 999);
+        .range(offset, offset + 199);
 
       if (dateFilter) {
         query = query.gte("created_at", dateFilter);
       }
-      const { data: allTaggedConvs } = await query;
+      const { data: taggedBatch } = await query;
 
-      // Filter out conversations that already have leads, limit to 30 per batch
-      const taggedConvs = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id)).slice(0, 30);
-      const totalRemaining = (allTaggedConvs || []).filter((c: any) => !existingConvIds.has(c.id)).length;
-
-      if (!taggedConvs || taggedConvs.length === 0) {
-        const totalProcessed = existingConvIds.size;
-        return new Response(JSON.stringify({ success: true, message: "Restore complete", totalLeads: totalProcessed }), {
+      if (!taggedBatch || taggedBatch.length === 0) {
+        return new Response(JSON.stringify({ success: true, message: "Restore complete", offset }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      let created = 0, skipped = 0;
+      let created = 0, skipped = 0, noPhone = 0;
 
-      for (const conv of taggedConvs) {
-        // Check if lead already exists for this conversation
+      for (const conv of taggedBatch) {
+        // Per-conversation existence check (no 1000-row cap).
         const { data: existingLead } = await supabase
           .from("leads")
           .select("id")
           .eq("conversation_id", conv.id)
+          .limit(1)
           .maybeSingle();
 
         if (existingLead) { skipped++; continue; }
 
-        // Get customer messages to extract phone and build remark
         const { data: msgs } = await supabase
           .from("messages")
           .select("content, sender_type")
@@ -232,18 +224,18 @@ serve(async (req) => {
           }
         }
 
-        // Check for duplicate phone in org (only if phone found)
-        if (foundPhone) {
-          const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
-          const { data: dupLead } = await supabase
-            .from("leads")
-            .select("id")
-            .eq("organization_id", conv.organization_id)
-            .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
-            .maybeSingle();
+        // ROOT FIX: never create a lead without a real phone number.
+        if (!foundPhone) { noPhone++; continue; }
 
-          if (dupLead) { skipped++; continue; }
-        }
+        const normalizedPhone = foundPhone.replace(/\D/g, '').slice(-10);
+        const { data: dupLead } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("organization_id", conv.organization_id)
+          .or(`phone.eq.${normalizedPhone},phone.ilike.%${normalizedPhone}%`)
+          .maybeSingle();
+
+        if (dupLead) { skipped++; continue; }
 
         const remark = inquiryTexts.length > 0 ? inquiryTexts.join(' | ').substring(0, 500) : "No Inquiry";
 
@@ -277,21 +269,22 @@ serve(async (req) => {
         }
       }
 
-      console.log(`Restore batch: created=${created}, skipped=${skipped}, remaining=${totalRemaining - created - skipped}`);
+      console.log(`Restore batch offset=${offset}: created=${created}, skipped=${skipped}, noPhone=${noPhone}`);
 
-      // Trigger next batch if there are more remaining conversations
-      if (totalRemaining > taggedConvs.length || created > 0) {
+      // Only chain if the batch was full — pagination-based, not lead-count-based.
+      if (taggedBatch.length === 200) {
         fetch(`${supabaseUrl}/functions/v1/backfill-leads`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${supabaseKey}` },
-          body: JSON.stringify({ restoreMode: true, dateFilter }),
+          body: JSON.stringify({ restoreMode: true, dateFilter, _batchOffset: offset + 200 }),
         }).catch(() => {});
       }
 
-      return new Response(JSON.stringify({ success: true, created, skipped, remaining: totalRemaining - created - skipped }), {
+      return new Response(JSON.stringify({ success: true, created, skipped, noPhone, offset }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     // === NORMAL BACKFILL MODE ===
 
