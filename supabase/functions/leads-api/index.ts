@@ -163,11 +163,12 @@ serve(async (req) => {
       const body = await req.json();
       const { full_name, phone, product, source, status, notes, page_id } = body;
 
-      if (!full_name && !phone) {
-        return new Response(JSON.stringify({ error: "full_name or phone is required" }), {
+      if (!phone || !String(phone).trim()) {
+        return new Response(JSON.stringify({ error: "phone is required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+
 
       let finalPageId: string;
 
